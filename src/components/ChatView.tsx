@@ -1,15 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, Scale, Info, ShieldAlert } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { GoogleGenAI } from '@google/genai';
-import { searchKnowledge, allKnowledgeFiles, evalKnowledgeFiles } from '../lib/knowledge';
-import { buildVariantSystemInstruction, type PromptSourceSet } from '../lib/promptAssembly';
 import type { ModelId } from './TopNav';
-
-import systemPromptRaw from '/system_prompt.md?raw';
-import v2BasePromptRaw from '/prompts/v2/base.md?raw';
-import integratedOverlayRaw from '/prompts/v2/integrated.overlay.md?raw';
-import evaluationOverlayRaw from '/prompts/v2/evaluation.overlay.md?raw';
 
 export interface Message {
   role: 'user' | 'model';
@@ -18,40 +10,33 @@ export interface Message {
 
 interface ChatViewProps {
   mode: 'integrated' | 'evaluation';
-  apiKey: string;
   selectedModel: ModelId;
 }
 
-const promptSources: PromptSourceSet = {
-  baseline: systemPromptRaw,
-  base: v2BasePromptRaw,
-  overlays: {
-    integrated: integratedOverlayRaw,
-    evaluation: evaluationOverlayRaw,
-  },
+const INITIAL_MESSAGES: Record<'integrated' | 'evaluation', string> = {
+  integrated:
+    '안녕하세요. 장기요양기관 실무 보조 어시스턴트입니다.\n\n' +
+    '시스템에 등록된 **전체 법령·고시·평가기준 문서**에만 근거하여 엄격하고 보수적으로 답변해 드립니다.\n\n' +
+    '질문하실 내용을 입력해 주세요.',
+  evaluation:
+    '안녕하세요. **평가 전용** 어시스턴트입니다.\n\n' +
+    '2026년 주야간보호 평가매뉴얼 및 평가 후기 자료에만 근거하여 답변해 드립니다.\n\n' +
+    '평가 관련 질문을 입력해 주세요.',
 };
 
-export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: 'model',
-      text: mode === 'integrated'
-        ? '안녕하세요. 장기요양기관 실무 보조 어시스턴트입니다.\n\n시스템에 등록된 **전체 법령·고시·평가기준 문서**에만 근거하여 엄격하고 보수적으로 답변해 드립니다.\n\n질문하실 내용을 입력해 주세요.'
-        : '안녕하세요. **평가 전용** 어시스턴트입니다.\n\n2026년 주야간보호 평가매뉴얼 및 평가 후기 자료에만 근거하여 답변해 드립니다.\n\n평가 관련 질문을 입력해 주세요.',
-    },
-  ]);
+const getInitialMessages = (mode: 'integrated' | 'evaluation'): Message[] => [
+  { role: 'model', text: INITIAL_MESSAGES[mode] },
+];
+
+export default function ChatView({ mode, selectedModel }: ChatViewProps) {
+  const [messages, setMessages] = useState<Message[]>(() => getInitialMessages(mode));
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // 탭 전환 시 대화 초기화
   useEffect(() => {
-    setMessages([{
-      role: 'model',
-      text: mode === 'integrated'
-        ? '안녕하세요. 장기요양기관 실무 보조 어시스턴트입니다.\n\n시스템에 등록된 **전체 법령·고시·평가기준 문서**에만 근거하여 엄격하고 보수적으로 답변해 드립니다.\n\n질문하실 내용을 입력해 주세요.'
-        : '안녕하세요. **평가 전용** 어시스턴트입니다.\n\n2026년 주야간보호 평가매뉴얼 및 평가 후기 자료에만 근거하여 답변해 드립니다.\n\n평가 관련 질문을 입력해 주세요.',
-    }]);
+    setMessages(getInitialMessages(mode));
     setInput('');
   }, [mode]);
 
@@ -70,40 +55,32 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
     setIsLoading(true);
 
     const callApi = async (retryCount = 0): Promise<void> => {
-      const files = mode === 'evaluation' ? evalKnowledgeFiles : allKnowledgeFiles;
-      // RAG: 질문과 관련된 청크만 검색 (원본 server.ts 방식)
-      const knowledgeContext = searchKnowledge(files, input);
-      const ai = new GoogleGenAI({ apiKey });
-
-      const fullSystemInstruction = buildVariantSystemInstruction({
-        mode,
-        variant: 'v2',
-        knowledgeContext,
-        sources: promptSources,
-      });
-
-      const contents = newMessages.map((msg) => ({
-        role: msg.role,
-        parts: [{ text: msg.text }],
-      }));
-
+      let response: Response;
       try {
-        const response = await ai.models.generateContent({
-          model: selectedModel,
-          contents,
-          config: { systemInstruction: fullSystemInstruction, temperature: 0.1 },
+        response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: newMessages,
+            mode,
+            model: selectedModel,
+            promptVariant: 'v2',
+          }),
         });
-        setMessages([...newMessages, { role: 'model', text: response.text || '' }]);
-      } catch (error: any) {
-        const is429 = error.message?.includes('429') || error.message?.includes('RESOURCE_EXHAUSTED') || error.message?.includes('quota');
-        const isKeyError = error.message?.includes('API_KEY') || error.message?.includes('401') || error.message?.includes('403') || error.message?.includes('invalid');
+      } catch {
+        setMessages([...newMessages, {
+          role: 'model',
+          text: '네트워크 오류가 발생했습니다. 인터넷 연결을 확인한 후 다시 시도해 주세요.',
+        }]);
+        return;
+      }
 
-        // 429 오류: 재시도 대기 시간 파싱 후 자동 재시도 (최대 2회)
-        if (is429 && retryCount < 2) {
-          const delayMatch = error.message?.match(/retry.*?(\d+)s/i) || error.message?.match(/"retryDelay":"(\d+)s"/);
-          const delaySec = delayMatch ? parseInt(delayMatch[1]) + 2 : 15;
+      // 429: 서버가 Retry-After 헤더와 함께 전달
+      if (response.status === 429) {
+        if (retryCount < 2) {
+          const retryAfter = response.headers.get('Retry-After');
+          const delaySec = retryAfter ? parseInt(retryAfter) + 2 : 15;
 
-          // 카운트다운 메시지 표시
           for (let i = delaySec; i > 0; i--) {
             setMessages([...newMessages, {
               role: 'model',
@@ -116,13 +93,22 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
 
         setMessages([...newMessages, {
           role: 'model',
-          text: isKeyError
-            ? 'API 키가 유효하지 않습니다. 우측 상단의 **API 키** 버튼을 눌러 다시 입력해 주세요.'
-            : is429
-              ? '분당 토큰 한도를 초과했습니다. 잠시 후 다시 질문해 주세요.\n\n> 해결 방법: [Google AI Studio](https://aistudio.google.com)에서 결제 수단을 등록하면 한도가 크게 늘어납니다.'
-              : `오류가 발생했습니다. 다시 시도해 주세요.\n\n> ${error.message}`,
+          text: '분당 토큰 한도를 초과했습니다. 잠시 후 다시 질문해 주세요.\n\n> 해결 방법: [Google AI Studio](https://aistudio.google.com)에서 결제 수단을 등록하면 한도가 크게 늘어납니다.',
         }]);
+        return;
       }
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({ error: 'Unknown error' }));
+        setMessages([...newMessages, {
+          role: 'model',
+          text: `오류가 발생했습니다. 다시 시도해 주세요.\n\n> ${errorBody.error ?? response.statusText}`,
+        }]);
+        return;
+      }
+
+      const data = await response.json();
+      setMessages([...newMessages, { role: 'model', text: data.text || '' }]);
     };
 
     try {

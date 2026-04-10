@@ -78,8 +78,8 @@ export default function KnowledgeBaseView() {
                 {/* 파일 목록 */}
                 {isOpen && (
                   <ul className="border-t border-slate-100 divide-y divide-slate-100">
-                    {files.map((file, idx) => (
-                      <li key={idx} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
+                    {files.map((file) => (
+                      <li key={file.name} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
                         <FileText className="w-4 h-4 text-blue-400 shrink-0" />
                         <span className="text-sm text-slate-700 flex-1 truncate" title={file.name}>
                           {file.name}

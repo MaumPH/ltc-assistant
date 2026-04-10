@@ -1,5 +1,5 @@
 import React from 'react';
-import { Scale, Key, ChevronDown } from 'lucide-react';
+import { Scale, ChevronDown } from 'lucide-react';
 
 export type TabId = 'integrated' | 'evaluation' | 'wiki' | 'dashboard' | 'knowledge';
 
@@ -27,10 +27,9 @@ interface TopNavProps {
   onTabChange: (tab: TabId) => void;
   selectedModel: ModelId;
   onModelChange: (model: ModelId) => void;
-  onApiKeyClick: () => void;
 }
 
-export default function TopNav({ activeTab, onTabChange, selectedModel, onModelChange, onApiKeyClick }: TopNavProps) {
+export default function TopNav({ activeTab, onTabChange, selectedModel, onModelChange }: TopNavProps) {
   const isChat = CHAT_TABS.includes(activeTab);
 
   return (
@@ -86,14 +85,6 @@ export default function TopNav({ activeTab, onTabChange, selectedModel, onModelC
             </div>
           )}
 
-          {/* API 키 변경 */}
-          <button
-            onClick={onApiKeyClick}
-            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <Key className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">API 키</span>
-          </button>
         </div>
       </div>
     </header>

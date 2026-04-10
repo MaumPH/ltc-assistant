@@ -57,15 +57,26 @@ async function startServer() {
 
   app.get('/api/knowledge/:filename', (req, res) => {
     const filename = req.params.filename;
-    const filePath = path.join(process.cwd(), 'knowledge', filename);
-    try {
-      if (fs.existsSync(filePath)) {
-        res.sendFile(filePath);
-      } else {
-        res.status(404).json({ error: 'File not found' });
-      }
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to read file' });
+
+    // 레이어 1: 경로 구분자 및 상위 이동 문자 즉시 거부
+    if (filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+      return res.status(400).json({ error: 'Invalid filename' });
+    }
+    // 레이어 2: .md/.txt 외 확장자 차단
+    if (!/\.(md|txt)$/i.test(filename)) {
+      return res.status(400).json({ error: 'Invalid file type' });
+    }
+    // 레이어 3: resolve 후 knowledge/ 디렉토리 밖인지 이중 확인
+    const knowledgeDir = path.resolve(PROJECT_ROOT, 'knowledge');
+    const filePath = path.resolve(knowledgeDir, filename);
+    if (!filePath.startsWith(knowledgeDir + path.sep)) {
+      return res.status(400).json({ error: 'Invalid filename' });
+    }
+
+    if (fs.existsSync(filePath)) {
+      res.sendFile(filePath);
+    } else {
+      res.status(404).json({ error: 'File not found' });
     }
   });
 
@@ -112,9 +123,16 @@ async function startServer() {
       });
 
       res.json({ text: response.text });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error generating chat response:', error);
-      res.status(500).json({ error: 'Failed to generate response', details: error.message });
+      const message = (error as { message?: string })?.message ?? '';
+      const is429 = message.includes('429') || message.includes('RESOURCE_EXHAUSTED') || message.includes('quota');
+      if (is429) {
+        const delayMatch = message.match(/retry.*?(\d+)s/i) || message.match(/"retryDelay":"(\d+)s"/);
+        if (delayMatch) res.setHeader('Retry-After', delayMatch[1]);
+        return res.status(429).json({ error: '분당 토큰 한도를 초과했습니다.', details: message });
+      }
+      res.status(500).json({ error: 'Failed to generate response', details: message });
     }
   });
 
