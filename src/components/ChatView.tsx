@@ -58,7 +58,8 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
 
     try {
       const files = mode === 'evaluation' ? evalKnowledgeFiles : allKnowledgeFiles;
-      const knowledgeContext = buildContext(files);
+      // 평가용은 파일 2개뿐이므로 제한 없이 전체 전송, 통합용은 160k 제한 유지
+      const knowledgeContext = buildContext(files, mode === 'evaluation' ? Infinity : 160_000);
       const ai = new GoogleGenAI({ apiKey });
 
       const contents = newMessages.map((msg, idx) => {
