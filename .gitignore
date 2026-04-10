@@ -10,6 +10,7 @@ node_modules/
 dist/
 dist-ssr/
 build/
+prompt_harness/results/
 
 # 에디터/OS 파일
 .DS_Store
