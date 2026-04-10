@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, Scale, Info, ShieldAlert } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { GoogleGenAI } from '@google/genai';
-import { buildContext, allKnowledgeFiles, evalKnowledgeFiles } from '../lib/knowledge';
+import { searchKnowledge, allKnowledgeFiles, evalKnowledgeFiles } from '../lib/knowledge';
 import type { ModelId } from './TopNav';
 
 import systemPromptRaw from '/system_prompt.md?raw';
@@ -56,16 +56,13 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
     setInput('');
     setIsLoading(true);
 
-    // 평가용: 제한 없음 (파일 2개), 통합용: 700k 글자 (≈17만 토큰, 무료 한도 내)
-    const MAX_CHARS = mode === 'evaluation' ? Infinity : 700_000;
-
     const callApi = async (retryCount = 0): Promise<void> => {
       const files = mode === 'evaluation' ? evalKnowledgeFiles : allKnowledgeFiles;
-      const knowledgeContext = buildContext(files, MAX_CHARS);
+      // RAG: 질문과 관련된 청크만 검색 (원본 server.ts 방식)
+      const knowledgeContext = searchKnowledge(files, input);
       const ai = new GoogleGenAI({ apiKey });
 
-      // 지식베이스를 System Instruction에 포함 (AI Studio 방식과 동일)
-      const fullSystemInstruction = `${systemPromptRaw}\n\n---\n# 지식베이스 문서 (아래 문서에만 근거하여 답변할 것)\n${knowledgeContext}`;
+      const fullSystemInstruction = `${systemPromptRaw}\n\n---\n# 관련 지식베이스 문서 (아래 문서에만 근거하여 답변할 것)\n${knowledgeContext}`;
 
       const contents = newMessages.map((msg) => ({
         role: msg.role,
