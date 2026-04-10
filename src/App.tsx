@@ -16,12 +16,18 @@ const knowledgeFileList = Object.entries(knowledgeModules).map(([filePath, conte
   size: (content as string).length,
 }));
 
-const knowledgeContext = Object.entries(knowledgeModules)
-  .map(([filePath, content]) => {
+const knowledgeContext = (() => {
+  // 분당 입력 토큰 한도(무료 25만 토큰 ≈ 약 18만 글자)를 고려해 최대 크기 제한
+  const MAX_CHARS = 160_000;
+  let context = '';
+  for (const [filePath, content] of Object.entries(knowledgeModules)) {
     const fileName = filePath.split('/').pop() || filePath;
-    return `\n\n--- Document: ${fileName} ---\n${content as string}\n`;
-  })
-  .join('');
+    const chunk = `\n\n--- Document: ${fileName} ---\n${content as string}\n`;
+    if (context.length + chunk.length > MAX_CHARS) break;
+    context += chunk;
+  }
+  return context;
+})();
 
 const SYSTEM_INSTRUCTION = `당신은 장기요양기관 실무자를 위한 '소스 기반 실무 보조 어시스턴트'입니다.
 반드시 다음 규칙을 엄격하게 준수하여 답변하십시오.
@@ -168,9 +174,13 @@ function ApiKeySetupScreen({ onSave }: { onSave: (key: string) => void }) {
 // ─────────────────────────────────────────────
 export default function App() {
   const [apiKey, setApiKey] = useState<string | null>(() => localStorage.getItem(API_KEY_STORAGE));
-  const [selectedModel, setSelectedModel] = useState<ModelId>(
-    () => (localStorage.getItem(MODEL_STORAGE) as ModelId) || MODELS[0].id
-  );
+  const [selectedModel, setSelectedModel] = useState<ModelId>(() => {
+    const saved = localStorage.getItem(MODEL_STORAGE);
+    // localStorage에 저장된 값이 현재 목록에 없으면 기본값으로 초기화
+    const valid = MODELS.find(m => m.id === saved);
+    if (!valid) localStorage.removeItem(MODEL_STORAGE);
+    return (valid?.id ?? MODELS[0].id) as ModelId;
+  });
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
