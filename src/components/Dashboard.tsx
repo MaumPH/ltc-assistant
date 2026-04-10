@@ -100,10 +100,10 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-50 p-6 md:p-8">
+    <div className="flex-1 overflow-y-auto bg-slate-50 p-4 sm:p-6 md:p-8">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         <section className="overflow-hidden rounded-[28px] bg-slate-900 text-white shadow-xl">
-          <div className="bg-[radial-gradient(circle_at_top_right,_rgba(96,165,250,0.24),_transparent_38%),linear-gradient(135deg,_rgba(30,41,59,1),_rgba(15,23,42,1))] p-6 md:p-8">
+          <div className="bg-[radial-gradient(circle_at_top_right,_rgba(96,165,250,0.24),_transparent_38%),linear-gradient(135deg,_rgba(30,41,59,1),_rgba(15,23,42,1))] p-5 sm:p-6 md:p-8">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-2xl">
                 <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-slate-200 ring-1 ring-white/10">
@@ -153,7 +153,7 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <section className="rounded-[28px] border border-slate-200 bg-white p-3 shadow-sm sm:p-4 md:p-5">
           <div className="flex flex-wrap gap-2">
             {CYCLE_ORDER.map((cycle) => {
               const isActive = cycle === activeTab;
@@ -162,7 +162,7 @@ export default function Dashboard() {
                   key={cycle}
                   type="button"
                   onClick={() => setActiveTab(cycle)}
-                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium transition-colors sm:px-4 sm:text-sm ${
                     isActive
                       ? 'border-slate-900 bg-slate-900 text-white'
                       : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100'
@@ -207,7 +207,7 @@ export default function Dashboard() {
                       isChecked ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200 bg-white'
                     }`}
                   >
-                    <div className="p-5 md:p-6">
+                    <div className="p-4 sm:p-5 md:p-6">
                       <div className="flex items-start gap-4">
                         <button
                           type="button"
