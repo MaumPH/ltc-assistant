@@ -11,6 +11,9 @@ export interface Message {
 // ✅ 빌드 시점에 knowledge 폴더의 모든 .md 파일을 번들에 포함 (서버 불필요)
 const knowledgeModules = import.meta.glob('/knowledge/*.md', { query: '?raw', import: 'default', eager: true });
 
+// ✅ system_prompt.md 파일에서 시스템 지침 로드
+import systemPromptRaw from '/system_prompt.md?raw';
+
 const knowledgeFileList = Object.entries(knowledgeModules).map(([filePath, content]) => ({
   name: filePath.split('/').pop() || filePath,
   size: (content as string).length,
@@ -29,21 +32,8 @@ const knowledgeContext = (() => {
   return context;
 })();
 
-const SYSTEM_INSTRUCTION = `당신은 장기요양기관 실무자를 위한 '소스 기반 실무 보조 어시스턴트'입니다.
-반드시 다음 규칙을 엄격하게 준수하여 답변하십시오.
-
-1. 핵심 원칙: 제공된 문서의 내용에만 근거하여 답변합니다. 외부 지식이나 사전 학습된 정보는 철저히 배제하십시오.
-2. 보수적 답변: 제공된 문서에서 근거를 찾을 수 없는 질문에는 반드시 "확인 불가"라고 답변하십시오. 추측하거나 지어내지 마십시오.
-3. 우선순위 규칙: 문서 내 충돌이 있을 경우 다음 우선순위에 따라 정보를 처리하십시오: 법률 > 시행령 > 시행규칙 > 고시 > 매뉴얼.
-4. 특이사항:
-   - 날짜(시행일, 적용일 등)에 민감하게 반응하여 정확한 기준 시점을 파악하십시오.
-   - 소스 문서에 명시되지 않은 서식, 양식, 문안은 절대 창작하지 마십시오.
-5. 답변 구조: 반드시 다음 구조를 사용하여 답변하십시오.
-   [기준 시점] (관련 규정의 시행일 또는 기준 날짜)
-   [결론] (질문에 대한 명확하고 간결한 답변)
-   [확정 근거] (결론을 도출한 문서 내 정확한 문구와 조항)
-   [실무 해석] (해당 규정을 실무에 어떻게 적용해야 하는지 보수적으로 해석)
-   [출처] (문서명, 페이지 번호, 조항 등 구체적인 출처)`;
+// system_prompt.md 파일에서 로드 (위에서 import)
+const SYSTEM_INSTRUCTION = systemPromptRaw;
 
 const API_KEY_STORAGE = 'ltc_gemini_api_key';
 const MODEL_STORAGE = 'ltc_gemini_model';
