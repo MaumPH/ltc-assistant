@@ -43,9 +43,9 @@ const API_KEY_STORAGE = 'ltc_gemini_api_key';
 const MODEL_STORAGE = 'ltc_gemini_model';
 
 const MODELS = [
-  { id: 'gemini-2.0-flash',            label: 'Gemini 3 Flash Preview',      desc: '빠름 · 무료 티어 적합 (기본)' },
-  { id: 'gemini-2.5-pro-preview-05-06', label: 'Gemini 3.1 Pro Preview',      desc: '가장 정확 · 할당량 소모 많음' },
-  { id: 'gemini-2.5-flash-lite-preview-06-17', label: 'Gemini 3.1 Flash Lite Preview', desc: '가볍고 빠름 · 간단한 질문용' },
+  { id: 'gemini-3-flash-preview',      label: 'Gemini 3 Flash Preview',      desc: '빠름 · 기본 추천' },
+  { id: 'gemini-3.1-pro-preview',      label: 'Gemini 3.1 Pro Preview',      desc: '가장 정확 · 할당량 소모 많음' },
+  { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite Preview', desc: '가볍고 빠름 · 간단한 질문용' },
 ] as const;
 
 type ModelId = typeof MODELS[number]['id'];
