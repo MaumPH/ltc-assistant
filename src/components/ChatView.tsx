@@ -3,9 +3,13 @@ import { Send, Loader2, Scale, Info, ShieldAlert } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { GoogleGenAI } from '@google/genai';
 import { searchKnowledge, allKnowledgeFiles, evalKnowledgeFiles } from '../lib/knowledge';
+import { buildVariantSystemInstruction, type PromptSourceSet } from '../lib/promptAssembly';
 import type { ModelId } from './TopNav';
 
 import systemPromptRaw from '/system_prompt.md?raw';
+import v2BasePromptRaw from '/prompts/v2/base.md?raw';
+import integratedOverlayRaw from '/prompts/v2/integrated.overlay.md?raw';
+import evaluationOverlayRaw from '/prompts/v2/evaluation.overlay.md?raw';
 
 export interface Message {
   role: 'user' | 'model';
@@ -17,6 +21,15 @@ interface ChatViewProps {
   apiKey: string;
   selectedModel: ModelId;
 }
+
+const promptSources: PromptSourceSet = {
+  baseline: systemPromptRaw,
+  base: v2BasePromptRaw,
+  overlays: {
+    integrated: integratedOverlayRaw,
+    evaluation: evaluationOverlayRaw,
+  },
+};
 
 export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps) {
   const [messages, setMessages] = useState<Message[]>([
@@ -62,7 +75,12 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
       const knowledgeContext = searchKnowledge(files, input);
       const ai = new GoogleGenAI({ apiKey });
 
-      const fullSystemInstruction = `${systemPromptRaw}\n\n---\n# 관련 지식베이스 문서 (아래 문서에만 근거하여 답변할 것)\n${knowledgeContext}`;
+      const fullSystemInstruction = buildVariantSystemInstruction({
+        mode,
+        variant: 'v2',
+        knowledgeContext,
+        sources: promptSources,
+      });
 
       const contents = newMessages.map((msg) => ({
         role: msg.role,
