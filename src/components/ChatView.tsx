@@ -56,9 +56,12 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
     setInput('');
     setIsLoading(true);
 
-    try {
+    // 평가용: 제한 없음 (파일 2개), 통합용: 700k 글자 (≈17만 토큰, 무료 한도 내)
+    const MAX_CHARS = mode === 'evaluation' ? Infinity : 700_000;
+
+    const callApi = async (retryCount = 0): Promise<void> => {
       const files = mode === 'evaluation' ? evalKnowledgeFiles : allKnowledgeFiles;
-      const knowledgeContext = buildContext(files, Infinity);
+      const knowledgeContext = buildContext(files, MAX_CHARS);
       const ai = new GoogleGenAI({ apiKey });
 
       const contents = newMessages.map((msg, idx) => {
@@ -73,21 +76,46 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
         };
       });
 
-      const response = await ai.models.generateContent({
-        model: selectedModel,
-        contents,
-        config: { systemInstruction: systemPromptRaw, temperature: 0.1 },
-      });
+      try {
+        const response = await ai.models.generateContent({
+          model: selectedModel,
+          contents,
+          config: { systemInstruction: systemPromptRaw, temperature: 0.1 },
+        });
+        setMessages([...newMessages, { role: 'model', text: response.text || '' }]);
+      } catch (error: any) {
+        const is429 = error.message?.includes('429') || error.message?.includes('RESOURCE_EXHAUSTED') || error.message?.includes('quota');
+        const isKeyError = error.message?.includes('API_KEY') || error.message?.includes('401') || error.message?.includes('403') || error.message?.includes('invalid');
 
-      setMessages([...newMessages, { role: 'model', text: response.text || '' }]);
-    } catch (error: any) {
-      const isKeyError = error.message?.includes('API_KEY') || error.message?.includes('401') || error.message?.includes('403') || error.message?.includes('invalid');
-      setMessages([...newMessages, {
-        role: 'model',
-        text: isKeyError
-          ? 'API 키가 유효하지 않습니다. 우측 상단의 **API 키** 버튼을 눌러 다시 입력해 주세요.'
-          : `오류가 발생했습니다. 다시 시도해 주세요.\n\n> ${error.message}`,
-      }]);
+        // 429 오류: 재시도 대기 시간 파싱 후 자동 재시도 (최대 2회)
+        if (is429 && retryCount < 2) {
+          const delayMatch = error.message?.match(/retry.*?(\d+)s/i) || error.message?.match(/"retryDelay":"(\d+)s"/);
+          const delaySec = delayMatch ? parseInt(delayMatch[1]) + 2 : 15;
+
+          // 카운트다운 메시지 표시
+          for (let i = delaySec; i > 0; i--) {
+            setMessages([...newMessages, {
+              role: 'model',
+              text: `분당 토큰 한도 초과. **${i}초 후 자동 재시도**합니다... (${retryCount + 1}/2회)`,
+            }]);
+            await new Promise(r => setTimeout(r, 1000));
+          }
+          return callApi(retryCount + 1);
+        }
+
+        setMessages([...newMessages, {
+          role: 'model',
+          text: isKeyError
+            ? 'API 키가 유효하지 않습니다. 우측 상단의 **API 키** 버튼을 눌러 다시 입력해 주세요.'
+            : is429
+              ? '분당 토큰 한도를 초과했습니다. 잠시 후 다시 질문해 주세요.\n\n> 해결 방법: [Google AI Studio](https://aistudio.google.com)에서 결제 수단을 등록하면 한도가 크게 늘어납니다.'
+              : `오류가 발생했습니다. 다시 시도해 주세요.\n\n> ${error.message}`,
+        }]);
+      }
+    };
+
+    try {
+      await callApi();
     } finally {
       setIsLoading(false);
     }
