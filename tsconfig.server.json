@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "lib": ["ES2022"],
+    "skipLibCheck": true,
+    "allowJs": true,
+    "strict": true,
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "server.ts",
+    "scripts",
+    "src/lib/nodeKnowledge.ts",
+    "src/lib/nodePrompts.ts",
+    "src/lib/promptAssembly.ts",
+    "src/lib/ragCore.ts"
+  ]
+}
