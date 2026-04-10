@@ -2,18 +2,17 @@
 // 지식베이스 모듈 및 컨텍스트 빌더
 // ─────────────────────────────────────────────
 
-// 전체 .md 파일
-const allMdModules = import.meta.glob('/knowledge/*.md', { query: '?raw', import: 'default', eager: true });
-// 전체 .txt 파일
-const allTxtModules = import.meta.glob('/knowledge/*.txt', { query: '?raw', import: 'default', eager: true });
+// 통합용: 루트 knowledge 파일
+const rootMdModules = import.meta.glob('/knowledge/*.md', { query: '?raw', import: 'default', eager: true });
+const rootTxtModules = import.meta.glob('/knowledge/*.txt', { query: '?raw', import: 'default', eager: true });
+// 평가용: knowledge/eval/ 폴더
+const evalMdModules = import.meta.glob('/knowledge/eval/*.md', { query: '?raw', import: 'default', eager: true });
+const evalTxtModules = import.meta.glob('/knowledge/eval/*.txt', { query: '?raw', import: 'default', eager: true });
 
-const allModules: Record<string, unknown> = { ...allMdModules, ...allTxtModules };
-
-// 평가용 파일명 목록
-const EVAL_FILES = [
-  '2026년 주야간보호 평가매뉴얼(26년꺼만).md',
-  '평가 후기.txt',
-];
+// 통합용 = 전체 (루트 + eval)
+const allModules: Record<string, unknown> = { ...rootMdModules, ...rootTxtModules, ...evalMdModules, ...evalTxtModules };
+// 평가용 = eval 폴더만
+const evalModules: Record<string, unknown> = { ...evalMdModules, ...evalTxtModules };
 
 export interface KnowledgeFile {
   path: string;
@@ -22,18 +21,19 @@ export interface KnowledgeFile {
   content: string;
 }
 
-// 전체 파일 목록
-export const allKnowledgeFiles: KnowledgeFile[] = Object.entries(allModules).map(([path, content]) => ({
-  path,
-  name: path.split('/').pop() || path,
-  size: (content as string).length,
-  content: content as string,
-}));
+const toKnowledgeFiles = (modules: Record<string, unknown>): KnowledgeFile[] =>
+  Object.entries(modules).map(([p, content]) => ({
+    path: p,
+    name: p.split('/').pop() || p,
+    size: (content as string).length,
+    content: content as string,
+  }));
 
-// 평가용 파일 목록
-export const evalKnowledgeFiles: KnowledgeFile[] = allKnowledgeFiles.filter(f =>
-  EVAL_FILES.some(ef => f.name === ef)
-);
+// 통합용: 전체 파일 (루트 + eval)
+export const allKnowledgeFiles: KnowledgeFile[] = toKnowledgeFiles(allModules);
+
+// 평가용: eval 폴더 파일만
+export const evalKnowledgeFiles: KnowledgeFile[] = toKnowledgeFiles(evalModules);
 
 // ─────────────────────────────────────────────
 // RAG: 청크 분할 + n-gram 검색 (원본 server.ts 방식)
