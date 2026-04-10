@@ -1,2 +1,65 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-shell,
+.app-viewport {
+  min-height: 100vh;
+}
+
+.app-shell {
+  height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  .app-shell,
+  .app-viewport {
+    min-height: 100dvh;
+  }
+
+  .app-shell {
+    height: 100dvh;
+  }
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.prose {
+  overflow-wrap: anywhere;
+}
+
+.prose pre,
+.prose table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
