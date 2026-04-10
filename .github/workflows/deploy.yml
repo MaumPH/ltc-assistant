@@ -1,0 +1,54 @@
+name: GitHub Pages 배포
+
+on:
+  push:
+    branches:
+      - main   # main 브랜치에 push할 때마다 자동 배포
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: 코드 가져오기
+        uses: actions/checkout@v4
+
+      - name: Node.js 설정
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 의존성 설치
+        run: npm ci
+
+      - name: 빌드
+        run: npm run build
+        env:
+          # 저장소 이름에 맞게 base path 자동 설정
+          # 예: https://username.github.io/ltc-assistant/ 형태로 배포될 경우
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+
+      - name: GitHub Pages 설정
+        uses: actions/configure-pages@v4
+
+      - name: 빌드 결과물 업로드
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+      - name: GitHub Pages 배포
+        id: deployment
+        uses: actions/deploy-pages@v4
