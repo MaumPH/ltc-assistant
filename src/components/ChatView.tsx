@@ -64,23 +64,19 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
       const knowledgeContext = buildContext(files, MAX_CHARS);
       const ai = new GoogleGenAI({ apiKey });
 
-      const contents = newMessages.map((msg, idx) => {
-        const isLastUser = msg.role === 'user' && idx === newMessages.length - 1;
-        return {
-          role: msg.role,
-          parts: [{
-            text: isLastUser
-              ? `[System: The following are the knowledge base documents you must strictly base your answer on.]\n${knowledgeContext}\n\n[User Question]\n${msg.text}`
-              : msg.text,
-          }],
-        };
-      });
+      // 지식베이스를 System Instruction에 포함 (AI Studio 방식과 동일)
+      const fullSystemInstruction = `${systemPromptRaw}\n\n---\n# 지식베이스 문서 (아래 문서에만 근거하여 답변할 것)\n${knowledgeContext}`;
+
+      const contents = newMessages.map((msg) => ({
+        role: msg.role,
+        parts: [{ text: msg.text }],
+      }));
 
       try {
         const response = await ai.models.generateContent({
           model: selectedModel,
           contents,
-          config: { systemInstruction: systemPromptRaw, temperature: 0.1 },
+          config: { systemInstruction: fullSystemInstruction, temperature: 0.1 },
         });
         setMessages([...newMessages, { role: 'model', text: response.text || '' }]);
       } catch (error: any) {
