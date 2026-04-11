@@ -91,9 +91,11 @@ const INITIAL_MESSAGES: Record<ChatViewProps['mode'], string> = {
 };
 
 const FALLBACK_MODEL: ModelId = 'gemini-3.1-flash-lite-preview';
-const MODEL_REQUEST_TIMEOUT_MS = 45_000;
+const BASE_MODEL_REQUEST_TIMEOUT_MS = 45_000;
 const MAX_RATE_LIMIT_RETRIES = 2;
 const MAX_CONTEXT_CHARS = 20_000;
+const CLIENT_RETRIEVAL_CANDIDATE_K = 30;
+const CLIENT_CONTEXT_TOP_K = 8;
 
 let knowledgeModulePromise: Promise<KnowledgeModule> | null = null;
 let genAiModulePromise: Promise<GenAiModule> | null = null;
@@ -134,6 +136,18 @@ function shouldUseClientSideChat() {
   }
 
   return window.location.hostname.endsWith('github.io') || window.location.protocol === 'file:';
+}
+
+function getModelRequestTimeoutMs(model: ModelId): number {
+  if (model === 'gemini-3.1-pro-preview') {
+    return 75_000;
+  }
+
+  if (model === 'gemini-3-flash-preview') {
+    return 60_000;
+  }
+
+  return BASE_MODEL_REQUEST_TIMEOUT_MS;
 }
 
 function getModelLabel(model: ModelId): string {
@@ -282,7 +296,15 @@ function shouldFallback(failure: ModelFailure): boolean {
   return failure.kind === 'timeout' || failure.kind === 'connection' || failure.kind === 'model';
 }
 
-function formatFallbackNotice(model: ModelId): string {
+function formatFallbackNotice(model: ModelId, failureKind?: FailureKind): string {
+  if (failureKind === 'model') {
+    return `> 선택한 모델을 현재 경로에서 사용할 수 없어 ${getModelLabel(model)}로 자동 재시도했습니다.`;
+  }
+
+  if (failureKind === 'connection') {
+    return `> 선택한 모델 호출 중 연결 문제가 있어 ${getModelLabel(model)}로 자동 재시도했습니다.`;
+  }
+
   return `> 선택한 모델 응답이 지연되어 ${getModelLabel(model)}로 자동 재시도했습니다.`;
 }
 
@@ -326,11 +348,14 @@ async function requestClientSideResponse({
   const [{ GoogleGenAI }, knowledge] = await Promise.all([loadGenAiModule(), loadKnowledgeModule()]);
   const knowledgeFiles = mode === 'evaluation' ? knowledge.evalKnowledgeFiles : knowledge.allKnowledgeFiles;
   const latestUserMessage = [...messages].reverse().find((message) => message.role === 'user')?.text ?? '';
-  const candidates = latestUserMessage ? knowledge.searchKnowledge(knowledgeFiles, latestUserMessage, 12) : [];
+  const candidates = latestUserMessage
+    ? knowledge.searchKnowledge(knowledgeFiles, latestUserMessage, CLIENT_RETRIEVAL_CANDIDATE_K)
+    : [];
+  const topChunks = candidates.slice(0, CLIENT_CONTEXT_TOP_K);
 
   let contextChars = 0;
   const knowledgeContext = knowledge.chunksToContext(
-    candidates.filter((chunk) => {
+    topChunks.filter((chunk) => {
       if (contextChars + chunk.text.length > MAX_CONTEXT_CHARS) {
         return false;
       }
@@ -360,7 +385,9 @@ async function requestClientSideResponse({
       systemInstruction,
     });
 
-    return result.fallbackUsed ? `${formatFallbackNotice(result.usedModel)}\n\n${result.text}` : result.text;
+    return result.fallbackUsed
+      ? `${formatFallbackNotice(result.usedModel, result.failureKind)}\n\n${result.text}`
+      : result.text;
   } catch (error) {
     if (error instanceof GenerationFlowError) {
       return formatFailureMessage(error);
@@ -384,14 +411,15 @@ async function requestModel({
   const controller = new AbortController();
   let timedOut = false;
   const startedAt = performance.now();
+  const timeoutMs = getModelRequestTimeoutMs(model);
   const timeoutId = window.setTimeout(() => {
     timedOut = true;
     controller.abort();
-  }, MODEL_REQUEST_TIMEOUT_MS);
+  }, timeoutMs);
 
   console.info('[ChatView] Gemini request started', {
     requestedModel: model,
-    timeoutMs: MODEL_REQUEST_TIMEOUT_MS,
+    timeoutMs,
   });
 
   try {
