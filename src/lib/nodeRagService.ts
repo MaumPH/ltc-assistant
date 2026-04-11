@@ -117,13 +117,16 @@ function sanitizePostgresValue<T>(value: T): T {
   return value;
 }
 
-function normalizeEmbedding(values: number[] | undefined | null): number[] {
+export function prepareEmbedding(values: number[] | undefined | null): number[] {
   if (!values || values.length === 0) return [];
-  const norm = Math.sqrt(values.reduce((sum, value) => sum + value * value, 0));
+  const clipped = values.length > EMBEDDING_DIMENSIONS ? values.slice(0, EMBEDDING_DIMENSIONS) : values;
+  if (clipped.length !== EMBEDDING_DIMENSIONS) return [];
+
+  const norm = Math.sqrt(clipped.reduce((sum, value) => sum + value * value, 0));
   if (!Number.isFinite(norm) || norm === 0) {
-    return values;
+    return clipped;
   }
-  return values.map((value) => value / norm);
+  return clipped.map((value) => value / norm);
 }
 
 function isQuotaExceededError(error: unknown): boolean {
@@ -310,7 +313,7 @@ async function embedQuery(ai: GoogleGenAI, query: string): Promise<number[] | nu
         outputDimensionality: EMBEDDING_DIMENSIONS,
       },
     });
-    const values = normalizeEmbedding(response.embeddings[0]?.values);
+    const values = prepareEmbedding(response.embeddings[0]?.values);
     return values.length > 0 ? values : null;
   } catch (error) {
     if (isQuotaExceededError(error)) {
@@ -345,7 +348,7 @@ async function embedChunks(ai: GoogleGenAI, chunks: StructuredChunk[]): Promise<
         ),
       );
       responses.forEach((response, batchIndex) => {
-        batch[batchIndex].embedding = normalizeEmbedding(response.embeddings[0]?.values);
+        batch[batchIndex].embedding = prepareEmbedding(response.embeddings[0]?.values);
       });
       embeddedCount += batch.length;
     } catch (error) {
@@ -389,7 +392,9 @@ class MemoryRagStore implements RagStore {
       for (const chunk of this.chunks) {
         const cached = parsed[chunk.chunkHash];
         if (!Array.isArray(cached) || cached.length === 0) continue;
-        chunk.embedding = cached.map((value) => Number(value));
+        const embedding = prepareEmbedding(cached.map((value) => Number(value)));
+        if (embedding.length === 0) continue;
+        chunk.embedding = embedding;
         restored += 1;
       }
 
@@ -403,7 +408,8 @@ class MemoryRagStore implements RagStore {
   private persistEmbeddingCache(): void {
     const cachedEntries = this.chunks
       .filter((chunk) => chunk.embedding && chunk.embedding.length > 0)
-      .map((chunk) => [chunk.chunkHash, chunk.embedding] as const);
+      .map((chunk) => [chunk.chunkHash, prepareEmbedding(chunk.embedding)] as const)
+      .filter((entry) => entry[1].length === EMBEDDING_DIMENSIONS);
 
     try {
       fs.mkdirSync(path.dirname(this.embeddingCachePath), { recursive: true });
@@ -994,7 +1000,7 @@ export async function embedIndexRows(ai: GoogleGenAI, rows: Array<Record<string,
         ),
       );
       responses.forEach((response, responseIndex) => {
-        const embedding = normalizeEmbedding(response.embeddings[0]?.values);
+        const embedding = prepareEmbedding(response.embeddings[0]?.values);
         const row = rows.find((item) => item.id === batch[responseIndex].id);
         if (row) row.embedding = embedding;
       });
@@ -1165,7 +1171,9 @@ export async function upsertRowsToPostgres(params: {
           pg(row.article_no),
           JSON.stringify(pg(row.matched_labels)),
           pg(row.chunk_hash),
-          row.embedding ? `[${(row.embedding as number[]).join(',')}]` : null,
+          Array.isArray(row.embedding) && (row.embedding as number[]).length === EMBEDDING_DIMENSIONS
+            ? `[${(row.embedding as number[]).join(',')}]`
+            : null,
         ],
       );
     }

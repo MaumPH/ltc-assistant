@@ -10,6 +10,7 @@ import {
   buildSectionRows,
   embedIndexRows,
   loadKnowledgeFilesForIndex,
+  prepareEmbedding,
   upsertRowsToPostgres,
 } from '../src/lib/nodeRagService';
 
@@ -32,7 +33,9 @@ function restoreEmbeddingCache(rows: Array<Record<string, unknown>>): number {
       const cached = parsed[chunkHash];
       if (!Array.isArray(cached) || cached.length === 0) continue;
 
-      row.embedding = cached.map((value) => Number(value));
+      const embedding = prepareEmbedding(cached.map((value) => Number(value)));
+      if (embedding.length === 0) continue;
+      row.embedding = embedding;
       restored += 1;
     }
 
@@ -47,7 +50,8 @@ function persistEmbeddingCache(rows: Array<Record<string, unknown>>): void {
   const payload = Object.fromEntries(
     rows
       .filter((row) => typeof row.chunk_hash === 'string' && Array.isArray(row.embedding) && (row.embedding as number[]).length > 0)
-      .map((row) => [row.chunk_hash as string, row.embedding as number[]]),
+      .map((row) => [row.chunk_hash as string, prepareEmbedding(row.embedding as number[])] as const)
+      .filter((entry) => entry[1].length > 0),
   );
 
   fs.mkdirSync(path.dirname(EMBEDDING_CACHE_PATH), { recursive: true });
