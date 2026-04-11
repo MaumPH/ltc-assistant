@@ -133,4 +133,32 @@ npm run rag:index
 PORT=3000 npm run dev
 ```
 
-For production, replace `npm run dev` with a process manager such as `pm2`, Docker, or a systemd service.
+## 8. Run the Node backend as a service
+
+The repository includes a ready-made systemd unit at `deploy/ltc-rag.service`.
+
+Install it on the mini PC:
+
+```bash
+cd ~/ltc-assistant
+sudo cp deploy/ltc-rag.service /etc/systemd/system/ltc-rag.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now ltc-rag
+```
+
+Check status:
+
+```bash
+sudo systemctl status ltc-rag
+sudo journalctl -u ltc-rag -f
+```
+
+Useful service commands:
+
+```bash
+sudo systemctl restart ltc-rag
+sudo systemctl stop ltc-rag
+sudo systemctl start ltc-rag
+```
+
+If your Linux username or project path is different, update `User=` and `WorkingDirectory=` in `deploy/ltc-rag.service` before copying it into `/etc/systemd/system/`.

@@ -1,0 +1,18 @@
+[Unit]
+Description=LTC RAG backend server
+After=network.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ryuju
+WorkingDirectory=/home/ryuju/ltc-assistant
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run dev -- --host 0.0.0.0
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
