@@ -1,109 +1,78 @@
-export type PromptMode = 'integrated' | 'evaluation';
+import { buildRagCorpusIndex, searchCorpus } from './ragEngine';
+import { buildStructuredChunks } from './ragStructured';
+import type { KnowledgeFile, PromptMode, StructuredChunk } from './ragTypes';
 
-export interface KnowledgeFile {
-  path: string;
-  name: string;
-  size: number;
-  content: string;
-}
+export type { KnowledgeFile, PromptMode } from './ragTypes';
 
 export interface Chunk {
   file: string;
   text: string;
+  id?: string;
+  articleNo?: string;
+  sectionPath?: string[];
 }
 
 export const toKnowledgeFiles = (modules: Record<string, unknown>): KnowledgeFile[] =>
-  Object.entries(modules).map(([p, content]) => ({
-    path: p,
-    name: p.split('/').pop() || p,
-    size: (content as string).length,
-    content: content as string,
+  Object.entries(modules).map(([filePath, content]) => ({
+    path: filePath,
+    name: filePath.split('/').pop() || filePath,
+    size: String(content).length,
+    content: String(content),
   }));
 
-const CHUNK_SIZE = 1500;
-const CHUNK_OVERLAP = 200;
-
-function buildChunks(files: KnowledgeFile[]): Chunk[] {
-  const chunks: Chunk[] = [];
-  for (const file of files) {
-    const paragraphs = file.content.split(/\n\s*\n/);
-    let buffer = '';
-    for (const para of paragraphs) {
-      const combined = buffer ? buffer + '\n\n' + para : para;
-      if (buffer.length > 0 && combined.length > CHUNK_SIZE) {
-        chunks.push({ file: file.name, text: buffer.trim() });
-        buffer = buffer.slice(-CHUNK_OVERLAP) + '\n\n' + para;
-      } else {
-        buffer = combined;
-      }
-    }
-    if (buffer.trim()) chunks.push({ file: file.name, text: buffer.trim() });
-  }
-  return chunks;
+function toLegacyChunk(chunk: StructuredChunk): Chunk {
+  return {
+    file: chunk.docTitle,
+    text: chunk.text,
+    id: chunk.id,
+    articleNo: chunk.articleNo,
+    sectionPath: chunk.sectionPath,
+  };
 }
 
-function tokenize(text: string): string[] {
-  return text
-    .split(/[\s\u3000.,!?;:'"()\[\]{}<>\/\\|@#$%^&*+=~`\-_]+/)
-    .map(t => t.replace(/[^\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\w]/g, ''))
-    .filter(t => t.length >= 2);
+export function getAllChunks(files: KnowledgeFile[]): Chunk[] {
+  return buildStructuredChunks(files).map(toLegacyChunk);
 }
 
-export function searchKnowledge(
-  files: KnowledgeFile[],
-  query: string,
-  candidateK = 30,
-): Chunk[] {
-  const chunks = buildChunks(files);
-  if (!chunks.length || !query.trim()) return [];
-
-  const queryTokens = tokenize(query);
-  if (!queryTokens.length) return [];
-
-  const dfMap = new Map<string, number>();
-  for (const chunk of chunks) {
-    const seen = new Set(tokenize(chunk.text));
-    for (const token of seen) dfMap.set(token, (dfMap.get(token) ?? 0) + 1);
-  }
-
-  const scored = chunks.map(chunk => {
-    const tokens = tokenize(chunk.text);
-    const tfMap = new Map<string, number>();
-    for (const token of tokens) tfMap.set(token, (tfMap.get(token) ?? 0) + 1);
-    const total = tokens.length || 1;
-
-    let score = 0;
-    for (const qt of queryTokens) {
-      const tf = (tfMap.get(qt) ?? 0) / total;
-      const df = dfMap.get(qt) ?? 0;
-      if (df > 0) score += tf * (Math.log((chunks.length + 1) / (df + 1)) + 1);
-    }
-    return { file: chunk.file, text: chunk.text, score };
+export function searchKnowledge(files: KnowledgeFile[], query: string, candidateK = 30): Chunk[] {
+  const structuredChunks = buildStructuredChunks(files);
+  const index = buildRagCorpusIndex(structuredChunks);
+  const inferredMode: PromptMode =
+    files.length > 0 && files.every((file) => /\/knowledge\/(?:eval|evaluation)\//.test(file.path))
+      ? 'evaluation'
+      : 'integrated';
+  const run = searchCorpus({
+    index,
+    query,
+    mode: inferredMode,
+    queryEmbedding: null,
   });
 
-  scored.sort((a, b) => b.score - a.score);
-  return scored
-    .slice(0, candidateK)
-    .filter(c => c.score > 0)
-    .map(({ file, text }) => ({ file, text }));
+  return run.fusedCandidates.slice(0, candidateK).map(toLegacyChunk);
 }
 
 export function chunksToContext(chunks: Chunk[]): string {
   return chunks
-    .map(c => `\n\n--- Document: ${c.file} ---\n${c.text}`)
+    .map((chunk) => {
+      const metadata = [
+        `Document: ${chunk.file}`,
+        chunk.articleNo ? `Article: ${chunk.articleNo}` : null,
+        chunk.sectionPath && chunk.sectionPath.length > 0 ? `Path: ${chunk.sectionPath.join(' > ')}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      return `\n\n--- ${metadata} ---\n${chunk.text}`;
+    })
     .join('');
-}
-
-export function getAllChunks(files: KnowledgeFile[]): Chunk[] {
-  return buildChunks(files);
 }
 
 export function buildContext(files: KnowledgeFile[], maxChars = 160_000): string {
   let context = '';
-  for (const file of files) {
-    const chunk = `\n\n--- Document: ${file.name} ---\n${file.content}\n`;
-    if (context.length + chunk.length > maxChars) break;
-    context += chunk;
+  const chunks = getAllChunks(files);
+  for (const chunk of chunks) {
+    const block = `\n\n--- Document: ${chunk.file} ---\n${chunk.text}\n`;
+    if (context.length + block.length > maxChars) break;
+    context += block;
   }
   return context;
 }

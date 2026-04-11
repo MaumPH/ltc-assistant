@@ -98,7 +98,7 @@ export function ApiKeyForm({ autoFocus = true, onCancel, onSave }: ApiKeyFormPro
       </div>
 
       <p className="text-center text-xs text-slate-400">
-        API 키는 이 브라우저에만 저장되며 외부 서버로 전송되지 않습니다.
+        API 키는 이 브라우저에 저장되며, 질문 처리 시 설정된 RAG 백엔드로만 전송됩니다.
       </p>
     </form>
   );
@@ -122,7 +122,7 @@ export function ApiKeySetupScreen({ onSave }: { onSave: (key: string) => void })
           <p className="mb-6 mt-4 text-sm leading-6 text-slate-500">
             시작하려면 본인의 Google Gemini API 키를 입력해 주세요.
             <br />
-            키는 이 기기의 브라우저에만 저장되며 서버로 전송되지 않습니다.
+            키는 이 기기에 저장되며, 검색과 답변 조립을 수행하는 RAG 백엔드로만 전달됩니다.
           </p>
 
           <ApiKeyForm onSave={onSave} />

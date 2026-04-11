@@ -11,6 +11,8 @@ dist/
 dist-ssr/
 build/
 prompt_harness/results/
+benchmarks/results/
+.rag-cache/
 
 # 에디터/OS 파일
 .DS_Store

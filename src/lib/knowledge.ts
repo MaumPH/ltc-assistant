@@ -1,13 +1,19 @@
-import { toKnowledgeFiles, type KnowledgeFile } from './ragCore';
+import type { KnowledgeFile } from './ragCore';
 
 export { buildContext, searchKnowledge, chunksToContext, getAllChunks, type KnowledgeFile, type Chunk } from './ragCore';
 
-const rootMdModules = import.meta.glob('/knowledge/*.md', { query: '?raw', import: 'default', eager: true });
-const rootTxtModules = import.meta.glob('/knowledge/*.txt', { query: '?raw', import: 'default', eager: true });
-const evalMdModules = import.meta.glob('/knowledge/eval/*.md', { query: '?raw', import: 'default', eager: true });
-const evalTxtModules = import.meta.glob('/knowledge/eval/*.txt', { query: '?raw', import: 'default', eager: true });
+const allMdModules = import.meta.glob('/knowledge/**/*.md', { query: '?url', import: 'default', eager: true });
+const allTxtModules = import.meta.glob('/knowledge/**/*.txt', { query: '?url', import: 'default', eager: true });
+const evalMdModules = {
+  ...import.meta.glob('/knowledge/eval/**/*.md', { query: '?url', import: 'default', eager: true }),
+  ...import.meta.glob('/knowledge/evaluation/**/*.md', { query: '?url', import: 'default', eager: true }),
+};
+const evalTxtModules = {
+  ...import.meta.glob('/knowledge/eval/**/*.txt', { query: '?url', import: 'default', eager: true }),
+  ...import.meta.glob('/knowledge/evaluation/**/*.txt', { query: '?url', import: 'default', eager: true }),
+};
 
-const allModules: Record<string, unknown> = { ...rootMdModules, ...rootTxtModules, ...evalMdModules, ...evalTxtModules };
+const allModules: Record<string, unknown> = { ...allMdModules, ...allTxtModules };
 const evalModules: Record<string, unknown> = { ...evalMdModules, ...evalTxtModules };
 
 export type KnowledgeSource = 'general' | 'eval';
@@ -58,12 +64,12 @@ export function categorize(fileName: string): Category {
   if (/\(시행규칙\)|보건복지부령/.test(fileName)) return '시행규칙';
   if (/^\[(별표|별지)/.test(fileName)) return '별표·별지';
   if (/\(고시\)/.test(fileName)) return '고시';
-  if (/평가|매뉴얼|Q&A|사례집/.test(fileName)) return '평가·매뉴얼';
+  if (/평가|매뉴얼|Q&A|사례집/i.test(fileName)) return '평가·매뉴얼';
   return '참고자료';
 }
 
-function getKnowledgeSource(path: string): KnowledgeSource {
-  return path.includes('/knowledge/eval/') ? 'eval' : 'general';
+function getKnowledgeSource(filePath: string): KnowledgeSource {
+  return /\/knowledge\/(?:eval|evaluation)\//.test(filePath) ? 'eval' : 'general';
 }
 
 function toDisplayTitle(fileName: string): string {
@@ -82,14 +88,18 @@ function sortDocuments(a: KnowledgeDocument, b: KnowledgeDocument): number {
 }
 
 function toKnowledgeDocuments(modules: Record<string, unknown>): KnowledgeDocument[] {
-  return toKnowledgeFiles(modules)
-    .map((file) => {
-      const source = getKnowledgeSource(file.path);
+  return Object.keys(modules)
+    .map((filePath) => {
+      const name = filePath.split('/').pop() || filePath;
+      const source = getKnowledgeSource(filePath);
 
       return {
-        ...file,
-        category: categorize(file.name),
-        displayTitle: toDisplayTitle(file.name),
+        path: filePath,
+        name,
+        size: 0,
+        content: '',
+        category: categorize(name),
+        displayTitle: toDisplayTitle(name),
         source,
         sourceLabel: SOURCE_LABELS[source],
       };
