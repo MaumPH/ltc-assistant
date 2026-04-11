@@ -2,6 +2,10 @@ import fs from 'fs';
 import path from 'path';
 import { toKnowledgeFiles, type KnowledgeFile, type PromptMode } from './ragCore';
 
+function stripNullCharacters(value: string): string {
+  return value.replace(/\u0000/g, '');
+}
+
 function isEvaluationKnowledgePath(filePath: string): boolean {
   return /\/knowledge\/(?:eval|evaluation)\//.test(filePath.replace(/\\/g, '/'));
 }
@@ -26,7 +30,12 @@ function readKnowledgeTree(dirPath: string, virtualPrefix: string): Record<strin
       }
 
       if (!child.isFile() || !/\.(md|txt)$/i.test(child.name)) continue;
-      entries[virtualPath] = fs.readFileSync(fullPath, 'utf8');
+      const rawContent = fs.readFileSync(fullPath, 'utf8');
+      const sanitizedContent = stripNullCharacters(rawContent);
+      if (rawContent.length !== sanitizedContent.length) {
+        console.warn(`[knowledge] stripped NUL characters from ${virtualPath}`);
+      }
+      entries[virtualPath] = sanitizedContent;
     }
   };
 
