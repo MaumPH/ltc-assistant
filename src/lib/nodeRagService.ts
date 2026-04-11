@@ -79,6 +79,7 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
 }
 
 const EMBEDDING_MODEL = 'gemini-embedding-001';
+const EMBEDDING_DIMENSIONS = 768;
 const EMBEDDING_BATCH_SIZE = parsePositiveInteger(process.env.RAG_EMBEDDING_BATCH_SIZE, 20);
 const EMBEDDING_MAX_CHUNKS_PER_PASS = parsePositiveInteger(process.env.RAG_EMBEDDING_MAX_CHUNKS_PER_PASS, 400);
 const EMBEDDING_REFRESH_INTERVAL_MS = parsePositiveInteger(process.env.RAG_EMBEDDING_REFRESH_INTERVAL_MS, 15 * 60 * 1000);
@@ -114,6 +115,15 @@ function sanitizePostgresValue<T>(value: T): T {
   }
 
   return value;
+}
+
+function normalizeEmbedding(values: number[] | undefined | null): number[] {
+  if (!values || values.length === 0) return [];
+  const norm = Math.sqrt(values.reduce((sum, value) => sum + value * value, 0));
+  if (!Number.isFinite(norm) || norm === 0) {
+    return values;
+  }
+  return values.map((value) => value / norm);
 }
 
 function isQuotaExceededError(error: unknown): boolean {
@@ -296,8 +306,12 @@ async function embedQuery(ai: GoogleGenAI, query: string): Promise<number[] | nu
     const response = await ai.models.embedContent({
       model: EMBEDDING_MODEL,
       contents: query,
+      config: {
+        outputDimensionality: EMBEDDING_DIMENSIONS,
+      },
     });
-    return response.embeddings[0]?.values ?? null;
+    const values = normalizeEmbedding(response.embeddings[0]?.values);
+    return values.length > 0 ? values : null;
   } catch (error) {
     if (isQuotaExceededError(error)) {
       markEmbeddingQuotaExceeded(error, 'query embedding');
@@ -324,11 +338,14 @@ async function embedChunks(ai: GoogleGenAI, chunks: StructuredChunk[]): Promise<
           ai.models.embedContent({
             model: EMBEDDING_MODEL,
             contents: chunk.searchText,
+            config: {
+              outputDimensionality: EMBEDDING_DIMENSIONS,
+            },
           }),
         ),
       );
       responses.forEach((response, batchIndex) => {
-        batch[batchIndex].embedding = response.embeddings[0]?.values ?? [];
+        batch[batchIndex].embedding = normalizeEmbedding(response.embeddings[0]?.values);
       });
       embeddedCount += batch.length;
     } catch (error) {
@@ -970,11 +987,14 @@ export async function embedIndexRows(ai: GoogleGenAI, rows: Array<Record<string,
           ai.models.embedContent({
             model: EMBEDDING_MODEL,
             contents: item.searchText,
+            config: {
+              outputDimensionality: EMBEDDING_DIMENSIONS,
+            },
           }),
         ),
       );
       responses.forEach((response, responseIndex) => {
-        const embedding = response.embeddings[0]?.values ?? [];
+        const embedding = normalizeEmbedding(response.embeddings[0]?.values);
         const row = rows.find((item) => item.id === batch[responseIndex].id);
         if (row) row.embedding = embedding;
       });
