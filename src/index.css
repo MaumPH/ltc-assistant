@@ -56,6 +56,12 @@ body {
   overflow-x: auto;
 }
 
+.prose table {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+}
+
 @media (max-width: 640px) {
   input,
   select,

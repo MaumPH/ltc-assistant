@@ -7,14 +7,14 @@ export type TabId = 'integrated' | 'evaluation' | 'wiki' | 'dashboard' | 'knowle
 export const TABS: { id: TabId; label: string; shortLabel: string }[] = [
   { id: 'integrated', label: '통합 상담', shortLabel: '통합' },
   { id: 'evaluation', label: '평가 상담', shortLabel: '평가' },
-  { id: 'wiki', label: '평가지표 정리', shortLabel: '지표' },
+  { id: 'wiki', label: '평가 지침 정리', shortLabel: '지침' },
   { id: 'dashboard', label: '대시보드', shortLabel: '대시' },
   { id: 'knowledge', label: '지식베이스', shortLabel: '문서' },
 ];
 
 export const MODELS = [
   { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash', desc: '빠른 응답과 기본 상담에 적합' },
-  { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', desc: '정확도 우선, 할당량 소모 큼' },
+  { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', desc: '정확도 우선, 복합 질문에 강함' },
   { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', desc: '가볍고 빠른 경량 모델' },
 ] as const;
 
@@ -130,7 +130,7 @@ export function MobileSettingsSheet({
             <section className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50/80 p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                 <Bot className="h-4 w-4 text-blue-600" />
-                답변 모델
+                채팅 모델
               </div>
               <p className="text-xs leading-5 text-slate-500">채팅 탭에서 사용할 모델을 선택하세요.</p>
 
@@ -154,7 +154,9 @@ export function MobileSettingsSheet({
                     <Key className="h-4 w-4 text-blue-600" />
                     API 키
                   </div>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">현재 기기 브라우저에만 저장되고 외부 서버로 전송되지 않습니다.</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    현재 기기 브라우저에만 저장되고 외부 서버로 전송되지 않습니다.
+                  </p>
                 </div>
                 <span
                   className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
@@ -205,7 +207,7 @@ export default function TopNav({
   return (
     <header className="z-20 shrink-0 bg-slate-900 text-white shadow-lg">
       <div className="flex h-14 items-center gap-3 px-3 sm:gap-4 sm:px-4">
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           <Scale className="h-5 w-5 text-blue-400" />
           <span className="hidden whitespace-nowrap text-sm font-semibold sm:block">장기요양 실무 보조</span>
         </div>
@@ -218,7 +220,7 @@ export default function TopNav({
               key={tab.id}
               type="button"
               onClick={() => onTabChange(tab.id)}
-              className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors ${
+              className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                 activeTab === tab.id
                   ? 'bg-blue-600 text-white'
                   : 'text-slate-400 hover:bg-slate-700 hover:text-white'
@@ -230,7 +232,7 @@ export default function TopNav({
           ))}
         </nav>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           {isChat && (
             <div className="relative hidden sm:block">
               <select
