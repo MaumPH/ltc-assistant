@@ -1,0 +1,22 @@
+services:
+  rag-postgres:
+    image: pgvector/pgvector:pg17
+    container_name: ltc-rag-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ltc_rag
+      POSTGRES_USER: ltc_rag
+      POSTGRES_PASSWORD: change-this-password
+    ports:
+      - "5432:5432"
+    volumes:
+      - ltc-rag-postgres-data:/var/lib/postgresql/data
+      - ./db/rag-schema.sql:/docker-entrypoint-initdb.d/001-rag-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ltc_rag -d ltc_rag"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ltc-rag-postgres-data:
