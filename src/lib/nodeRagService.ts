@@ -72,13 +72,59 @@ interface RagStore {
   getStats(): { chunks: number; compiledPages: number; storageMode: string };
 }
 
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 const EMBEDDING_MODEL = 'gemini-embedding-001';
-const EMBEDDING_BATCH_SIZE = 20;
+const EMBEDDING_BATCH_SIZE = parsePositiveInteger(process.env.RAG_EMBEDDING_BATCH_SIZE, 20);
+const EMBEDDING_MAX_CHUNKS_PER_PASS = parsePositiveInteger(process.env.RAG_EMBEDDING_MAX_CHUNKS_PER_PASS, 400);
+const EMBEDDING_REFRESH_INTERVAL_MS = parsePositiveInteger(process.env.RAG_EMBEDDING_REFRESH_INTERVAL_MS, 15 * 60 * 1000);
+const EMBEDDING_QUOTA_COOLDOWN_MS = parsePositiveInteger(process.env.RAG_EMBEDDING_QUOTA_COOLDOWN_MS, 6 * 60 * 60 * 1000);
 const MAX_CONTEXT_CHARS = 20_000;
 const CURRENT_DATE = new Date().toISOString().slice(0, 10);
+const EMBEDDING_CACHE_FILE = 'embeddings.json';
+
+let embeddingQuotaBlockedUntil = 0;
+let embeddingQuotaBlockLogShown = false;
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isQuotaExceededError(error: unknown): boolean {
+  const message = describeError(error);
+  return (
+    message.includes('RESOURCE_EXHAUSTED') ||
+    message.includes('"code":429') ||
+    message.includes('code 429') ||
+    message.includes('quota')
+  );
+}
+
+function shouldSkipEmbeddingWork(context: string): boolean {
+  if (Date.now() < embeddingQuotaBlockedUntil) {
+    if (!embeddingQuotaBlockLogShown) {
+      console.warn(
+        `[embedding] skipping ${context} until ${new Date(embeddingQuotaBlockedUntil).toISOString()} because quota is exhausted.`,
+      );
+      embeddingQuotaBlockLogShown = true;
+    }
+    return true;
+  }
+
+  embeddingQuotaBlockLogShown = false;
+  return false;
+}
+
+function markEmbeddingQuotaExceeded(error: unknown, context: string): void {
+  embeddingQuotaBlockedUntil = Date.now() + EMBEDDING_QUOTA_COOLDOWN_MS;
+  embeddingQuotaBlockLogShown = false;
+  console.warn(
+    `[embedding] ${context} hit quota exhaustion. Pausing embedding attempts until ${new Date(embeddingQuotaBlockedUntil).toISOString()}: ${describeError(error)}`,
+  );
 }
 
 function parseStringArray(value: string[] | string | null | undefined): string[] {
@@ -223,6 +269,7 @@ function formatMarkdownAnswer(answer: GroundedAnswer, citations: StructuredChunk
 
 async function embedQuery(ai: GoogleGenAI, query: string): Promise<number[] | null> {
   if (!query.trim()) return null;
+  if (shouldSkipEmbeddingWork('query embedding')) return null;
   try {
     const response = await ai.models.embedContent({
       model: EMBEDDING_MODEL,
@@ -230,15 +277,25 @@ async function embedQuery(ai: GoogleGenAI, query: string): Promise<number[] | nu
     });
     return response.embeddings[0]?.values ?? null;
   } catch (error) {
+    if (isQuotaExceededError(error)) {
+      markEmbeddingQuotaExceeded(error, 'query embedding');
+      return null;
+    }
     console.warn(`[embedding] query embedding failed: ${describeError(error)}`);
     return null;
   }
 }
 
-async function embedChunks(ai: GoogleGenAI, chunks: StructuredChunk[]): Promise<void> {
+async function embedChunks(ai: GoogleGenAI, chunks: StructuredChunk[]): Promise<number> {
   const missing = chunks.filter((chunk) => !chunk.embedding || chunk.embedding.length === 0);
-  for (let index = 0; index < missing.length; index += EMBEDDING_BATCH_SIZE) {
-    const batch = missing.slice(index, index + EMBEDDING_BATCH_SIZE);
+  if (missing.length === 0) return 0;
+  if (shouldSkipEmbeddingWork('chunk embeddings')) return 0;
+
+  const target = missing.slice(0, EMBEDDING_MAX_CHUNKS_PER_PASS);
+  let embeddedCount = 0;
+
+  for (let index = 0; index < target.length; index += EMBEDDING_BATCH_SIZE) {
+    const batch = target.slice(index, index + EMBEDDING_BATCH_SIZE);
     try {
       const responses = await Promise.all(
         batch.map((chunk) =>
@@ -251,34 +308,93 @@ async function embedChunks(ai: GoogleGenAI, chunks: StructuredChunk[]): Promise<
       responses.forEach((response, batchIndex) => {
         batch[batchIndex].embedding = response.embeddings[0]?.values ?? [];
       });
+      embeddedCount += batch.length;
     } catch (error) {
+      if (isQuotaExceededError(error)) {
+        markEmbeddingQuotaExceeded(error, `batch ${index}~${index + batch.length}`);
+        break;
+      }
       console.warn(`[embedding] batch ${index}~${index + batch.length} failed: ${describeError(error)}`);
     }
   }
+
+  if (missing.length > target.length) {
+    console.info(`[embedding] deferred ${missing.length - target.length} remaining chunks for later passes.`);
+  }
+
+  return embeddedCount;
 }
 
 class MemoryRagStore implements RagStore {
   private readonly projectRoot: string;
+  private readonly embeddingCachePath: string;
   private readonly knowledgeStats: { name: string; size: number; updatedAt: Date }[];
   private chunks: StructuredChunk[] = [];
   private index: RagCorpusIndex = buildRagCorpusIndex([]);
   private compiledPages: CompiledPage[] = [];
+  private lastEmbeddingAttemptAt = 0;
 
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
+    this.embeddingCachePath = path.join(projectRoot, '.rag-cache', EMBEDDING_CACHE_FILE);
     this.knowledgeStats = collectKnowledgeStats(projectRoot);
+  }
+
+  private restoreEmbeddingsFromCache(): number {
+    if (!fs.existsSync(this.embeddingCachePath)) return 0;
+
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.embeddingCachePath, 'utf8')) as Record<string, number[]>;
+      let restored = 0;
+
+      for (const chunk of this.chunks) {
+        const cached = parsed[chunk.chunkHash];
+        if (!Array.isArray(cached) || cached.length === 0) continue;
+        chunk.embedding = cached.map((value) => Number(value));
+        restored += 1;
+      }
+
+      return restored;
+    } catch (error) {
+      console.warn(`[embedding] failed to restore cache: ${describeError(error)}`);
+      return 0;
+    }
+  }
+
+  private persistEmbeddingCache(): void {
+    const cachedEntries = this.chunks
+      .filter((chunk) => chunk.embedding && chunk.embedding.length > 0)
+      .map((chunk) => [chunk.chunkHash, chunk.embedding] as const);
+
+    try {
+      fs.mkdirSync(path.dirname(this.embeddingCachePath), { recursive: true });
+      fs.writeFileSync(this.embeddingCachePath, JSON.stringify(Object.fromEntries(cachedEntries)));
+    } catch (error) {
+      console.warn(`[embedding] failed to persist cache: ${describeError(error)}`);
+    }
   }
 
   async initialize(): Promise<void> {
     const corpora = loadKnowledgeCorporaFromDisk(this.projectRoot);
     const merged = mergeCorpora(corpora.integrated, corpora.evaluation);
     this.chunks = buildStructuredChunks(merged);
+    const restored = this.restoreEmbeddingsFromCache();
+    if (restored > 0) {
+      console.info(`[embedding] restored ${restored} cached chunk embeddings from disk.`);
+    }
     this.index = buildRagCorpusIndex(this.chunks);
     this.compiledPages = buildCompiledPages(this.chunks);
   }
 
   async ensureEmbeddings(ai: GoogleGenAI): Promise<void> {
-    await embedChunks(ai, this.chunks);
+    if (Date.now() - this.lastEmbeddingAttemptAt < EMBEDDING_REFRESH_INTERVAL_MS) return;
+    this.lastEmbeddingAttemptAt = Date.now();
+
+    const embeddedCount = await embedChunks(ai, this.chunks);
+    if (embeddedCount > 0) {
+      this.persistEmbeddingCache();
+      console.info(`[embedding] cached ${embeddedCount} additional chunk embeddings to disk.`);
+    }
     this.index = buildRagCorpusIndex(this.chunks);
   }
 
@@ -309,6 +425,7 @@ class PostgresRagStore implements RagStore {
   private chunks: StructuredChunk[] = [];
   private index: RagCorpusIndex = buildRagCorpusIndex([]);
   private compiledPages: CompiledPage[] = [];
+  private lastEmbeddingAttemptAt = 0;
 
   constructor(connectionString: string) {
     this.pool = new Pool({ connectionString });
@@ -385,6 +502,9 @@ class PostgresRagStore implements RagStore {
   }
 
   async ensureEmbeddings(ai: GoogleGenAI): Promise<void> {
+    if (Date.now() - this.lastEmbeddingAttemptAt < EMBEDDING_REFRESH_INTERVAL_MS) return;
+    this.lastEmbeddingAttemptAt = Date.now();
+
     const missing = this.chunks.filter((chunk) => !chunk.embedding || chunk.embedding.length === 0);
     if (missing.length === 0) return;
     await embedChunks(ai, missing);
@@ -814,22 +934,39 @@ export async function embedIndexRows(ai: GoogleGenAI, rows: Array<Record<string,
     embedding: Array.isArray(row.embedding) ? (row.embedding as number[]) : undefined,
   }));
 
-  for (let index = 0; index < chunkLike.length; index += EMBEDDING_BATCH_SIZE) {
-    const batch = chunkLike.slice(index, index + EMBEDDING_BATCH_SIZE).filter((item) => !item.embedding);
+  if (shouldSkipEmbeddingWork('index embeddings')) return;
+
+  const missing = chunkLike.filter((item) => !item.embedding);
+  const target = missing.slice(0, EMBEDDING_MAX_CHUNKS_PER_PASS);
+
+  for (let index = 0; index < target.length; index += EMBEDDING_BATCH_SIZE) {
+    const batch = target.slice(index, index + EMBEDDING_BATCH_SIZE).filter((item) => !item.embedding);
     if (batch.length === 0) continue;
-    const responses = await Promise.all(
-      batch.map((item) =>
-        ai.models.embedContent({
-          model: EMBEDDING_MODEL,
-          contents: item.searchText,
-        }),
-      ),
-    );
-    responses.forEach((response, responseIndex) => {
-      const embedding = response.embeddings[0]?.values ?? [];
-      const row = rows.find((item) => item.id === batch[responseIndex].id);
-      if (row) row.embedding = embedding;
-    });
+    try {
+      const responses = await Promise.all(
+        batch.map((item) =>
+          ai.models.embedContent({
+            model: EMBEDDING_MODEL,
+            contents: item.searchText,
+          }),
+        ),
+      );
+      responses.forEach((response, responseIndex) => {
+        const embedding = response.embeddings[0]?.values ?? [];
+        const row = rows.find((item) => item.id === batch[responseIndex].id);
+        if (row) row.embedding = embedding;
+      });
+    } catch (error) {
+      if (isQuotaExceededError(error)) {
+        markEmbeddingQuotaExceeded(error, `index batch ${index}~${index + batch.length}`);
+        break;
+      }
+      console.warn(`[embedding] index batch ${index}~${index + batch.length} failed: ${describeError(error)}`);
+    }
+  }
+
+  if (missing.length > target.length) {
+    console.info(`[embedding] deferred ${missing.length - target.length} index chunks for later passes.`);
   }
 }
 
