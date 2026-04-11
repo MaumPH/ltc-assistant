@@ -94,6 +94,28 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function stripNullCharacters(value: string): string {
+  return value.replace(/\u0000/g, '');
+}
+
+function sanitizePostgresValue<T>(value: T): T {
+  if (typeof value === 'string') {
+    return stripNullCharacters(value) as T;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizePostgresValue(item)) as T;
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entryValue]) => [key, sanitizePostgresValue(entryValue)]),
+    ) as T;
+  }
+
+  return value;
+}
+
 function isQuotaExceededError(error: unknown): boolean {
   const message = describeError(error);
   return (
@@ -996,6 +1018,8 @@ export async function upsertRowsToPostgres(params: {
   const pool = new Pool({ connectionString: params.connectionString });
   const client = await pool.connect();
   try {
+    const pg = <T>(value: T): T => sanitizePostgresValue(value);
+
     await client.query('begin');
     await client.query('delete from sections');
     await client.query('delete from document_versions');
@@ -1019,13 +1043,13 @@ export async function upsertRowsToPostgres(params: {
         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         `,
         [
-          row.id,
-          row.title,
-          row.file_name,
-          row.path,
-          row.mode,
-          row.source_type,
-          row.document_group,
+          pg(row.id),
+          pg(row.title),
+          pg(row.file_name),
+          pg(row.path),
+          pg(row.mode),
+          pg(row.source_type),
+          pg(row.document_group),
           row.effective_date,
           row.published_date,
         ],
@@ -1042,7 +1066,7 @@ export async function upsertRowsToPostgres(params: {
           raw_content
         ) values ($1,$2,$3,$4)
         `,
-        [row.id, row.document_id, row.version_hash, row.raw_content],
+        [pg(row.id), pg(row.document_id), pg(row.version_hash), pg(row.raw_content)],
       );
     }
 
@@ -1062,15 +1086,15 @@ export async function upsertRowsToPostgres(params: {
         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         `,
         [
-          row.id,
-          row.document_id,
-          row.title,
+          pg(row.id),
+          pg(row.document_id),
+          pg(row.title),
           row.depth,
-          JSON.stringify(row.section_path),
-          row.article_no,
+          JSON.stringify(pg(row.section_path)),
+          pg(row.article_no),
           row.line_start,
           row.line_end,
-          row.content,
+          pg(row.content),
         ],
       );
     }
@@ -1103,24 +1127,24 @@ export async function upsertRowsToPostgres(params: {
         )
         `,
         [
-          row.id,
-          row.document_id,
+          pg(row.id),
+          pg(row.document_id),
           row.chunk_index,
-          row.title,
-          row.text,
-          row.search_text,
-          row.mode,
-          row.source_type,
-          row.document_group,
-          row.doc_title,
-          row.file_name,
-          row.path,
+          pg(row.title),
+          pg(row.text),
+          pg(row.search_text),
+          pg(row.mode),
+          pg(row.source_type),
+          pg(row.document_group),
+          pg(row.doc_title),
+          pg(row.file_name),
+          pg(row.path),
           row.effective_date,
           row.published_date,
-          JSON.stringify(row.section_path),
-          row.article_no,
-          JSON.stringify(row.matched_labels),
-          row.chunk_hash,
+          JSON.stringify(pg(row.section_path)),
+          pg(row.article_no),
+          JSON.stringify(pg(row.matched_labels)),
+          pg(row.chunk_hash),
           row.embedding ? `[${(row.embedding as number[]).join(',')}]` : null,
         ],
       );
@@ -1142,15 +1166,15 @@ export async function upsertRowsToPostgres(params: {
         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         `,
         [
-          row.id,
-          row.page_type,
-          row.title,
-          row.mode,
-          JSON.stringify(row.source_document_ids),
-          JSON.stringify(row.backlinks),
-          row.summary,
-          row.body,
-          JSON.stringify(row.tags),
+          pg(row.id),
+          pg(row.page_type),
+          pg(row.title),
+          pg(row.mode),
+          JSON.stringify(pg(row.source_document_ids)),
+          JSON.stringify(pg(row.backlinks)),
+          pg(row.summary),
+          pg(row.body),
+          JSON.stringify(pg(row.tags)),
         ],
       );
     }
