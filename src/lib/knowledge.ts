@@ -1,6 +1,6 @@
 import { toKnowledgeFiles, type KnowledgeFile } from './ragCore';
 
-export { buildContext, searchKnowledge, type KnowledgeFile } from './ragCore';
+export { buildContext, searchKnowledge, chunksToContext, getAllChunks, type KnowledgeFile, type Chunk } from './ragCore';
 
 const rootMdModules = import.meta.glob('/knowledge/*.md', { query: '?raw', import: 'default', eager: true });
 const rootTxtModules = import.meta.glob('/knowledge/*.txt', { query: '?raw', import: 'default', eager: true });

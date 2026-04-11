@@ -11,7 +11,7 @@ import {
   type PromptVariant,
 } from '../src/lib/promptAssembly';
 import { loadPromptSourceSet } from '../src/lib/nodePrompts';
-import { searchKnowledge, type PromptMode } from '../src/lib/ragCore';
+import { searchKnowledge, chunksToContext, type PromptMode } from '../src/lib/ragCore';
 
 dotenv.config();
 
@@ -158,7 +158,7 @@ function buildRetrievedContext(
   testCase: HarnessCase,
   corpora: Record<PromptMode, ReturnType<typeof loadKnowledgeCorporaFromDisk>[PromptMode]>,
 ): string {
-  const retrieved = searchKnowledge(corpora[testCase.mode], testCase.question);
+  const retrieved = chunksToContext(searchKnowledge(corpora[testCase.mode], testCase.question));
   return [retrieved.trim(), testCase.extra_context?.trim()].filter(Boolean).join('\n\n');
 }
 
