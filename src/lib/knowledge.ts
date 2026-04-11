@@ -24,7 +24,15 @@ export type Category =
 export interface KnowledgeDocument extends KnowledgeFile {
   category: Category;
   displayTitle: string;
-  sizeLabel: string;
+  source: KnowledgeSource;
+  sourceLabel: string;
+}
+
+export interface KnowledgeListItem {
+  path: string;
+  name: string;
+  displayTitle: string;
+  category: Category;
   source: KnowledgeSource;
   sourceLabel: string;
 }
@@ -52,16 +60,6 @@ export function categorize(fileName: string): Category {
   if (/\(고시\)/.test(fileName)) return '고시';
   if (/평가|매뉴얼|Q&A|사례집/.test(fileName)) return '평가·매뉴얼';
   return '참고자료';
-}
-
-export function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  const value = bytes / Math.pow(1024, unitIndex);
-
-  return `${parseFloat(value.toFixed(1))} ${units[unitIndex]}`;
 }
 
 function getKnowledgeSource(path: string): KnowledgeSource {
@@ -92,7 +90,6 @@ function toKnowledgeDocuments(modules: Record<string, unknown>): KnowledgeDocume
         ...file,
         category: categorize(file.name),
         displayTitle: toDisplayTitle(file.name),
-        sizeLabel: formatBytes(file.size),
         source,
         sourceLabel: SOURCE_LABELS[source],
       };
@@ -100,5 +97,18 @@ function toKnowledgeDocuments(modules: Record<string, unknown>): KnowledgeDocume
     .sort(sortDocuments);
 }
 
+function toKnowledgeListItems(files: KnowledgeDocument[]): KnowledgeListItem[] {
+  return files.map(({ path, name, displayTitle, category, source, sourceLabel }) => ({
+    path,
+    name,
+    displayTitle,
+    category,
+    source,
+    sourceLabel,
+  }));
+}
+
 export const allKnowledgeFiles: KnowledgeDocument[] = toKnowledgeDocuments(allModules);
 export const evalKnowledgeFiles: KnowledgeDocument[] = toKnowledgeDocuments(evalModules);
+export const allKnowledgeListItems: KnowledgeListItem[] = toKnowledgeListItems(allKnowledgeFiles);
+export const evalKnowledgeListItems: KnowledgeListItem[] = toKnowledgeListItems(evalKnowledgeFiles);
