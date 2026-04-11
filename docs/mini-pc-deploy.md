@@ -124,13 +124,29 @@ Use this order to reduce quota waste:
 
 ## 7. Daily operations
 
-Useful commands:
+For manual deploys after the first setup, use the repository script:
 
 ```bash
-git pull
-npm install
-npm run rag:index
-PORT=3000 npm run dev
+cd ~/ltc-assistant
+chmod +x deploy.sh
+./deploy.sh
+```
+
+What it does:
+
+- pulls `origin/main` with `--ff-only`
+- runs `npm install` only when package files changed
+- runs `npm run rag:index` when knowledge or RAG indexing files changed
+- restarts the `ltc-rag` systemd service
+- calls `http://127.0.0.1:3000/api/health` at the end
+
+Useful overrides:
+
+```bash
+FORCE_INDEX=1 ./deploy.sh
+SKIP_INDEX=1 ./deploy.sh
+DEPLOY_SERVICE_NAME=ltc-rag ./deploy.sh
+DEPLOY_HEALTHCHECK_URL=https://rag.maumph.uk/api/health ./deploy.sh
 ```
 
 ## 8. Run the Node backend as a service
