@@ -58,10 +58,10 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB) + 1e-10);
 }
 
-async function rerankWithEmbeddings(candidates: Chunk[], query: string, topK = 8): Promise<Chunk[]> {
+async function rerankWithEmbeddings(candidates: Chunk[], query: string, topK = 8, aiInstance = ai): Promise<Chunk[]> {
   if (embeddedChunks.length === 0) return candidates.slice(0, topK);
   try {
-    const qRes = await ai.models.embedContent({ model: 'text-embedding-004', contents: query });
+    const qRes = await aiInstance.models.embedContent({ model: 'text-embedding-004', contents: query });
     const qVec = qRes.embeddings[0].values;
     return candidates
       .map(chunk => {
@@ -164,16 +164,25 @@ async function startServer() {
         mode = 'integrated',
         model = 'gemini-3-flash-preview',
         promptVariant = 'v2',
+        apiKey: reqApiKey,
       }: {
         messages?: ChatMessage[];
         mode?: PromptMode;
         model?: string;
         promptVariant?: PromptVariant;
+        apiKey?: string;
       } = req.body;
 
       if (!Array.isArray(messages) || messages.length === 0) {
         return res.status(400).json({ error: 'messages must be a non-empty array' });
       }
+
+      // 요청 본문의 API 키 우선, 없으면 환경변수 사용
+      const effectiveApiKey = reqApiKey || apiKey;
+      if (!effectiveApiKey || effectiveApiKey === 'missing-key') {
+        return res.status(401).json({ error: 'API 키가 없습니다. 상단 설정에서 API 키를 입력해 주세요.' });
+      }
+      const requestAi = reqApiKey ? new GoogleGenAI({ apiKey: reqApiKey }) : ai;
 
       // 히스토리 최근 2턴(4메시지)만 사용
       const recentMessages = messages.slice(-4);
@@ -182,7 +191,7 @@ async function startServer() {
 
       // 2단계 검색: TF-IDF(30) → 임베딩 재순위(8)
       const candidates = latestUserMessage ? searchKnowledge(files, latestUserMessage, 30) : [];
-      const topChunks = candidates.length > 0 ? await rerankWithEmbeddings(candidates, latestUserMessage, 8) : [];
+      const topChunks = candidates.length > 0 ? await rerankWithEmbeddings(candidates, latestUserMessage, 8, requestAi) : [];
 
       // 명시적 토큰 예산: 최대 20,000자
       const MAX_CONTEXT_CHARS = 20_000;
@@ -207,7 +216,7 @@ async function startServer() {
       }));
 
       await enqueueRequest(async () => {
-        const response = await ai.models.generateContent({
+        const response = await requestAi.models.generateContent({
           model,
           contents,
           config: { systemInstruction, temperature: 0.1 },
