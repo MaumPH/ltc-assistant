@@ -454,73 +454,60 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
 
     const callApi = async (retryCount = 0): Promise<void> => {
       try {
-        const [{ GoogleGenAI }, knowledgeModule] = await Promise.all([loadGenAiModule(), loadKnowledgeModule()]);
-        const files = mode === 'evaluation' ? knowledgeModule.evalKnowledgeFiles : knowledgeModule.allKnowledgeFiles;
-        const knowledgeContext = knowledgeModule.searchKnowledge(files, trimmed);
-        const ai = new GoogleGenAI({ apiKey });
-
-        const fullSystemInstruction = buildVariantSystemInstruction({
-          mode,
-          variant: 'v2',
-          knowledgeContext,
-          sources: promptSources,
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: newMessages.slice(-4),
+            mode,
+            model: selectedModel,
+            promptVariant: 'v2',
+          }),
+          signal: AbortSignal.timeout(55_000),
         });
 
-        const contents = newMessages.map((message) => ({
-          role: message.role,
-          parts: [{ text: message.text }],
-        }));
-
-        const result = await generateWithFallback({
-          ai,
-          contents,
-          selectedModel,
-          systemInstruction: fullSystemInstruction,
-        });
-
-        console.info('[ChatView] Gemini response settled', {
-          selectedModel,
-          usedModel: result.usedModel,
-          fallbackUsed: result.fallbackUsed,
-          failureKind: result.failureKind,
-        });
-
-        const finalText = result.fallbackUsed
-          ? `${formatFallbackNotice(result.usedModel)}\n\n${result.text}`
-          : result.text;
-
-        setMessages([...newMessages, { role: 'model', text: finalText }]);
-      } catch (error) {
-        const generationError =
-          error instanceof GenerationFlowError
-            ? error
-            : new GenerationFlowError(toModelFailure(selectedModel, error));
-
-        if (generationError.primaryFailure.kind === 'rate_limit' && retryCount < MAX_RATE_LIMIT_RETRIES) {
-          const retryMatch =
-            generationError.primaryFailure.message.match(/retry.*?(\d+)s/i) ||
-            generationError.primaryFailure.message.match(/"retryDelay":"(\d+)s"/);
-          const delaySeconds = retryMatch ? Number.parseInt(retryMatch[1], 10) + 2 : 15;
-
-          for (let seconds = delaySeconds; seconds > 0; seconds -= 1) {
-            setMessages([
-              ...newMessages,
-              {
-                role: 'model',
-                text: `분당 요청 한도를 초과했습니다. **${seconds}초 후 자동 재시도합니다.** (${retryCount + 1}/${MAX_RATE_LIMIT_RETRIES})`,
-              },
-            ]);
-            await wait(1000);
+        if (response.status === 429) {
+          const delay = Number.parseInt(response.headers.get('Retry-After') ?? '15', 10) + 2;
+          if (retryCount < MAX_RATE_LIMIT_RETRIES) {
+            for (let s = delay; s > 0; s -= 1) {
+              setMessages([
+                ...newMessages,
+                {
+                  role: 'model',
+                  text: `분당 요청 한도를 초과했습니다. **${s}초 후 자동 재시도합니다.** (${retryCount + 1}/${MAX_RATE_LIMIT_RETRIES})`,
+                },
+              ]);
+              await wait(1000);
+            }
+            return callApi(retryCount + 1);
           }
-
-          return callApi(retryCount + 1);
+          setMessages([
+            ...newMessages,
+            { role: 'model', text: '요청 한도를 초과했거나 결제 설정이 필요합니다. 잠시 후 다시 질문해 주세요.\n\n> 해결 방법: [Google AI Studio](https://aistudio.google.com)에서 결제 수단과 사용량 한도를 확인해 주세요.' },
+          ]);
+          return;
         }
 
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({ error: '서버 오류' }));
+          setMessages([
+            ...newMessages,
+            { role: 'model', text: `오류가 발생했습니다. 다시 시도해 주세요.\n\n> ${(data as { error?: string }).error ?? response.statusText}` },
+          ]);
+          return;
+        }
+
+        const data = await response.json() as { text?: string };
+        setMessages([...newMessages, { role: 'model', text: data.text?.trim() || '응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.' }]);
+      } catch (error) {
+        const isTimeout = error instanceof Error && error.name === 'TimeoutError';
         setMessages([
           ...newMessages,
           {
             role: 'model',
-            text: formatFailureMessage(generationError),
+            text: isTimeout
+              ? '선택한 모델 응답이 너무 오래 걸려 요청을 종료했습니다. 잠시 후 다시 시도해 주세요.'
+              : `오류가 발생했습니다. 다시 시도해 주세요.\n\n> ${error instanceof Error ? error.message : '알 수 없는 오류'}`,
           },
         ]);
       }
