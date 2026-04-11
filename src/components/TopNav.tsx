@@ -13,7 +13,7 @@ export const TABS: { id: TabId; label: string; shortLabel: string }[] = [
 ];
 
 export const MODELS = [
-  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash', desc: '빠른 응답과 기본 상담에 적합' },
+  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash', desc: '속도 우선, 미리보기 모델' },
   { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', desc: '정확도 우선, 복합 질문에 강함' },
   { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', desc: '가볍고 빠른 경량 모델' },
 ] as const;
@@ -97,12 +97,7 @@ export function MobileSettingsSheet({
 
   return (
     <div className="fixed inset-0 z-50 sm:hidden" role="dialog" aria-modal="true" aria-label="모바일 설정">
-      <button
-        type="button"
-        aria-label="설정 닫기"
-        className="absolute inset-0 bg-slate-950/50"
-        onClick={onClose}
-      />
+      <button type="button" aria-label="설정 닫기" className="absolute inset-0 bg-slate-950/50" onClick={onClose} />
 
       <div className="absolute inset-x-0 bottom-0 overflow-hidden rounded-t-[28px] bg-white shadow-2xl">
         <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-slate-200" />
@@ -132,7 +127,7 @@ export function MobileSettingsSheet({
                 <Bot className="h-4 w-4 text-blue-600" />
                 채팅 모델
               </div>
-              <p className="text-xs leading-5 text-slate-500">채팅 탭에서 사용할 모델을 선택하세요.</p>
+              <p className="text-xs leading-5 text-slate-500">채팅 탭에서 사용할 모델을 선택해 주세요.</p>
 
               <div className="space-y-2">
                 {MODELS.map((model) => (
@@ -155,7 +150,7 @@ export function MobileSettingsSheet({
                     API 키
                   </div>
                   <p className="mt-1 text-xs leading-5 text-slate-500">
-                    현재 기기 브라우저에만 저장되고 외부 서버로 전송되지 않습니다.
+                    현재 기기 브라우저에만 저장되고, 서버로 전송되지 않습니다.
                   </p>
                 </div>
                 <span
@@ -209,7 +204,7 @@ export default function TopNav({
       <div className="flex h-14 items-center gap-3 px-3 sm:gap-4 sm:px-4">
         <div className="flex shrink-0 items-center gap-2">
           <Scale className="h-5 w-5 text-blue-400" />
-          <span className="hidden whitespace-nowrap text-sm font-semibold sm:block">장기요양 실무 보조</span>
+          <span className="hidden whitespace-nowrap text-sm font-semibold sm:block">장기요양 업무 보조</span>
         </div>
 
         <div className="hidden h-6 w-px shrink-0 bg-slate-700 sm:block" />
