@@ -10,8 +10,19 @@ create table if not exists documents (
   document_group text not null,
   effective_date date,
   published_date date,
+  content_hash text,
+  file_size bigint,
+  source_mtime timestamptz,
+  chunk_count integer not null default 0,
+  embedding_count integer not null default 0,
   created_at timestamptz not null default now()
 );
+
+alter table documents add column if not exists content_hash text;
+alter table documents add column if not exists file_size bigint;
+alter table documents add column if not exists source_mtime timestamptz;
+alter table documents add column if not exists chunk_count integer not null default 0;
+alter table documents add column if not exists embedding_count integer not null default 0;
 
 create table if not exists document_versions (
   id text primary key,
@@ -84,4 +95,15 @@ create table if not exists benchmark_cases (
   acceptable_abstain boolean not null default false,
   notes text,
   created_at timestamptz not null default now()
+);
+
+create table if not exists rag_index_metadata (
+  id text primary key,
+  generated_at timestamptz not null,
+  storage_mode text not null,
+  manifest_hash text not null,
+  document_count integer not null,
+  chunk_count integer not null,
+  embedding_count integer not null,
+  mode_counts jsonb not null default '{}'::jsonb
 );

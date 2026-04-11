@@ -7,10 +7,44 @@ export interface RagCorpusIndex {
   dfMap: Map<string, number>;
 }
 
-const VECTOR_TOP_K = 24;
-const FUSED_TOP_K = 15;
-const EVIDENCE_TOP_K = 8;
+const VECTOR_TOP_K = 36;
+const FUSED_TOP_K = 24;
+const EVIDENCE_TOP_K = 12;
+const MAX_EVIDENCE_PER_DOCUMENT = 2;
 const RRF_K = 50;
+const CANDIDATE_METADATA_TERMS = new Set([
+  'document-title',
+  'legal-source',
+  'manual-source',
+  'synthesis-source',
+  'evaluation-mode',
+  'date-match',
+]);
+
+const GENERIC_QUERY_TERMS = new Set([
+  '장기요양',
+  '기관',
+  '급여',
+  '제공',
+  '기준',
+  '방법',
+  '운영',
+  '업무',
+  '평가',
+  '문서',
+  '자료',
+  '안내',
+  '지침',
+  '허용',
+  '가능',
+  '관련',
+  '요양',
+  '시설',
+  '내용',
+  '대상',
+  '질문',
+  '이용',
+]);
 
 function cosineSimilarity(a: number[], b: number[]): number {
   let dot = 0;
@@ -60,8 +94,21 @@ function boostCandidate(base: SearchCandidate, patch: Partial<SearchCandidate>):
   };
 }
 
-function queryTokens(query: string): string[] {
+export function queryTokens(query: string): string[] {
   return Array.from(new Set(tokenize(query)));
+}
+
+export function deriveFocusTerms(query: string): string[] {
+  return queryTokens(query).filter((token) => !GENERIC_QUERY_TERMS.has(token));
+}
+
+export function isGenericQueryTerm(term: string): boolean {
+  return GENERIC_QUERY_TERMS.has(term);
+}
+
+export function getCandidateFocusMatches(candidate: StructuredChunk, focusTerms: string[]): string[] {
+  const searchText = candidate.searchText.toLowerCase();
+  return focusTerms.filter((term) => searchText.includes(term.toLowerCase()));
 }
 
 function scoreExact(chunk: StructuredChunk, query: string, intent: QueryIntent, mode: PromptMode): SearchCandidate {
@@ -117,7 +164,7 @@ function scoreExact(chunk: StructuredChunk, query: string, intent: QueryIntent, 
     matchedTerms.add('evaluation-mode');
   }
 
-  const queryDateMatch = query.match(/20\d{2}[.\-/년]?\d{1,2}(?:[.\-/월]?\d{1,2})?/);
+  const queryDateMatch = query.match(/20\d{2}[.\-/]\d{1,2}(?:[.\-/]\d{1,2})?/);
   if (
     queryDateMatch &&
     chunk.effectiveDate &&
@@ -225,7 +272,6 @@ function rerankCandidate(candidate: SearchCandidate, intent: QueryIntent, mode: 
   if (intent === 'manual-qna' && ['manual', 'guide', 'wiki'].includes(candidate.sourceType)) score += 5;
   if (intent === 'synthesis' && candidate.sourceType === 'comparison') score += 6;
   if (mode === 'evaluation' && candidate.mode === 'evaluation') score += 6;
-  if (mode === 'integrated' && intent !== 'evaluation' && candidate.mode === 'evaluation') score -= 8;
 
   return {
     ...candidate,
@@ -236,26 +282,61 @@ function rerankCandidate(candidate: SearchCandidate, intent: QueryIntent, mode: 
 function selectEvidence(candidates: SearchCandidate[], intent: QueryIntent): SearchCandidate[] {
   const selected: SearchCandidate[] = [];
   const fingerprintCounts = new Map<string, number>();
+  const documentCounts = new Map<string, number>();
 
-  for (const candidate of candidates) {
-    const fingerprint = `${candidate.docTitle}:${candidate.articleNo ?? candidate.sectionPath.join('>')}`;
-    const fingerprintCount = fingerprintCounts.get(fingerprint) ?? 0;
-    if (fingerprintCount >= 2) continue;
+  for (let pass = 0; pass < MAX_EVIDENCE_PER_DOCUMENT && selected.length < EVIDENCE_TOP_K; pass += 1) {
+    for (const candidate of candidates) {
+      if (selected.some((item) => item.id === candidate.id)) continue;
 
-    if (intent !== 'synthesis' && selected.some((item) => item.id === candidate.id)) {
-      continue;
+      const documentCount = documentCounts.get(candidate.documentId) ?? 0;
+      if (documentCount > pass || documentCount >= MAX_EVIDENCE_PER_DOCUMENT) continue;
+
+      const fingerprint = `${candidate.docTitle}:${candidate.articleNo ?? candidate.sectionPath.join('>')}`;
+      const fingerprintCount = fingerprintCounts.get(fingerprint) ?? 0;
+      if (fingerprintCount >= 2) continue;
+
+      if (intent !== 'synthesis' && selected.some((item) => item.id === candidate.id)) {
+        continue;
+      }
+
+      selected.push(candidate);
+      documentCounts.set(candidate.documentId, documentCount + 1);
+      fingerprintCounts.set(fingerprint, fingerprintCount + 1);
+      if (selected.length >= EVIDENCE_TOP_K) break;
     }
-
-    selected.push(candidate);
-    fingerprintCounts.set(fingerprint, fingerprintCount + 1);
-    if (selected.length >= EVIDENCE_TOP_K) break;
   }
 
   return selected;
 }
 
-function inferConfidence(intent: QueryIntent, evidence: SearchCandidate[]): ConfidenceLevel {
+function detectTopicMismatch(query: string, candidates: SearchCandidate[]): { focusTerms: string[]; mismatchSignals: string[] } {
+  const focusTerms = deriveFocusTerms(query);
+  if (focusTerms.length === 0 || candidates.length === 0) {
+    return { focusTerms, mismatchSignals: [] };
+  }
+
+  const topCandidates = candidates.slice(0, 5);
+  const matchedFocusTerms = new Set(topCandidates.flatMap((candidate) => getCandidateFocusMatches(candidate, focusTerms)));
+  const genericOnlyMatches = topCandidates.every((candidate) => {
+    const matchedQueryTerms = candidate.matchedTerms.filter((term) => !CANDIDATE_METADATA_TERMS.has(term));
+    return matchedQueryTerms.length === 0 || matchedQueryTerms.every((term) => GENERIC_QUERY_TERMS.has(term));
+  });
+
+  const mismatchSignals: string[] = [];
+  if (matchedFocusTerms.size === 0) {
+    mismatchSignals.push('no-focus-terms-in-top-candidates');
+    if (genericOnlyMatches) {
+      mismatchSignals.push('generic-only-match');
+    }
+  }
+
+  return { focusTerms, mismatchSignals };
+}
+
+function inferConfidence(intent: QueryIntent, evidence: SearchCandidate[], mismatchSignals: string[]): ConfidenceLevel {
   if (evidence.length === 0) return 'low';
+  if (mismatchSignals.length > 0) return 'low';
+
   const top = evidence[0];
   const exactHeavy = top.exactScore >= 25 || Boolean(top.articleNo && top.matchedTerms.includes(top.articleNo));
   const mixedDocs = new Set(evidence.map((item) => item.docTitle)).size >= 3;
@@ -292,7 +373,8 @@ export function searchCorpus(params: {
     .slice(0, FUSED_TOP_K);
 
   const evidence = selectEvidence(fusedCandidates, intent);
-  const confidence = inferConfidence(intent, evidence);
+  const { focusTerms, mismatchSignals } = detectTopicMismatch(query, fusedCandidates);
+  const confidence = inferConfidence(intent, evidence, mismatchSignals);
 
   return {
     query,
@@ -304,5 +386,7 @@ export function searchCorpus(params: {
     vectorCandidates,
     fusedCandidates,
     evidence,
+    focusTerms,
+    mismatchSignals,
   };
 }

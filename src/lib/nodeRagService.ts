@@ -1,22 +1,42 @@
 import fs from 'fs';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
-import { Pool } from 'pg';
-import { buildRagCorpusIndex, searchCorpus, type RagCorpusIndex } from './ragEngine';
-import { buildCitationLabel, compareIsoDateDesc, formatEvidenceStateLabel, toDocumentMetadata } from './ragMetadata';
+import { Pool, type PoolClient } from 'pg';
+import {
+  buildRagCorpusIndex,
+  deriveFocusTerms,
+  getCandidateFocusMatches,
+  isGenericQueryTerm,
+  searchCorpus,
+  type RagCorpusIndex,
+} from './ragEngine';
+import {
+  buildDocumentDiagnostics,
+  buildKnowledgeDoctorIssues,
+  buildKnowledgeManifest,
+  compareIndexStatus,
+} from './ragIndex';
+import { buildCitationLabel, compareIsoDateDesc, formatEvidenceStateLabel, sha1, toDocumentMetadata } from './ragMetadata';
 import { loadKnowledgeCorporaFromDisk } from './nodeKnowledge';
 import { loadPromptSourceSet } from './nodePrompts';
 import { buildVariantSystemInstruction, type PromptVariant } from './promptAssembly';
 import { buildCompiledPages, buildStructuredChunks, buildStructuredSections, chunksToEvidenceContext } from './ragStructured';
 import type {
   BenchmarkCase,
+  CandidateDiagnostic,
   ChatMessage,
   CompiledPage,
   ConfidenceLevel,
+  DocumentDiagnostics,
   GroundedAnswer,
+  IndexManifestEntry,
+  IndexStatus,
   KnowledgeFile,
+  KnowledgeDoctorIssue,
   PromptMode,
   QueryIntent,
+  RetrievalDiagnostics,
+  RecentRetrievalMatch,
   SearchRun,
   StructuredChunk,
 } from './ragTypes';
@@ -43,6 +63,26 @@ interface StoredChunkRow {
   embedding?: number[] | string | null;
 }
 
+interface StoredDocumentRow {
+  id: string;
+  title: string;
+  file_name: string;
+  path: string;
+  mode: PromptMode;
+  content_hash?: string | null;
+  file_size?: number | string | null;
+  source_mtime?: string | Date | null;
+  chunk_count?: number | string | null;
+  embedding_count?: number | string | null;
+}
+
+interface StoredIndexMetadataRow {
+  id: string;
+  generated_at: string | Date;
+  storage_mode: string;
+  manifest_hash: string;
+}
+
 interface GroundedChatRequest {
   messages: ChatMessage[];
   mode: PromptMode;
@@ -55,12 +95,18 @@ export interface GroundedChatResponse {
   text: string;
   search: SearchRun;
   citations: StructuredChunk[];
+  retrieval: RetrievalDiagnostics;
 }
 
 export interface RetrievalInspectionResponse {
   query: string;
+  normalizedQuery: string;
+  querySources: string[];
   search: SearchRun;
   compiledPages: CompiledPage[];
+  indexStatus: IndexStatus;
+  candidateDiagnostics: CandidateDiagnostic[];
+  matchedDocumentPaths: string[];
 }
 
 interface RagStore {
@@ -70,6 +116,9 @@ interface RagStore {
   getCompiledPages(mode: PromptMode, documentIds: string[]): CompiledPage[];
   listKnowledgeFiles(): { name: string; size: number; updatedAt: Date }[];
   getStats(): { chunks: number; compiledPages: number; storageMode: string };
+  getChunks(): StructuredChunk[];
+  getManifestEntries(): IndexManifestEntry[];
+  getIndexGeneratedAt(): string | undefined;
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
@@ -187,6 +236,15 @@ function parseEmbedding(value: number[] | string | null | undefined): number[] |
   }
 }
 
+function parseNumberValue(value: number | string | null | undefined): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
 function rowToChunk(row: StoredChunkRow): StructuredChunk {
   return {
     id: row.id,
@@ -212,6 +270,30 @@ function rowToChunk(row: StoredChunkRow): StructuredChunk {
   };
 }
 
+function rowToManifestEntry(row: StoredDocumentRow): IndexManifestEntry {
+  return {
+    documentId: row.id,
+    path: row.path,
+    name: row.file_name,
+    mode: row.mode,
+    contentHash: row.content_hash ?? sha1(`${row.path}:${row.title}`),
+    size: parseNumberValue(row.file_size),
+    updatedAt: row.source_mtime ? new Date(row.source_mtime).toISOString() : undefined,
+    chunkCount: parseNumberValue(row.chunk_count),
+    embeddingCount: parseNumberValue(row.embedding_count),
+  };
+}
+
+function manifestEntriesToKnowledgeStats(entries: IndexManifestEntry[]): Array<{ name: string; size: number; updatedAt: Date }> {
+  return entries
+    .map((entry) => ({
+      name: entry.path.replace(/^\/knowledge\//, ''),
+      size: entry.size,
+      updatedAt: new Date(entry.updatedAt ?? 0),
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name, 'ko'));
+}
+
 function chunkToCitationLine(chunk: StructuredChunk): string {
   return buildCitationLabel(chunk);
 }
@@ -226,6 +308,138 @@ function dedupeCitations(chunks: StructuredChunk[]): StructuredChunk[] {
     result.push(chunk);
   }
   return result.sort((left, right) => compareIsoDateDesc(left.effectiveDate, right.effectiveDate));
+}
+
+const FOLLOW_UP_QUERY_RE = /^(그럼|그러면|이 경우|위 내용|위에|그 내용|그거|이거|그건|이건|같은 경우|이 상황|그 상황)/;
+
+function isFollowUpQuery(query: string): boolean {
+  const trimmed = query.trim();
+  if (!trimmed) return false;
+  return trimmed.length <= 18 || FOLLOW_UP_QUERY_RE.test(trimmed);
+}
+
+function buildNormalizedRetrievalQuery(messages: ChatMessage[]): { normalizedQuery: string; querySources: string[] } {
+  const userMessages = messages
+    .filter((message) => message.role === 'user')
+    .map((message) => message.text.trim())
+    .filter(Boolean);
+  const latest = userMessages[userMessages.length - 1] ?? '';
+  const previous = userMessages[userMessages.length - 2];
+
+  if (previous && isFollowUpQuery(latest)) {
+    return {
+      normalizedQuery: `${previous}\n후속질문: ${latest}`,
+      querySources: [previous, latest],
+    };
+  }
+
+  return {
+    normalizedQuery: latest,
+    querySources: latest ? [latest] : [],
+  };
+}
+
+function buildCandidateDiagnostics(search: SearchRun): CandidateDiagnostic[] {
+  const focusTerms = search.focusTerms ?? deriveFocusTerms(search.query);
+  const evidenceIds = new Set(search.evidence.map((item) => item.id));
+
+  return search.fusedCandidates.map((candidate) => {
+    const focusTermMatches = getCandidateFocusMatches(candidate, focusTerms);
+    const concreteMatchedTerms = candidate.matchedTerms.filter((term) => !term.includes('-'));
+    const matchedOnlyGenericTerms =
+      focusTermMatches.length === 0 &&
+      (concreteMatchedTerms.length === 0 || concreteMatchedTerms.every((term) => isGenericQueryTerm(term)));
+
+    return {
+      id: candidate.id,
+      path: candidate.path,
+      docTitle: candidate.docTitle,
+      rerankScore: candidate.rerankScore,
+      matchedTerms: candidate.matchedTerms,
+      focusTermMatches,
+      selectedAsEvidence: evidenceIds.has(candidate.id),
+      matchedOnlyGenericTerms,
+    };
+  });
+}
+
+function hasExactArticleGrounding(evidence: SearchRun['evidence']): boolean {
+  return evidence.some(
+    (candidate) =>
+      candidate.exactScore >= 40 ||
+      Boolean(candidate.articleNo && candidate.matchedTerms.includes(candidate.articleNo)),
+  );
+}
+
+function hasSequentialDocumentGrounding(evidence: SearchRun['evidence']): boolean {
+  const chunkIndexesByDocument = new Map<string, number[]>();
+  for (const candidate of evidence) {
+    const list = chunkIndexesByDocument.get(candidate.documentId) ?? [];
+    list.push(candidate.chunkIndex);
+    chunkIndexesByDocument.set(candidate.documentId, list);
+  }
+
+  for (const indexes of chunkIndexesByDocument.values()) {
+    const sorted = indexes.slice().sort((left, right) => left - right);
+    for (let index = 1; index < sorted.length; index += 1) {
+      if (sorted[index] - sorted[index - 1] === 1) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function hasCrossDocumentGrounding(evidence: SearchRun['evidence'], focusTerms: string[]): boolean {
+  const supportedDocuments = new Set(
+    evidence
+      .filter((candidate) => {
+        const focusMatches = getCandidateFocusMatches(candidate, focusTerms);
+        if (focusMatches.length > 0) return true;
+        if (candidate.exactScore >= 25) return true;
+        return candidate.lexicalScore > 0;
+      })
+      .map((candidate) => candidate.documentId),
+  );
+  return supportedDocuments.size >= 2;
+}
+
+function applyGroundingGate(search: SearchRun): SearchRun {
+  const focusTerms = search.focusTerms ?? deriveFocusTerms(search.query);
+  const hasGrounding =
+    hasExactArticleGrounding(search.evidence) ||
+    hasSequentialDocumentGrounding(search.evidence) ||
+    hasCrossDocumentGrounding(search.evidence, focusTerms);
+
+  const mismatchSignals = [...(search.mismatchSignals ?? [])];
+  if (!hasGrounding) {
+    mismatchSignals.push('grounding-gate-failed');
+  }
+
+  return {
+    ...search,
+    confidence: mismatchSignals.length > 0 ? 'low' : search.confidence,
+    mismatchSignals,
+    groundingGatePassed: hasGrounding,
+  };
+}
+
+function buildRetrievalDiagnostics(
+  search: SearchRun,
+  normalizedQuery: string,
+  querySources: string[],
+): RetrievalDiagnostics {
+  const candidateDiagnostics = buildCandidateDiagnostics(search);
+  return {
+    normalizedQuery,
+    querySources,
+    matchedDocumentPaths: Array.from(new Set(search.evidence.map((item) => item.path))),
+    candidateDiagnostics,
+    focusTerms: search.focusTerms ?? deriveFocusTerms(search.query),
+    mismatchSignals: search.mismatchSignals ?? [],
+    groundingGatePassed: search.groundingGatePassed ?? false,
+  };
 }
 
 function deriveKeyIssueDate(answer: GroundedAnswer, citations: StructuredChunk[]): string {
@@ -367,19 +581,144 @@ async function embedChunks(ai: GoogleGenAI, chunks: StructuredChunk[]): Promise<
   return embeddedCount;
 }
 
+const POSTGRES_SCHEMA_STATEMENTS = [
+  'create extension if not exists vector',
+  `
+    create table if not exists documents (
+      id text primary key,
+      title text not null,
+      file_name text not null,
+      path text not null unique,
+      mode text not null,
+      source_type text not null,
+      document_group text not null,
+      effective_date date,
+      published_date date,
+      content_hash text,
+      file_size bigint,
+      source_mtime timestamptz,
+      chunk_count integer not null default 0,
+      embedding_count integer not null default 0,
+      created_at timestamptz not null default now()
+    )
+  `,
+  'alter table documents add column if not exists content_hash text',
+  'alter table documents add column if not exists file_size bigint',
+  'alter table documents add column if not exists source_mtime timestamptz',
+  'alter table documents add column if not exists chunk_count integer not null default 0',
+  'alter table documents add column if not exists embedding_count integer not null default 0',
+  `
+    create table if not exists document_versions (
+      id text primary key,
+      document_id text not null references documents(id) on delete cascade,
+      version_hash text not null,
+      raw_content text not null,
+      created_at timestamptz not null default now()
+    )
+  `,
+  `
+    create table if not exists sections (
+      id text primary key,
+      document_id text not null references documents(id) on delete cascade,
+      title text not null,
+      depth integer not null,
+      section_path jsonb not null,
+      article_no text,
+      line_start integer,
+      line_end integer,
+      content text not null
+    )
+  `,
+  `
+    create table if not exists chunks (
+      id text primary key,
+      document_id text not null references documents(id) on delete cascade,
+      chunk_index integer not null,
+      title text not null,
+      text text not null,
+      search_text text not null,
+      mode text not null,
+      source_type text not null,
+      document_group text not null,
+      doc_title text not null,
+      file_name text not null,
+      path text not null,
+      effective_date date,
+      published_date date,
+      section_path jsonb not null,
+      article_no text,
+      matched_labels jsonb not null default '[]'::jsonb,
+      chunk_hash text not null,
+      embedding vector(768),
+      created_at timestamptz not null default now()
+    )
+  `,
+  'create index if not exists chunks_mode_idx on chunks(mode)',
+  'create index if not exists chunks_doc_title_idx on chunks(doc_title)',
+  'create index if not exists chunks_article_idx on chunks(article_no)',
+  'create index if not exists chunks_effective_date_idx on chunks(effective_date desc)',
+  'create index if not exists chunks_embedding_ivfflat_idx on chunks using ivfflat (embedding vector_cosine_ops) with (lists = 100)',
+  `
+    create table if not exists compiled_pages (
+      id text primary key,
+      page_type text not null,
+      title text not null,
+      mode text not null,
+      source_document_ids jsonb not null,
+      backlinks jsonb not null,
+      summary text not null,
+      body text not null,
+      tags jsonb not null default '[]'::jsonb,
+      created_at timestamptz not null default now()
+    )
+  `,
+  `
+    create table if not exists benchmark_cases (
+      id text primary key,
+      mode text not null,
+      question text not null,
+      expected_doc text not null,
+      expected_section text,
+      acceptable_abstain boolean not null default false,
+      notes text,
+      created_at timestamptz not null default now()
+    )
+  `,
+  `
+    create table if not exists rag_index_metadata (
+      id text primary key,
+      generated_at timestamptz not null,
+      storage_mode text not null,
+      manifest_hash text not null,
+      document_count integer not null,
+      chunk_count integer not null,
+      embedding_count integer not null,
+      mode_counts jsonb not null default '{}'::jsonb
+    )
+  `,
+];
+
+async function ensurePostgresSchema(client: PoolClient): Promise<void> {
+  for (const statement of POSTGRES_SCHEMA_STATEMENTS) {
+    await client.query(statement);
+  }
+}
+
 class MemoryRagStore implements RagStore {
   private readonly projectRoot: string;
   private readonly embeddingCachePath: string;
-  private readonly knowledgeStats: { name: string; size: number; updatedAt: Date }[];
+  private knowledgeStats: { name: string; size: number; updatedAt: Date }[] = [];
+  private files: KnowledgeFile[] = [];
   private chunks: StructuredChunk[] = [];
   private index: RagCorpusIndex = buildRagCorpusIndex([]);
   private compiledPages: CompiledPage[] = [];
+  private manifestEntries: IndexManifestEntry[] = [];
+  private indexGeneratedAt: string | undefined;
   private lastEmbeddingAttemptAt = 0;
 
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
     this.embeddingCachePath = path.join(projectRoot, '.rag-cache', EMBEDDING_CACHE_FILE);
-    this.knowledgeStats = collectKnowledgeStats(projectRoot);
   }
 
   private restoreEmbeddingsFromCache(): number {
@@ -421,14 +760,17 @@ class MemoryRagStore implements RagStore {
 
   async initialize(): Promise<void> {
     const corpora = loadKnowledgeCorporaFromDisk(this.projectRoot);
-    const merged = mergeCorpora(corpora.integrated, corpora.evaluation);
-    this.chunks = buildStructuredChunks(merged);
+    this.files = mergeCorpora(corpora.integrated, corpora.evaluation);
+    this.chunks = buildStructuredChunks(this.files);
     const restored = this.restoreEmbeddingsFromCache();
     if (restored > 0) {
       console.info(`[embedding] restored ${restored} cached chunk embeddings from disk.`);
     }
     this.index = buildRagCorpusIndex(this.chunks);
     this.compiledPages = buildCompiledPages(this.chunks);
+    this.manifestEntries = buildKnowledgeManifest(this.files, this.chunks);
+    this.knowledgeStats = manifestEntriesToKnowledgeStats(this.manifestEntries);
+    this.indexGeneratedAt = new Date().toISOString();
   }
 
   async ensureEmbeddings(ai: GoogleGenAI): Promise<void> {
@@ -441,6 +783,8 @@ class MemoryRagStore implements RagStore {
       console.info(`[embedding] cached ${embeddedCount} additional chunk embeddings to disk.`);
     }
     this.index = buildRagCorpusIndex(this.chunks);
+    this.manifestEntries = buildKnowledgeManifest(this.files, this.chunks);
+    this.indexGeneratedAt = new Date().toISOString();
   }
 
   search(query: string, mode: PromptMode, queryEmbedding: number[] | null): SearchRun {
@@ -463,6 +807,18 @@ class MemoryRagStore implements RagStore {
       storageMode: 'memory',
     };
   }
+
+  getChunks() {
+    return this.chunks;
+  }
+
+  getManifestEntries() {
+    return this.manifestEntries;
+  }
+
+  getIndexGeneratedAt() {
+    return this.indexGeneratedAt;
+  }
 }
 
 class PostgresRagStore implements RagStore {
@@ -470,6 +826,9 @@ class PostgresRagStore implements RagStore {
   private chunks: StructuredChunk[] = [];
   private index: RagCorpusIndex = buildRagCorpusIndex([]);
   private compiledPages: CompiledPage[] = [];
+  private manifestEntries: IndexManifestEntry[] = [];
+  private knowledgeStats: { name: string; size: number; updatedAt: Date }[] = [];
+  private indexGeneratedAt: string | undefined;
   private lastEmbeddingAttemptAt = 0;
 
   constructor(connectionString: string) {
@@ -477,7 +836,11 @@ class PostgresRagStore implements RagStore {
   }
 
   async initialize(): Promise<void> {
-    const chunkResult = await this.pool.query<StoredChunkRow>(`
+    const client = await this.pool.connect();
+    try {
+      await ensurePostgresSchema(client);
+
+      const chunkResult = await client.query<StoredChunkRow>(`
       select
         id,
         document_id,
@@ -502,24 +865,24 @@ class PostgresRagStore implements RagStore {
       order by doc_title asc, chunk_index asc
     `);
 
-    if (chunkResult.rows.length === 0) {
-      throw new Error('Postgres RAG storage is empty.');
-    }
+      if (chunkResult.rows.length === 0) {
+        throw new Error('Postgres RAG storage is empty.');
+      }
 
-    this.chunks = chunkResult.rows.map(rowToChunk);
-    this.index = buildRagCorpusIndex(this.chunks);
+      this.chunks = chunkResult.rows.map(rowToChunk);
+      this.index = buildRagCorpusIndex(this.chunks);
 
-    const compiledResult = await this.pool.query<{
-      id: string;
-      page_type: CompiledPage['pageType'];
-      title: string;
-      mode: PromptMode;
-      source_document_ids: string[] | string;
-      backlinks: string[] | string;
-      summary: string;
-      body: string;
-      tags: string[] | string;
-    }>(`
+      const compiledResult = await client.query<{
+        id: string;
+        page_type: CompiledPage['pageType'];
+        title: string;
+        mode: PromptMode;
+        source_document_ids: string[] | string;
+        backlinks: string[] | string;
+        summary: string;
+        body: string;
+        tags: string[] | string;
+      }>(`
       select
         id,
         page_type,
@@ -533,17 +896,50 @@ class PostgresRagStore implements RagStore {
       from compiled_pages
     `);
 
-    this.compiledPages = compiledResult.rows.map((row) => ({
-      id: row.id,
-      pageType: row.page_type,
-      title: row.title,
-      mode: row.mode,
-      sourceDocumentIds: parseStringArray(row.source_document_ids),
-      backlinks: parseStringArray(row.backlinks),
-      summary: row.summary,
-      body: row.body,
-      tags: parseStringArray(row.tags),
-    }));
+      this.compiledPages = compiledResult.rows.map((row) => ({
+        id: row.id,
+        pageType: row.page_type,
+        title: row.title,
+        mode: row.mode,
+        sourceDocumentIds: parseStringArray(row.source_document_ids),
+        backlinks: parseStringArray(row.backlinks),
+        summary: row.summary,
+        body: row.body,
+        tags: parseStringArray(row.tags),
+      }));
+
+      const documentResult = await client.query<StoredDocumentRow>(`
+        select
+          id,
+          title,
+          file_name,
+          path,
+          mode,
+          content_hash,
+          file_size,
+          source_mtime,
+          chunk_count,
+          embedding_count
+        from documents
+        order by path asc
+      `);
+      this.manifestEntries = documentResult.rows.map(rowToManifestEntry);
+      this.knowledgeStats = manifestEntriesToKnowledgeStats(this.manifestEntries);
+
+      const metadataResult = await client.query<StoredIndexMetadataRow>(`
+        select
+          id,
+          generated_at,
+          storage_mode,
+          manifest_hash
+        from rag_index_metadata
+        where id = 'current'
+      `);
+      this.indexGeneratedAt =
+        metadataResult.rows.length > 0 ? new Date(metadataResult.rows[0].generated_at).toISOString() : undefined;
+    } finally {
+      client.release();
+    }
   }
 
   async ensureEmbeddings(ai: GoogleGenAI): Promise<void> {
@@ -566,7 +962,7 @@ class PostgresRagStore implements RagStore {
   }
 
   listKnowledgeFiles() {
-    return [];
+    return this.knowledgeStats;
   }
 
   getStats() {
@@ -575,6 +971,18 @@ class PostgresRagStore implements RagStore {
       compiledPages: this.compiledPages.length,
       storageMode: 'postgres',
     };
+  }
+
+  getChunks() {
+    return this.chunks;
+  }
+
+  getManifestEntries() {
+    return this.manifestEntries;
+  }
+
+  getIndexGeneratedAt() {
+    return this.indexGeneratedAt;
   }
 }
 
@@ -756,6 +1164,15 @@ export class NodeRagService {
   private readonly promptSources;
   private store: RagStore;
   private readonly bootstrapAi: GoogleGenAI | null;
+  private diskFiles: KnowledgeFile[] = [];
+  private diskManifestEntries: IndexManifestEntry[] = [];
+  private doctorIssues: KnowledgeDoctorIssue[] = [];
+  private indexStatus: IndexStatus = compareIndexStatus({
+    diskEntries: [],
+    indexedEntries: [],
+    storageMode: 'memory',
+  });
+  private lastRetrievalByPath = new Map<string, RecentRetrievalMatch>();
   private initialized = false;
 
   constructor(projectRoot: string) {
@@ -774,6 +1191,47 @@ export class NodeRagService {
     this.bootstrapAi = bootstrapApiKey ? new GoogleGenAI({ apiKey: bootstrapApiKey }) : null;
   }
 
+  private loadDiskKnowledgeState(): { files: KnowledgeFile[]; manifestEntries: IndexManifestEntry[]; issues: KnowledgeDoctorIssue[] } {
+    const corpora = loadKnowledgeCorporaFromDisk(this.projectRoot);
+    const files = mergeCorpora(corpora.integrated, corpora.evaluation);
+    const chunks = buildStructuredChunks(files);
+    return {
+      files,
+      manifestEntries: buildKnowledgeManifest(files, chunks),
+      issues: buildKnowledgeDoctorIssues(files, chunks),
+    };
+  }
+
+  private refreshIndexStatus(): IndexStatus {
+    const diskState = this.loadDiskKnowledgeState();
+    this.diskFiles = diskState.files;
+    this.diskManifestEntries = diskState.manifestEntries;
+    this.doctorIssues = diskState.issues;
+    this.indexStatus = compareIndexStatus({
+      diskEntries: this.diskManifestEntries,
+      indexedEntries: this.store.getManifestEntries(),
+      storageMode: this.store.getStats().storageMode,
+      generatedAt: this.store.getIndexGeneratedAt(),
+      issues: this.doctorIssues,
+    });
+    return this.indexStatus;
+  }
+
+  private rememberRetrieval(retrieval: RetrievalDiagnostics, query: string): void {
+    const matchedAt = new Date().toISOString();
+    const matches = new Map<string, RecentRetrievalMatch>();
+    retrieval.candidateDiagnostics.forEach((candidate, index) => {
+      matches.set(candidate.path, {
+        query,
+        normalizedQuery: retrieval.normalizedQuery,
+        rank: index + 1,
+        inEvidence: candidate.selectedAsEvidence,
+        matchedAt,
+      });
+    });
+    this.lastRetrievalByPath = matches;
+  }
+
   async initialize(): Promise<void> {
     if (this.initialized) return;
     try {
@@ -790,6 +1248,7 @@ export class NodeRagService {
     if (this.bootstrapAi) {
       await this.store.ensureEmbeddings(this.bootstrapAi);
     }
+    this.refreshIndexStatus();
     this.initialized = true;
   }
 
@@ -798,20 +1257,65 @@ export class NodeRagService {
   }
 
   listKnowledgeFiles() {
-    return this.store.listKnowledgeFiles();
+    return manifestEntriesToKnowledgeStats(this.loadDiskKnowledgeState().manifestEntries);
   }
 
-  async inspectRetrieval(query: string, mode: PromptMode, apiKey?: string): Promise<RetrievalInspectionResponse> {
+  async getIndexStatus(): Promise<IndexStatus> {
+    await this.initialize();
+    return this.refreshIndexStatus();
+  }
+
+  async getDocumentDiagnostics(documentPath: string): Promise<DocumentDiagnostics | null> {
+    await this.initialize();
+    const status = this.refreshIndexStatus();
+    const normalizedPath = documentPath.replace(/\\/g, '/');
+    const safePath = normalizedPath.startsWith('/knowledge/') ? normalizedPath : `/knowledge/${normalizedPath.replace(/^\/+/, '')}`;
+    const diskEntry = this.diskManifestEntries.find((entry) => entry.path === safePath);
+    const indexedEntry = this.store.getManifestEntries().find((entry) => entry.path === safePath);
+    if (!diskEntry && !indexedEntry) return null;
+
+    return buildDocumentDiagnostics({
+      path: safePath,
+      diskEntry,
+      indexedEntry,
+      status,
+      issues: this.doctorIssues.filter((issue) => issue.path === safePath),
+      recentRetrieval: this.lastRetrievalByPath.get(safePath) ?? null,
+    });
+  }
+
+  async inspectRetrieval(input: string | ChatMessage[], mode: PromptMode, apiKey?: string): Promise<RetrievalInspectionResponse> {
     await this.initialize();
     const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
     const ai = effectiveApiKey ? new GoogleGenAI({ apiKey: effectiveApiKey }) : null;
     if (ai) {
       await this.store.ensureEmbeddings(ai);
     }
-    const queryEmbedding = ai ? await embedQuery(ai, query) : null;
-    const search = this.store.search(query, mode, queryEmbedding);
+    const recentMessages = Array.isArray(input) ? input.slice(-4) : [];
+    const query = Array.isArray(input)
+      ? [...recentMessages].reverse().find((message) => message.role === 'user')?.text ?? ''
+      : input;
+    const normalized =
+      recentMessages.length > 0
+        ? buildNormalizedRetrievalQuery(recentMessages)
+        : { normalizedQuery: query.trim(), querySources: query.trim() ? [query.trim()] : [] };
+    const { normalizedQuery, querySources } = normalized;
+    const queryEmbedding = ai ? await embedQuery(ai, normalizedQuery) : null;
+    const search = applyGroundingGate(this.store.search(normalizedQuery, mode, queryEmbedding));
     const compiledPages = this.store.getCompiledPages(mode, search.evidence.map((item) => item.documentId));
-    return { query, search, compiledPages };
+    const indexStatus = this.refreshIndexStatus();
+    const retrieval = buildRetrievalDiagnostics(search, normalizedQuery, querySources);
+    this.rememberRetrieval(retrieval, query);
+    return {
+      query,
+      normalizedQuery,
+      querySources,
+      search,
+      compiledPages,
+      indexStatus,
+      candidateDiagnostics: retrieval.candidateDiagnostics,
+      matchedDocumentPaths: retrieval.matchedDocumentPaths,
+    };
   }
 
   async generateChatResponse(request: GroundedChatRequest): Promise<GroundedChatResponse> {
@@ -826,9 +1330,19 @@ export class NodeRagService {
 
     const recentMessages = request.messages.slice(-4);
     const latestUserMessage = [...recentMessages].reverse().find((message) => message.role === 'user')?.text ?? '';
-    const queryEmbedding = await embedQuery(ai, latestUserMessage);
-    const search = this.store.search(latestUserMessage, request.mode, queryEmbedding);
+    const { normalizedQuery, querySources } = buildNormalizedRetrievalQuery(recentMessages);
+    const queryEmbedding = await embedQuery(ai, normalizedQuery);
+    const search = applyGroundingGate(this.store.search(normalizedQuery, request.mode, queryEmbedding));
     const evidence = constrainEvidence(search);
+    const retrieval = buildRetrievalDiagnostics(
+      {
+        ...search,
+        evidence,
+      },
+      normalizedQuery,
+      querySources,
+    );
+    this.rememberRetrieval(retrieval, latestUserMessage || normalizedQuery);
 
     if (evidence.length === 0 || search.confidence === 'low') {
       const abstain = createAbstainAnswer(search);
@@ -840,6 +1354,7 @@ export class NodeRagService {
           evidence,
         },
         citations,
+        retrieval,
       };
     }
 
@@ -887,6 +1402,7 @@ export class NodeRagService {
         evidence,
       },
       citations: citations.length > 0 ? citations : evidence.slice(0, 2),
+      retrieval,
     };
   }
 }
@@ -922,9 +1438,74 @@ export function buildChunkRows(files: KnowledgeFile[]): Array<Record<string, unk
   }));
 }
 
-export function buildDocumentRows(files: KnowledgeFile[]): Array<Record<string, unknown>> {
+export function buildIndexManifestEntriesFromRows(
+  files: KnowledgeFile[],
+  chunkRows: Array<Record<string, unknown>>,
+): IndexManifestEntry[] {
+  const chunkCounts = new Map<string, { chunkCount: number; embeddingCount: number }>();
+  for (const row of chunkRows) {
+    const documentId = String(row.document_id);
+    const current = chunkCounts.get(documentId) ?? { chunkCount: 0, embeddingCount: 0 };
+    current.chunkCount += 1;
+    if (Array.isArray(row.embedding) && (row.embedding as number[]).length > 0) {
+      current.embeddingCount += 1;
+    }
+    chunkCounts.set(documentId, current);
+  }
+
+  return files
+    .map((file) => {
+      const metadata = toDocumentMetadata(file);
+      const counts = chunkCounts.get(metadata.documentId) ?? { chunkCount: 0, embeddingCount: 0 };
+      return {
+        documentId: metadata.documentId,
+        path: metadata.path,
+        name: metadata.fileName,
+        mode: metadata.mode,
+        contentHash: sha1(file.content),
+        size: file.size,
+        updatedAt: file.updatedAt,
+        chunkCount: counts.chunkCount,
+        embeddingCount: counts.embeddingCount,
+      };
+    })
+    .sort((left, right) => left.path.localeCompare(right.path, 'ko'));
+}
+
+export function buildIndexMetadataRow(manifestEntries: IndexManifestEntry[], storageMode = 'postgres'): Record<string, unknown> {
+  const modeCounts = manifestEntries.reduce<Record<PromptMode, number>>(
+    (counts, entry) => ({
+      ...counts,
+      [entry.mode]: counts[entry.mode] + 1,
+    }),
+    { integrated: 0, evaluation: 0 },
+  );
+
+  return {
+    id: 'current',
+    generated_at: new Date().toISOString(),
+    storage_mode: storageMode,
+    manifest_hash: compareIndexStatus({
+      diskEntries: manifestEntries,
+      indexedEntries: manifestEntries,
+      storageMode,
+    }).manifestHash,
+    document_count: manifestEntries.length,
+    chunk_count: manifestEntries.reduce((sum, entry) => sum + entry.chunkCount, 0),
+    embedding_count: manifestEntries.reduce((sum, entry) => sum + entry.embeddingCount, 0),
+    mode_counts: modeCounts,
+  };
+}
+
+export function buildDocumentRows(
+  files: KnowledgeFile[],
+  manifestEntries = buildKnowledgeManifest(files, buildStructuredChunks(files)),
+): Array<Record<string, unknown>> {
+  const manifestByPath = new Map(manifestEntries.map((entry) => [entry.path, entry] as const));
+
   return files.map((file) => {
     const metadata = toDocumentMetadata(file);
+    const manifestEntry = manifestByPath.get(metadata.path);
     return {
       id: metadata.documentId,
       title: metadata.title,
@@ -935,6 +1516,11 @@ export function buildDocumentRows(files: KnowledgeFile[]): Array<Record<string, 
       document_group: metadata.documentGroup,
       effective_date: metadata.effectiveDate ?? null,
       published_date: metadata.publishedDate ?? null,
+      content_hash: manifestEntry?.contentHash ?? sha1(file.content),
+      file_size: manifestEntry?.size ?? file.size,
+      source_mtime: manifestEntry?.updatedAt ?? file.updatedAt ?? null,
+      chunk_count: manifestEntry?.chunkCount ?? 0,
+      embedding_count: manifestEntry?.embeddingCount ?? 0,
     };
   });
 }
@@ -945,7 +1531,7 @@ export function buildDocumentVersionRows(files: KnowledgeFile[]): Array<Record<s
     return {
       id: `${metadata.documentId}:v1`,
       document_id: metadata.documentId,
-      version_hash: metadata.documentId,
+      version_hash: sha1(file.content),
       raw_content: file.content,
     };
   });
@@ -1040,13 +1626,16 @@ export async function upsertRowsToPostgres(params: {
   sectionRows: Array<Record<string, unknown>>;
   chunkRows: Array<Record<string, unknown>>;
   compiledRows: Array<Record<string, unknown>>;
+  indexMetadataRow: Record<string, unknown>;
 }): Promise<void> {
   const pool = new Pool({ connectionString: params.connectionString });
   const client = await pool.connect();
   try {
     const pg = <T>(value: T): T => sanitizePostgresValue(value);
 
+    await ensurePostgresSchema(client);
     await client.query('begin');
+    await client.query('delete from rag_index_metadata');
     await client.query('delete from sections');
     await client.query('delete from document_versions');
     await client.query('delete from chunks');
@@ -1065,8 +1654,13 @@ export async function upsertRowsToPostgres(params: {
           source_type,
           document_group,
           effective_date,
-          published_date
-        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+          published_date,
+          content_hash,
+          file_size,
+          source_mtime,
+          chunk_count,
+          embedding_count
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
         `,
         [
           pg(row.id),
@@ -1078,6 +1672,11 @@ export async function upsertRowsToPostgres(params: {
           pg(row.document_group),
           row.effective_date,
           row.published_date,
+          pg(row.content_hash),
+          row.file_size,
+          row.source_mtime,
+          row.chunk_count,
+          row.embedding_count,
         ],
       );
     }
@@ -1206,6 +1805,31 @@ export async function upsertRowsToPostgres(params: {
         ],
       );
     }
+
+    await client.query(
+      `
+        insert into rag_index_metadata (
+          id,
+          generated_at,
+          storage_mode,
+          manifest_hash,
+          document_count,
+          chunk_count,
+          embedding_count,
+          mode_counts
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8)
+      `,
+      [
+        pg(params.indexMetadataRow.id),
+        params.indexMetadataRow.generated_at,
+        pg(params.indexMetadataRow.storage_mode),
+        pg(params.indexMetadataRow.manifest_hash),
+        params.indexMetadataRow.document_count,
+        params.indexMetadataRow.chunk_count,
+        params.indexMetadataRow.embedding_count,
+        JSON.stringify(pg(params.indexMetadataRow.mode_counts)),
+      ],
+    );
     await client.query('commit');
   } finally {
     client.release();

@@ -2,11 +2,15 @@ import fs from 'fs';
 import path from 'path';
 import * as dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
+import { buildKnowledgeDoctorIssues } from '../src/lib/ragIndex';
+import { buildStructuredChunks } from '../src/lib/ragStructured';
 import {
   buildChunkRows,
   buildCompiledRows,
   buildDocumentRows,
   buildDocumentVersionRows,
+  buildIndexManifestEntriesFromRows,
+  buildIndexMetadataRow,
   buildSectionRows,
   embedIndexRows,
   loadKnowledgeFilesForIndex,
@@ -60,12 +64,11 @@ function persistEmbeddingCache(rows: Array<Record<string, unknown>>): void {
 
 async function main() {
   const projectRoot = process.cwd();
+  const databaseUrl = process.env.DATABASE_URL;
   const files = await loadKnowledgeFilesForIndex(projectRoot);
-  const documentRows = buildDocumentRows(files);
   const documentVersionRows = buildDocumentVersionRows(files);
   const sectionRows = buildSectionRows(files);
   const chunkRows = buildChunkRows(files);
-  const compiledRows = buildCompiledRows(files);
   const restoredEmbeddings = restoreEmbeddingCache(chunkRows);
   if (restoredEmbeddings > 0) {
     console.log(`Restored ${restoredEmbeddings} cached embeddings before indexing.`);
@@ -78,6 +81,12 @@ async function main() {
     persistEmbeddingCache(chunkRows);
   }
 
+  const manifestEntries = buildIndexManifestEntriesFromRows(files, chunkRows);
+  const documentRows = buildDocumentRows(files, manifestEntries);
+  const compiledRows = buildCompiledRows(files);
+  const indexMetadataRow = buildIndexMetadataRow(manifestEntries, databaseUrl ? 'postgres' : 'local-cache');
+  const doctorIssues = buildKnowledgeDoctorIssues(files, buildStructuredChunks(files));
+
   const cacheDir = path.join(projectRoot, '.rag-cache');
   fs.mkdirSync(cacheDir, { recursive: true });
   fs.writeFileSync(
@@ -85,6 +94,9 @@ async function main() {
     JSON.stringify(
       {
         generatedAt: new Date().toISOString(),
+        manifestEntries,
+        indexMetadata: indexMetadataRow,
+        doctorIssues,
         documents: documentRows,
         documentVersions: documentVersionRows,
         sections: sectionRows,
@@ -97,7 +109,9 @@ async function main() {
     'utf8',
   );
 
-  const databaseUrl = process.env.DATABASE_URL;
+  fs.writeFileSync(path.join(cacheDir, 'knowledge-manifest.json'), JSON.stringify(manifestEntries, null, 2), 'utf8');
+  fs.writeFileSync(path.join(cacheDir, 'rag-doctor.json'), JSON.stringify({ generatedAt: new Date().toISOString(), issues: doctorIssues }, null, 2), 'utf8');
+
   if (databaseUrl) {
     await upsertRowsToPostgres({
       connectionString: databaseUrl,
@@ -106,6 +120,7 @@ async function main() {
       sectionRows,
       chunkRows,
       compiledRows,
+      indexMetadataRow,
     });
     console.log(`Indexed ${chunkRows.length} chunks into Postgres.`);
   } else {

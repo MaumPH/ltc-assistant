@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { toKnowledgeFiles, type KnowledgeFile, type PromptMode } from './ragCore';
+import type { KnowledgeFile, PromptMode } from './ragCore';
 
 function stripNullCharacters(value: string): string {
   return value.replace(/\u0000/g, '');
@@ -10,10 +10,10 @@ function isEvaluationKnowledgePath(filePath: string): boolean {
   return /\/knowledge\/(?:eval|evaluation)\//.test(filePath.replace(/\\/g, '/'));
 }
 
-function readKnowledgeTree(dirPath: string, virtualPrefix: string): Record<string, string> {
-  if (!fs.existsSync(dirPath)) return {};
+function readKnowledgeTree(dirPath: string, virtualPrefix: string): KnowledgeFile[] {
+  if (!fs.existsSync(dirPath)) return [];
 
-  const entries: Record<string, string> = {};
+  const entries: KnowledgeFile[] = [];
 
   const visit = (currentDir: string, currentPrefix: string) => {
     const children = fs.readdirSync(currentDir, { withFileTypes: true });
@@ -30,23 +30,31 @@ function readKnowledgeTree(dirPath: string, virtualPrefix: string): Record<strin
       }
 
       if (!child.isFile() || !/\.(md|txt)$/i.test(child.name)) continue;
+      const stat = fs.statSync(fullPath);
       const rawContent = fs.readFileSync(fullPath, 'utf8');
       const sanitizedContent = stripNullCharacters(rawContent);
+      const nulStripped = rawContent.length !== sanitizedContent.length;
       if (rawContent.length !== sanitizedContent.length) {
         console.warn(`[knowledge] stripped NUL characters from ${virtualPath}`);
       }
-      entries[virtualPath] = sanitizedContent;
+      entries.push({
+        path: virtualPath,
+        name: child.name,
+        size: Buffer.byteLength(sanitizedContent, 'utf8'),
+        content: sanitizedContent,
+        updatedAt: stat.mtime.toISOString(),
+        nulStripped,
+      });
     }
   };
 
   visit(dirPath, virtualPrefix);
-  return entries;
+  return entries.sort((left, right) => left.path.localeCompare(right.path, 'ko'));
 }
 
 export function loadKnowledgeCorporaFromDisk(projectRoot: string): Record<PromptMode, KnowledgeFile[]> {
   const knowledgeRoot = path.join(projectRoot, 'knowledge');
-  const allEntries = readKnowledgeTree(knowledgeRoot, '/knowledge');
-  const allFiles = toKnowledgeFiles(allEntries);
+  const allFiles = readKnowledgeTree(knowledgeRoot, '/knowledge');
 
   return {
     integrated: allFiles,

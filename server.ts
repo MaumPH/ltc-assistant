@@ -70,6 +70,21 @@ function applyCors(app: express.Express) {
   );
 }
 
+function resolveKnowledgeFilePath(requestedPath: string): string | null {
+  const normalizedPath = requestedPath.replace(/\\/g, '/').trim();
+  if (!normalizedPath || normalizedPath.includes('..')) return null;
+  if (!/\.(md|txt)$/i.test(normalizedPath)) return null;
+
+  const relativePath = normalizedPath.replace(/^\/?knowledge\/?/, '');
+  const knowledgeDir = path.resolve(PROJECT_ROOT, 'knowledge');
+  const filePath = path.resolve(knowledgeDir, relativePath);
+  if (!filePath.startsWith(knowledgeDir + path.sep) && filePath !== knowledgeDir) {
+    return null;
+  }
+
+  return filePath;
+}
+
 async function startServer() {
   const app = express();
 
@@ -79,9 +94,11 @@ async function startServer() {
   app.get('/api/health', async (_req, res) => {
     try {
       await ragService.initialize();
+      const indexStatus = await ragService.getIndexStatus();
       res.json({
         ok: true,
         storage: ragService.getStats(),
+        indexStatus,
       });
     } catch (error) {
       res.status(500).json({
@@ -95,19 +112,22 @@ async function startServer() {
     res.json(ragService.listKnowledgeFiles());
   });
 
-  app.get('/api/knowledge/:filename', (req, res) => {
-    const filename = req.params.filename;
-    if (filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
-      return res.status(400).json({ error: 'Invalid filename' });
+  app.get('/api/index/status', async (_req, res) => {
+    try {
+      res.json(await ragService.getIndexStatus());
+    } catch (error) {
+      res.status(500).json({
+        error: 'Failed to inspect index status',
+        details: error instanceof Error ? error.message : String(error),
+      });
     }
-    if (!/\.(md|txt)$/i.test(filename)) {
-      return res.status(400).json({ error: 'Invalid file type' });
-    }
+  });
 
-    const knowledgeDir = path.resolve(PROJECT_ROOT, 'knowledge');
-    const filePath = path.resolve(knowledgeDir, filename);
-    if (!filePath.startsWith(knowledgeDir + path.sep)) {
-      return res.status(400).json({ error: 'Invalid filename' });
+  app.get('/api/knowledge/file', (req, res) => {
+    const requestedPath = typeof req.query.path === 'string' ? req.query.path : '';
+    const filePath = resolveKnowledgeFilePath(requestedPath);
+    if (!filePath) {
+      return res.status(400).json({ error: 'Invalid path' });
     }
 
     if (!fs.existsSync(filePath)) {
@@ -117,23 +137,58 @@ async function startServer() {
     res.sendFile(filePath);
   });
 
+  app.get('/api/knowledge/diagnostics', async (req, res) => {
+    try {
+      const requestedPath = typeof req.query.path === 'string' ? req.query.path : '';
+      if (!requestedPath.trim()) {
+        return res.status(400).json({ error: 'path must be provided' });
+      }
+
+      const diagnostics = await ragService.getDocumentDiagnostics(requestedPath);
+      if (!diagnostics) {
+        return res.status(404).json({ error: 'Document diagnostics not found' });
+      }
+
+      res.json(diagnostics);
+    } catch (error) {
+      res.status(500).json({
+        error: 'Failed to inspect document diagnostics',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.get('/api/knowledge/:filename', (req, res) => {
+    const filePath = resolveKnowledgeFilePath(req.params.filename);
+    if (!filePath) {
+      return res.status(400).json({ error: 'Invalid filename' });
+    }
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    res.sendFile(filePath);
+  });
+
   app.post('/api/retrieval/inspect', async (req, res) => {
     try {
       const {
         query,
+        messages,
         mode = 'integrated',
         apiKey,
       }: {
         query?: string;
+        messages?: ChatMessage[];
         mode?: PromptMode;
         apiKey?: string;
       } = req.body;
 
-      if (!query?.trim()) {
-        return res.status(400).json({ error: 'query must be provided' });
+      const hasMessages = Array.isArray(messages) && messages.length > 0;
+      if (!query?.trim() && !hasMessages) {
+        return res.status(400).json({ error: 'query or messages must be provided' });
       }
 
-      const inspection = await ragService.inspectRetrieval(query, mode, apiKey);
+      const inspection = await ragService.inspectRetrieval(hasMessages ? messages : (query as string), mode, apiKey);
       res.json(inspection);
     } catch (error) {
       res.status(500).json({
@@ -182,8 +237,14 @@ async function startServer() {
             effectiveDate: citation.effectiveDate,
           })),
           retrieval: {
+            normalizedQuery: response.retrieval.normalizedQuery,
+            querySources: response.retrieval.querySources,
             intent: response.search.intent,
             confidence: response.search.confidence,
+            mismatchSignals: response.retrieval.mismatchSignals,
+            groundingGatePassed: response.retrieval.groundingGatePassed,
+            matchedDocumentPaths: response.retrieval.matchedDocumentPaths,
+            candidateDiagnostics: response.retrieval.candidateDiagnostics,
             evidence: response.search.evidence.map((item) => ({
               id: item.id,
               docTitle: item.docTitle,

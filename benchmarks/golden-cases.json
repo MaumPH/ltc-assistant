@@ -89,6 +89,47 @@
     "acceptableAbstain": false
   },
   {
+    "id": "integrated-specific-knowledge-doc-top3",
+    "mode": "integrated",
+    "question": "2026년 인건비지출비율 다빈도 질의응답 문서를 우선 찾아줘",
+    "expectedDoc": "2026년_인건비지출비율_다빈도_질의응답",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "notes": "knowledge 폴더 문서가 top-3 안에 드는지 확인"
+  },
+  {
+    "id": "integrated-followup-normalized-query",
+    "mode": "integrated",
+    "question": "그 문서는?",
+    "messages": [
+      {
+        "role": "user",
+        "text": "2026년 인건비지출비율 다빈도 질의응답 문서를 먼저 찾아줘"
+      },
+      {
+        "role": "model",
+        "text": "이전 맥락 유지"
+      },
+      {
+        "role": "user",
+        "text": "그 문서는?"
+      }
+    ],
+    "expectedDoc": "2026년_인건비지출비율_다빈도_질의응답",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "notes": "짧은 후속 질문이 이전 사용자 질문과 결합되는지 확인"
+  },
+  {
+    "id": "integrated-evaluation-doc-not-penalized",
+    "mode": "integrated",
+    "question": "2026년 재가급여 평가매뉴얼 다빈도Q&A 사례집 문서를 우선 찾아줘",
+    "expectedDoc": "2026년_재가급여_평가매뉴얼_다빈도Q&A",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "notes": "integrated 모드에서도 evaluation 문서가 과도하게 밀리지 않는지 확인"
+  },
+  {
     "id": "integrated-no-grounded-answer",
     "mode": "integrated",
     "question": "장기요양기관에서 드론 배송 비용을 급여로 청구할 수 있나요?",

@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
     "prompt:harness": "tsx scripts/prompt-harness.ts",
     "rag:index": "tsx scripts/rag-index.ts",
+    "rag:doctor": "tsx scripts/rag-doctor.ts",
     "rag:compiled": "tsx scripts/rag-compiled-pages.ts",
     "rag:bench": "tsx scripts/rag-benchmark.ts"
   },

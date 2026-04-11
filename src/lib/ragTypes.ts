@@ -23,6 +23,8 @@ export interface KnowledgeFile {
   name: string;
   size: number;
   content: string;
+  updatedAt?: string;
+  nulStripped?: boolean;
 }
 
 export interface DocumentMetadata {
@@ -92,6 +94,9 @@ export interface SearchRun {
   vectorCandidates: SearchCandidate[];
   fusedCandidates: SearchCandidate[];
   evidence: SearchCandidate[];
+  focusTerms?: string[];
+  mismatchSignals?: string[];
+  groundingGatePassed?: boolean;
 }
 
 export interface CompiledPage {
@@ -114,6 +119,7 @@ export interface BenchmarkCase {
   expectedSection?: string;
   acceptableAbstain: boolean;
   notes?: string;
+  messages?: ChatMessage[];
 }
 
 export interface GroundedAnswer {
@@ -131,4 +137,97 @@ export interface GroundedAnswer {
 export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
+}
+
+export interface IndexManifestEntry {
+  documentId: string;
+  path: string;
+  name: string;
+  mode: PromptMode;
+  contentHash: string;
+  size: number;
+  updatedAt?: string;
+  chunkCount: number;
+  embeddingCount: number;
+}
+
+export interface EmbeddingCoverage {
+  embeddedChunks: number;
+  totalChunks: number;
+  ratio: number;
+}
+
+export interface KnowledgeDoctorIssue {
+  code:
+    | 'nul-stripped'
+    | 'empty-document'
+    | 'oversized-section'
+    | 'duplicate-content'
+    | 'zero-chunks';
+  path: string;
+  severity: 'warning';
+  message: string;
+}
+
+export interface IndexStatus {
+  state: 'fresh' | 'stale' | 'partial_embeddings';
+  storageMode: string;
+  manifestHash: string;
+  diskManifestHash: string;
+  indexedManifestHash: string;
+  diskDocumentCount: number;
+  indexedDocumentCount: number;
+  chunkCount: number;
+  staleDocuments: string[];
+  missingDocuments: string[];
+  orphanedDocuments: string[];
+  embeddingCoverage: EmbeddingCoverage;
+  generatedAt?: string;
+  modeCounts: Record<PromptMode, number>;
+  issues: KnowledgeDoctorIssue[];
+}
+
+export interface CandidateDiagnostic {
+  id: string;
+  path: string;
+  docTitle: string;
+  rerankScore: number;
+  matchedTerms: string[];
+  focusTermMatches: string[];
+  selectedAsEvidence: boolean;
+  matchedOnlyGenericTerms: boolean;
+}
+
+export interface RetrievalDiagnostics {
+  normalizedQuery: string;
+  querySources: string[];
+  matchedDocumentPaths: string[];
+  candidateDiagnostics: CandidateDiagnostic[];
+  focusTerms: string[];
+  mismatchSignals: string[];
+  groundingGatePassed: boolean;
+}
+
+export interface RecentRetrievalMatch {
+  query: string;
+  normalizedQuery: string;
+  rank: number | null;
+  inEvidence: boolean;
+  matchedAt: string;
+}
+
+export interface DocumentDiagnostics {
+  path: string;
+  existsOnDisk: boolean;
+  indexed: boolean;
+  mode?: PromptMode;
+  contentHash?: string;
+  size?: number;
+  updatedAt?: string;
+  chunkCount: number;
+  embeddingCount: number;
+  embeddingCoverage: EmbeddingCoverage;
+  indexState: 'fresh' | 'stale' | 'missing';
+  issues: KnowledgeDoctorIssue[];
+  recentRetrieval: RecentRetrievalMatch | null;
 }
