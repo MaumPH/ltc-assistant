@@ -462,6 +462,7 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
             mode,
             model: selectedModel,
             promptVariant: 'v2',
+            apiKey,
           }),
           signal: AbortSignal.timeout(55_000),
         });
