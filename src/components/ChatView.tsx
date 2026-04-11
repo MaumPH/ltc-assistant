@@ -67,6 +67,13 @@ class GenerationFlowError extends Error {
   }
 }
 
+class ServerRouteUnavailableError extends Error {
+  constructor(message = 'Chat server route is unavailable.') {
+    super(message);
+    this.name = 'ServerRouteUnavailableError';
+  }
+}
+
 const promptSources: PromptSourceSet = {
   baseline: systemPromptRaw,
   base: v2BasePromptRaw,
@@ -86,9 +93,11 @@ const INITIAL_MESSAGES: Record<ChatViewProps['mode'], string> = {
 const FALLBACK_MODEL: ModelId = 'gemini-3.1-flash-lite-preview';
 const MODEL_REQUEST_TIMEOUT_MS = 45_000;
 const MAX_RATE_LIMIT_RETRIES = 2;
+const MAX_CONTEXT_CHARS = 20_000;
 
 let knowledgeModulePromise: Promise<KnowledgeModule> | null = null;
 let genAiModulePromise: Promise<GenAiModule> | null = null;
+let serverRouteUnavailable = false;
 
 function loadKnowledgeModule() {
   if (!knowledgeModulePromise) {
@@ -113,6 +122,18 @@ function wait(ms: number) {
 function resizeTextarea(element: HTMLTextAreaElement) {
   element.style.height = 'auto';
   element.style.height = `${element.scrollHeight}px`;
+}
+
+function shouldUseClientSideChat() {
+  if (serverRouteUnavailable) {
+    return true;
+  }
+
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.location.hostname.endsWith('github.io') || window.location.protocol === 'file:';
 }
 
 function getModelLabel(model: ModelId): string {
@@ -291,6 +312,64 @@ function formatFailureMessage(error: GenerationFlowError): string {
   return `오류가 발생했습니다. 다시 시도해 주세요.\n\n> ${primaryFailure.message}`;
 }
 
+async function requestClientSideResponse({
+  apiKey,
+  messages,
+  mode,
+  selectedModel,
+}: {
+  apiKey: string;
+  messages: Message[];
+  mode: ChatViewProps['mode'];
+  selectedModel: ModelId;
+}): Promise<string> {
+  const [{ GoogleGenAI }, knowledge] = await Promise.all([loadGenAiModule(), loadKnowledgeModule()]);
+  const knowledgeFiles = mode === 'evaluation' ? knowledge.evalKnowledgeFiles : knowledge.allKnowledgeFiles;
+  const latestUserMessage = [...messages].reverse().find((message) => message.role === 'user')?.text ?? '';
+  const candidates = latestUserMessage ? knowledge.searchKnowledge(knowledgeFiles, latestUserMessage, 12) : [];
+
+  let contextChars = 0;
+  const knowledgeContext = knowledge.chunksToContext(
+    candidates.filter((chunk) => {
+      if (contextChars + chunk.text.length > MAX_CONTEXT_CHARS) {
+        return false;
+      }
+
+      contextChars += chunk.text.length;
+      return true;
+    }),
+  );
+
+  const ai = new GoogleGenAI({ apiKey });
+  const contents = messages.slice(-4).map((message) => ({
+    role: message.role,
+    parts: [{ text: message.text }],
+  }));
+  const systemInstruction = buildVariantSystemInstruction({
+    mode,
+    variant: 'v2',
+    knowledgeContext,
+    sources: promptSources,
+  });
+
+  try {
+    const result = await generateWithFallback({
+      ai,
+      contents,
+      selectedModel,
+      systemInstruction,
+    });
+
+    return result.fallbackUsed ? `${formatFallbackNotice(result.usedModel)}\n\n${result.text}` : result.text;
+  } catch (error) {
+    if (error instanceof GenerationFlowError) {
+      return formatFailureMessage(error);
+    }
+
+    throw error;
+  }
+}
+
 async function requestModel({
   ai,
   contents,
@@ -454,6 +533,17 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
 
     const callApi = async (retryCount = 0): Promise<void> => {
       try {
+        if (shouldUseClientSideChat()) {
+          const text = await requestClientSideResponse({
+            apiKey,
+            messages: newMessages,
+            mode,
+            selectedModel,
+          });
+          setMessages([...newMessages, { role: 'model', text }]);
+          return;
+        }
+
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -490,6 +580,11 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
         }
 
         if (!response.ok) {
+          const contentType = response.headers.get('content-type') ?? '';
+          if (!contentType.includes('application/json') || response.status === 404) {
+            throw new ServerRouteUnavailableError(`Unexpected server response (${response.status}).`);
+          }
+
           const data = await response.json().catch(() => ({ error: '서버 오류' }));
           setMessages([
             ...newMessages,
@@ -501,6 +596,21 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
         const data = await response.json() as { text?: string };
         setMessages([...newMessages, { role: 'model', text: data.text?.trim() || '응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.' }]);
       } catch (error) {
+        if (
+          error instanceof ServerRouteUnavailableError ||
+          (error instanceof Error && error.name === 'TypeError')
+        ) {
+          serverRouteUnavailable = true;
+          const text = await requestClientSideResponse({
+            apiKey,
+            messages: newMessages,
+            mode,
+            selectedModel,
+          });
+          setMessages([...newMessages, { role: 'model', text }]);
+          return;
+        }
+
         const isTimeout = error instanceof Error && error.name === 'TimeoutError';
         setMessages([
           ...newMessages,
