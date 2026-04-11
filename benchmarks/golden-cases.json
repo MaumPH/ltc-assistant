@@ -1,0 +1,100 @@
+[
+  {
+    "id": "integrated-eligibility-law",
+    "mode": "integrated",
+    "question": "장기요양인정 신청 자격은 누가 되나요?",
+    "expectedDoc": "노인장기요양보험법",
+    "expectedSection": "제2조",
+    "acceptableAbstain": false,
+    "notes": "직접 법 조문 회수 여부 확인"
+  },
+  {
+    "id": "integrated-benefit-cost-notice",
+    "mode": "integrated",
+    "question": "주야간보호 급여비용은 어떤 고시를 기준으로 봐야 하나요?",
+    "expectedDoc": "장기요양급여비용",
+    "expectedSection": "",
+    "acceptableAbstain": false
+  },
+  {
+    "id": "integrated-workforce-standard",
+    "mode": "integrated",
+    "question": "재가장기요양기관의 시설 인력기준은 어느 별표를 보면 되나요?",
+    "expectedDoc": "재가장기요양기관의 시설·인력기준",
+    "expectedSection": "별표 1의3",
+    "acceptableAbstain": false
+  },
+  {
+    "id": "integrated-payroll-ratio-qa",
+    "mode": "integrated",
+    "question": "2026년 인건비지출비율 관련 다빈도 질의응답 문서를 보여줘",
+    "expectedDoc": "2026년_인건비지출비율_다빈도_질의응답",
+    "expectedSection": "",
+    "acceptableAbstain": false
+  },
+  {
+    "id": "integrated-protection-manual",
+    "mode": "integrated",
+    "question": "재가요양보호사 인권보호 관련 실무 참고 문서는 뭐가 있나요?",
+    "expectedDoc": "재가요양보호사 인권보호 매뉴얼",
+    "expectedSection": "",
+    "acceptableAbstain": false
+  },
+  {
+    "id": "integrated-long-service-faq",
+    "mode": "integrated",
+    "question": "장기근속장려금 청구 전산 문의사항은 어디서 확인하나요?",
+    "expectedDoc": "장기근속장려금 청구 전산 문의사항",
+    "expectedSection": "",
+    "acceptableAbstain": false
+  },
+  {
+    "id": "evaluation-notice-period",
+    "mode": "evaluation",
+    "question": "주야간보호 평가에서 평가예정통보는 언제까지 안내해야 하나요?",
+    "expectedDoc": "2026년 주야간보호 평가매뉴얼",
+    "expectedSection": "",
+    "acceptableAbstain": false
+  },
+  {
+    "id": "evaluation-function-training",
+    "mode": "evaluation",
+    "question": "기능회복훈련 운영 참고 문서는 어떤 게 있나요?",
+    "expectedDoc": "기능회복훈련",
+    "expectedSection": "",
+    "acceptableAbstain": false
+  },
+  {
+    "id": "evaluation-daily-training",
+    "mode": "evaluation",
+    "question": "일상생활기능훈련 매뉴얼 근거를 찾아줘",
+    "expectedDoc": "일상생활기능훈련_매뉴얼",
+    "expectedSection": "",
+    "acceptableAbstain": false
+  },
+  {
+    "id": "evaluation-qa-casebook",
+    "mode": "evaluation",
+    "question": "2026년 재가급여 평가매뉴얼 다빈도 Q&A 사례집 1차를 기준으로 설명해줘",
+    "expectedDoc": "2026년_재가급여_평가매뉴얼_다빈도Q&A_사례집",
+    "expectedSection": "",
+    "acceptableAbstain": false
+  },
+  {
+    "id": "evaluation-change-comparison",
+    "mode": "evaluation",
+    "question": "재가급여 평가매뉴얼 개정 전후 비교표 문서를 우선 근거로 잡아줘",
+    "expectedDoc": "개정전후_비교표",
+    "expectedSection": "",
+    "acceptableAbstain": false
+  },
+  {
+    "id": "integrated-no-grounded-answer",
+    "mode": "integrated",
+    "question": "장기요양기관에서 드론 배송 비용을 급여로 청구할 수 있나요?",
+    "expectedDoc": "노인장기요양보험법",
+    "expectedSection": "",
+    "acceptableAbstain": true,
+    "notes": "관련 근거가 없으면 회피 허용"
+  }
+]

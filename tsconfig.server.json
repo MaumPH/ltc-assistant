@@ -18,6 +18,11 @@
     "src/lib/nodeKnowledge.ts",
     "src/lib/nodePrompts.ts",
     "src/lib/promptAssembly.ts",
-    "src/lib/ragCore.ts"
+    "src/lib/ragCore.ts",
+    "src/lib/ragTypes.ts",
+    "src/lib/ragMetadata.ts",
+    "src/lib/ragStructured.ts",
+    "src/lib/ragEngine.ts",
+    "src/lib/nodeRagService.ts"
   ]
 }
