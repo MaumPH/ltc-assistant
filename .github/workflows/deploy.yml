@@ -40,6 +40,7 @@ jobs:
           # 저장소 이름에 맞게 base path 자동 설정
           # 예: https://username.github.io/ltc-assistant/ 형태로 배포될 경우
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
+          VITE_RAG_API_BASE_URL: https://rag.maumph.uk
 
       - name: GitHub Pages 설정
         uses: actions/configure-pages@v4
