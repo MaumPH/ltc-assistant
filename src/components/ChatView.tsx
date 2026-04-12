@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, Scale, Send } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { MODELS, type ModelId } from './TopNav';
+import StructuredAnswerCard from './StructuredAnswerCard';
 import type { ChatCapabilities } from '../lib/ragTypes';
+import { parseStructuredAnswer } from '../lib/structuredAnswer';
 
 export interface Message {
   role: 'user' | 'model';
@@ -226,6 +228,21 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
     await submitCurrentMessage();
   };
 
+  const renderModelMessage = (text: string) => {
+    const structuredAnswer = parseStructuredAnswer(text);
+    if (structuredAnswer) {
+      return <StructuredAnswerCard answer={structuredAnswer} />;
+    }
+
+    return (
+      <div className="rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-3 text-slate-800 shadow-sm sm:px-5 sm:py-4">
+        <div className="prose prose-sm max-w-none break-words prose-headings:font-semibold prose-p:leading-relaxed prose-a:text-blue-600 md:prose-base">
+          <ReactMarkdown>{text}</ReactMarkdown>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex-1 overflow-y-auto px-3 pb-6 pt-4 sm:p-4 md:px-8 md:pb-8 md:pt-6">
@@ -237,10 +254,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
           )}
 
           {messages.map((message, index) => (
-            <div
-              key={index}
-              className={`flex gap-3 sm:gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
+            <div key={index} className={`flex gap-3 sm:gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               {message.role === 'model' && (
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 shadow-sm">
                   <Scale className="h-4 w-4 text-white" />
@@ -248,25 +262,19 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
               )}
 
               <div
-                className={`flex max-w-[92%] flex-col sm:max-w-[85%] md:max-w-[75%] ${
-                  message.role === 'user' ? 'items-end' : 'items-start'
+                className={`flex flex-col ${
+                  message.role === 'user'
+                    ? 'max-w-[92%] items-end sm:max-w-[85%] md:max-w-[75%]'
+                    : 'max-w-[96%] items-start sm:max-w-[92%] md:max-w-[88%] lg:max-w-[84%]'
                 }`}
               >
-                <div
-                  className={`rounded-2xl px-4 py-3 shadow-sm sm:px-5 sm:py-4 ${
-                    message.role === 'user'
-                      ? 'rounded-tr-sm bg-blue-600 text-white'
-                      : 'rounded-tl-sm border border-slate-200 bg-white text-slate-800'
-                  }`}
-                >
-                  {message.role === 'user' ? (
+                {message.role === 'user' ? (
+                  <div className="rounded-2xl rounded-tr-sm bg-blue-600 px-4 py-3 text-white shadow-sm sm:px-5 sm:py-4">
                     <p className="whitespace-pre-wrap text-[15px] leading-relaxed sm:text-base">{message.text}</p>
-                  ) : (
-                    <div className="prose prose-sm max-w-none break-words prose-headings:font-semibold prose-p:leading-relaxed prose-a:text-blue-600 md:prose-base">
-                      <ReactMarkdown>{message.text}</ReactMarkdown>
-                    </div>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  renderModelMessage(message.text)
+                )}
               </div>
             </div>
           ))}

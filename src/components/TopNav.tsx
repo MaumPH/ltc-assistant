@@ -17,7 +17,7 @@ export const MODELS = CHAT_MODELS.map((model) => ({
   id: model.id,
   label: model.label,
   desc: model.description,
-})) as const;
+}));
 
 export type ModelId = ChatModelId;
 export { MODEL_STORAGE };

@@ -50,6 +50,18 @@ body {
   overflow-wrap: anywhere;
 }
 
+.structured-answer-markdown {
+  overflow-wrap: anywhere;
+}
+
+.structured-answer-markdown > :first-child {
+  margin-top: 0;
+}
+
+.structured-answer-markdown > :last-child {
+  margin-bottom: 0;
+}
+
 .prose pre,
 .prose table {
   max-width: 100%;
