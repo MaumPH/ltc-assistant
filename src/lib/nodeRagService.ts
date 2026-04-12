@@ -128,7 +128,7 @@ export interface RetrievalInspectionResponse {
 interface RagStore {
   initialize(ai: GoogleGenAI | null): Promise<void>;
   ensureEmbeddings(ai: GoogleGenAI): Promise<void>;
-  search(query: string, mode: PromptMode, queryEmbedding: number[] | null): SearchRun;
+  search(query: string, mode: PromptMode, queryEmbedding: number[] | null, queryAliases?: string[]): SearchRun;
   getCompiledPages(mode: PromptMode, documentIds: string[]): CompiledPage[];
   listKnowledgeFiles(): { name: string; size: number; updatedAt: Date }[];
   getStats(): { chunks: number; compiledPages: number; storageMode: string };
@@ -372,7 +372,53 @@ function isFollowUpQuery(query: string): boolean {
   return trimmed.length <= 18 || FOLLOW_UP_QUERY_RE.test(trimmed);
 }
 
-function buildNormalizedRetrievalQuery(messages: ChatMessage[]): { normalizedQuery: string; querySources: string[] } {
+function buildRetrievalAliases(query: string): string[] {
+  const compact = query.replace(/\s+/g, '');
+  const aliases: string[] = [];
+  const employeeEducation = compact.includes('직원') && compact.includes('교육');
+  const employeeRights = compact.includes('직원') && compact.includes('인권');
+  const employeeAbuse = compact.includes('직원') && compact.includes('침해');
+  const employeeRightsAbuse = employeeRights && employeeAbuse;
+
+  const add = (...items: string[]) => {
+    for (const item of items) {
+      const compactItem = item.replace(/\s+/g, '');
+      if (!compactItem || compact.includes(compactItem) || aliases.includes(item)) continue;
+      aliases.push(item);
+    }
+  };
+
+  if (employeeEducation && !employeeRightsAbuse) {
+    add('직원교육');
+  }
+
+  if (employeeRights) {
+    add('직원인권보호');
+  }
+
+  if (employeeRightsAbuse) {
+    add('직원인권침해대응지침');
+    if (employeeEducation) {
+      add('직원교육');
+    }
+  }
+
+  if (compact.includes('인권') && compact.includes('교육') && !employeeRightsAbuse) {
+    add('인권보호지침');
+  }
+
+  if (compact.includes('지표') || compact.includes('판단기준') || compact.includes('확인방법') || compact.includes('충족')) {
+    add('평가 지표', '판단 기준', '확인 방법', '충족 미충족 기준');
+  }
+
+  return aliases;
+}
+
+function buildNormalizedRetrievalQuery(messages: ChatMessage[]): {
+  normalizedQuery: string;
+  querySources: string[];
+  aliases: string[];
+} {
   const userMessages = messages
     .filter((message) => message.role === 'user')
     .map((message) => message.text.trim())
@@ -381,15 +427,19 @@ function buildNormalizedRetrievalQuery(messages: ChatMessage[]): { normalizedQue
   const previous = userMessages[userMessages.length - 2];
 
   if (previous && isFollowUpQuery(latest)) {
+    const aliases = buildRetrievalAliases(`${previous}\n${latest}`);
     return {
       normalizedQuery: `${previous}\n후속질문: ${latest}`,
-      querySources: [previous, latest],
+      querySources: [previous, latest, ...aliases],
+      aliases,
     };
   }
 
+  const aliases = buildRetrievalAliases(latest);
   return {
     normalizedQuery: latest,
-    querySources: latest ? [latest] : [],
+    querySources: latest ? [latest, ...aliases] : [],
+    aliases,
   };
 }
 
@@ -1040,8 +1090,8 @@ class MemoryRagStore implements RagStore {
     this.indexGeneratedAt = new Date().toISOString();
   }
 
-  search(query: string, mode: PromptMode, queryEmbedding: number[] | null): SearchRun {
-    return searchCorpus({ index: this.index, query, mode, queryEmbedding });
+  search(query: string, mode: PromptMode, queryEmbedding: number[] | null, queryAliases: string[] = []): SearchRun {
+    return searchCorpus({ index: this.index, query, mode, queryEmbedding, queryAliases });
   }
 
   getCompiledPages(mode: PromptMode, documentIds: string[]): CompiledPage[] {
@@ -1286,8 +1336,8 @@ class PostgresRagStore implements RagStore {
     }
   }
 
-  search(query: string, mode: PromptMode, queryEmbedding: number[] | null): SearchRun {
-    return searchCorpus({ index: this.index, query, mode, queryEmbedding });
+  search(query: string, mode: PromptMode, queryEmbedding: number[] | null, queryAliases: string[] = []): SearchRun {
+    return searchCorpus({ index: this.index, query, mode, queryEmbedding, queryAliases });
   }
 
   getCompiledPages(mode: PromptMode, documentIds: string[]): CompiledPage[] {
@@ -1711,13 +1761,13 @@ export class NodeRagService {
     const query = Array.isArray(input)
       ? [...recentMessages].reverse().find((message) => message.role === 'user')?.text ?? ''
       : input;
-    const normalized =
-      recentMessages.length > 0
-        ? buildNormalizedRetrievalQuery(recentMessages)
-        : { normalizedQuery: query.trim(), querySources: query.trim() ? [query.trim()] : [] };
-    const { normalizedQuery, querySources } = normalized;
-    const queryEmbedding = this.embeddingAi ? await embedQuery(this.embeddingAi, normalizedQuery) : null;
-    const search = applyGroundingGate(this.store.search(normalizedQuery, mode, queryEmbedding));
+    const normalized = buildNormalizedRetrievalQuery(
+      recentMessages.length > 0 ? recentMessages : query.trim() ? [{ role: 'user', text: query.trim() }] : [],
+    );
+    const { normalizedQuery, querySources, aliases } = normalized;
+    const embeddingQuery = [normalizedQuery, ...aliases].filter(Boolean).join('\n');
+    const queryEmbedding = this.embeddingAi ? await embedQuery(this.embeddingAi, embeddingQuery) : null;
+    const search = applyGroundingGate(this.store.search(normalizedQuery, mode, queryEmbedding, aliases));
     const compiledPages = this.store.getCompiledPages(mode, search.evidence.map((item) => item.documentId));
     const indexStatus = this.refreshIndexStatus();
     const retrieval = buildRetrievalDiagnostics(
@@ -1761,9 +1811,10 @@ export class NodeRagService {
 
     const recentMessages = request.messages.slice(-4);
     const latestUserMessage = [...recentMessages].reverse().find((message) => message.role === 'user')?.text ?? '';
-    const { normalizedQuery, querySources } = buildNormalizedRetrievalQuery(recentMessages);
-    const queryEmbedding = this.embeddingAi ? await embedQuery(this.embeddingAi, normalizedQuery) : null;
-    const search = applyGroundingGate(this.store.search(normalizedQuery, request.mode, queryEmbedding));
+    const { normalizedQuery, querySources, aliases } = buildNormalizedRetrievalQuery(recentMessages);
+    const embeddingQuery = [normalizedQuery, ...aliases].filter(Boolean).join('\n');
+    const queryEmbedding = this.embeddingAi ? await embedQuery(this.embeddingAi, embeddingQuery) : null;
+    const search = applyGroundingGate(this.store.search(normalizedQuery, request.mode, queryEmbedding, aliases));
     const evidence = constrainEvidence({
       ...search,
       evidence: expandEvidenceWithNeighbors(search.evidence, this.store.getChunks()),

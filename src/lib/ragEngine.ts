@@ -120,7 +120,30 @@ export function getCandidateFocusMatches(candidate: StructuredChunk, focusTerms:
   return focusTerms.filter((term) => searchText.includes(term.toLowerCase()));
 }
 
-function scoreExact(chunk: StructuredChunk, query: string, intent: QueryIntent, mode: PromptMode): SearchCandidate {
+function scoreAliasMetadata(alias: string, titleCompact: string, sectionCompact: string, matchedTerms: Set<string>): number {
+  const aliasCompact = alias.replace(/\s+/g, '').toLowerCase();
+  if (aliasCompact.length < 2) return 0;
+
+  if (titleCompact.includes(aliasCompact)) {
+    matchedTerms.add(alias);
+    return 30;
+  }
+
+  if (sectionCompact.includes(aliasCompact)) {
+    matchedTerms.add(alias);
+    return 18;
+  }
+
+  return 0;
+}
+
+function scoreExact(
+  chunk: StructuredChunk,
+  query: string,
+  intent: QueryIntent,
+  mode: PromptMode,
+  queryAliases: string[] = [],
+): SearchCandidate {
   const candidate = createCandidate(chunk);
   const compactQuery = query.replace(/\s+/g, '').toLowerCase();
   const titleCompact = chunk.docTitle.replace(/\s+/g, '').toLowerCase();
@@ -151,6 +174,10 @@ function scoreExact(chunk: StructuredChunk, query: string, intent: QueryIntent, 
       score += 4;
       matchedTerms.add(token);
     }
+  }
+
+  for (const alias of queryAliases) {
+    score += scoreAliasMetadata(alias, titleCompact, sectionCompact, matchedTerms);
   }
 
   if (intent === 'legal-exact' && ['law', 'ordinance', 'rule', 'notice'].includes(chunk.sourceType)) {
@@ -424,12 +451,13 @@ export function searchCorpus(params: {
   query: string;
   mode: PromptMode;
   queryEmbedding?: number[] | null;
+  queryAliases?: string[];
 }): SearchRun {
-  const { index, query, mode, queryEmbedding = null } = params;
+  const { index, query, mode, queryEmbedding = null, queryAliases = [] } = params;
   const intent = detectIntent(mode, query);
   const exactCandidates = index.chunks
     .filter((chunk) => mode !== 'evaluation' || chunk.mode === 'evaluation')
-    .map((chunk) => scoreExact(chunk, query, intent, mode))
+    .map((chunk) => scoreExact(chunk, query, intent, mode, queryAliases))
     .filter((candidate) => candidate.exactScore > 0)
     .sort((left, right) => {
       const scoreDiff = right.exactScore - left.exactScore;

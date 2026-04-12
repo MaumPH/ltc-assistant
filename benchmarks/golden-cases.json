@@ -89,6 +89,15 @@
     "acceptableAbstain": false
   },
   {
+    "id": "evaluation-employee-rights-education",
+    "mode": "evaluation",
+    "question": "직원인권침해교육은 어떻게 해야해",
+    "expectedDoc": "직원인권보호",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "notes": "붙여 쓴 질문도 직원 인권보호/직원교육 지표로 연결되는지 확인"
+  },
+  {
     "id": "integrated-specific-knowledge-doc-top3",
     "mode": "integrated",
     "question": "2026년 인건비지출비율 다빈도 질의응답 문서를 우선 찾아줘",

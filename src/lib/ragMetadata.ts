@@ -12,6 +12,66 @@ const DATE_TOKEN_RE = /\((20\d{2})(\d{2})(\d{2})\)/;
 const YEAR_MONTH_RE = /\((20\d{2})\.(\d{1,2})\.?\)/;
 const ARTICLE_RE = /(제\s*\d+\s*조(?:의\s*\d+)*)/;
 const HASH_SEEDS = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35, 0x27d4eb2f];
+const KOREAN_PARTICLE_SUFFIXES = [
+  '으로부터',
+  '에게서',
+  '에서는',
+  '으로는',
+  '으로도',
+  '까지는',
+  '부터는',
+  '한테서',
+  '에게는',
+  '에게도',
+  '한테는',
+  '한테도',
+  '으로',
+  '에서',
+  '에게',
+  '한테',
+  '부터',
+  '까지',
+  '처럼',
+  '보다',
+  '마다',
+  '으로',
+  '은',
+  '는',
+  '이',
+  '가',
+  '을',
+  '를',
+  '의',
+  '에',
+  '도',
+  '만',
+  '과',
+  '와',
+  '로',
+  '나',
+  '랑',
+].sort((left, right) => right.length - left.length);
+
+const DOMAIN_TOKEN_FRAGMENTS = [
+  '직원',
+  '인권',
+  '침해',
+  '교육',
+  '보호',
+  '대응',
+  '지침',
+  '권익',
+  '폭언',
+  '폭행',
+  '성희롱',
+  '성폭력',
+  '고충',
+  '수급자',
+  '보호자',
+  '급여',
+  '평가',
+  '매뉴얼',
+].sort((left, right) => right.length - left.length);
 
 function hashFragment(input: string, seed: number): string {
   let hashA = seed ^ input.length;
@@ -50,12 +110,48 @@ export function stripExtension(fileName: string): string {
   return fileName.replace(/\.(md|txt)$/i, '');
 }
 
+function stripKoreanParticle(token: string): string {
+  for (const suffix of KOREAN_PARTICLE_SUFFIXES) {
+    if (token.length - suffix.length < 2) continue;
+    if (token.endsWith(suffix)) {
+      return token.slice(0, -suffix.length);
+    }
+  }
+
+  return token;
+}
+
+function addCompoundFragments(token: string, results: Set<string>) {
+  if (!/^[\uac00-\ud7a3]+$/.test(token) || token.length < 4) return;
+
+  const fragments = DOMAIN_TOKEN_FRAGMENTS.filter((fragment) => fragment.length < token.length && token.includes(fragment));
+  if (fragments.length < 2) return;
+
+  for (const fragment of fragments) {
+    results.add(fragment);
+  }
+}
+
 export function tokenize(value: string): string[] {
-  return value
+  const results = new Set<string>();
+
+  value
     .toLowerCase()
     .split(/[\s\u3000.,!?;:'"()[\]{}<>\/\\|@#$%^&*+=~`_\-]+/)
     .map((token) => token.replace(/[^\uac00-\ud7a3\u1100-\u11ff\u3130-\u318f\w]/g, ''))
-    .filter((token) => token.length >= 2);
+    .filter((token) => token.length >= 2)
+    .forEach((token) => {
+      results.add(token);
+      addCompoundFragments(token, results);
+
+      const stripped = stripKoreanParticle(token);
+      if (stripped.length >= 2) {
+        results.add(stripped);
+        addCompoundFragments(stripped, results);
+      }
+    });
+
+  return Array.from(results);
 }
 
 export function extractArticleNo(value: string): string | undefined {
