@@ -1,0 +1,274 @@
+{
+  "question_archetypes": [
+    {
+      "id": "verdict-duty",
+      "label": "의무판단",
+      "preferred_answer_type": "verdict",
+      "retrieval_mode": "local",
+      "triggers": ["의무", "법정", "해야 하나", "가능한가", "해도 되나", "금지", "처벌", "제재"]
+    },
+    {
+      "id": "workflow-checklist",
+      "label": "업무체크리스트",
+      "preferred_answer_type": "checklist",
+      "retrieval_mode": "workflow-global",
+      "triggers": ["무엇을 해야", "해야 하는 업무", "해야되는 업무", "체크리스트", "준비", "전체적으로", "정리해줘"]
+    },
+    {
+      "id": "workflow-procedure",
+      "label": "업무절차",
+      "preferred_answer_type": "procedure",
+      "retrieval_mode": "workflow-global",
+      "triggers": ["절차", "순서", "어떻게 진행", "프로세스", "흐름", "단계"]
+    },
+    {
+      "id": "comparison-difference",
+      "label": "비교질문",
+      "preferred_answer_type": "comparison",
+      "retrieval_mode": "local",
+      "triggers": ["차이", "비교", "무슨 차이", "구분", "어떻게 다른", "vs"]
+    },
+    {
+      "id": "definition-explain",
+      "label": "개념정의",
+      "preferred_answer_type": "definition",
+      "retrieval_mode": "local",
+      "triggers": ["의미", "정의", "무엇인가", "뭐예요", "설명", "개념"]
+    },
+    {
+      "id": "mixed-general",
+      "label": "혼합정리",
+      "preferred_answer_type": "mixed",
+      "retrieval_mode": "local",
+      "triggers": ["같이 정리", "한번에", "법정 의무와 평가", "종합", "전문가처럼"]
+    }
+  ],
+  "workflow_events": [
+    {
+      "id": "new-recipient-onboarding",
+      "label": "신규 수급자 입소 초기",
+      "synonyms": ["신규 수급자", "입소 초기", "신규 수급자가 오면", "처음 오면", "신규 입소", "초기 업무"],
+      "tasks": ["recipient-intake-check", "recipient-guidance", "recipient-care-plan", "recipient-meal-risk-check"]
+    },
+    {
+      "id": "staff-education",
+      "label": "직원 교육 운영",
+      "synonyms": ["직원교육", "종사자 교육", "인권교육", "예방교육", "신규 직원 교육"],
+      "tasks": ["staff-mandatory-education", "staff-rights-protection", "staff-evaluation-explanation"]
+    },
+    {
+      "id": "evaluation-prep",
+      "label": "평가 준비",
+      "synonyms": ["평가 준비", "평가 대응", "지표 준비", "이번 평가", "평가에서", "증빙 준비"],
+      "tasks": ["evaluation-initial-check", "evaluation-document-pack", "evaluation-explanation-pack"],
+      "service_scope": ["integrated", "evaluation"]
+    },
+    {
+      "id": "care-plan-review",
+      "label": "욕구사정 및 급여제공계획",
+      "synonyms": ["욕구사정", "급여제공계획", "사례회의", "계획 변경", "상태 변화 평가"],
+      "tasks": ["care-needs-assessment", "care-plan-establishment", "care-plan-review-change"]
+    }
+  ],
+  "actors": [
+    { "id": "facility-head", "label": "기관장" },
+    { "id": "social-worker", "label": "사회복지사" },
+    { "id": "care-worker", "label": "요양보호사" },
+    { "id": "nurse", "label": "간호(조무) 인력" },
+    { "id": "recipient-family", "label": "수급자 또는 보호자" }
+  ],
+  "artifacts": [
+    { "id": "consult-record", "label": "상담기록" },
+    { "id": "guidance-record", "label": "안내·설명 기록" },
+    { "id": "care-plan", "label": "급여제공계획서" },
+    { "id": "needs-assessment", "label": "욕구사정 기록" },
+    { "id": "risk-checklist", "label": "초기 위험·생활 확인 자료" },
+    { "id": "education-log", "label": "교육 실시 기록" },
+    { "id": "evaluation-evidence", "label": "평가 증빙 자료" }
+  ],
+  "time_windows": [
+    { "id": "at-intake", "label": "입소 직후" },
+    { "id": "within-14-days", "label": "급여 제공 시작 후 14일 이내" },
+    { "id": "before-evaluation", "label": "평가 전 사전 준비 단계" },
+    { "id": "during-service", "label": "서비스 제공 중 수시" },
+    { "id": "per-schedule", "label": "정기 교육 일정에 따라" }
+  ],
+  "tasks": [
+    {
+      "id": "recipient-intake-check",
+      "label": "초기 상태와 생활위험 확인",
+      "workflow_event": "new-recipient-onboarding",
+      "actor": "social-worker",
+      "time_window": "at-intake",
+      "required_artifact": ["risk-checklist", "consult-record"],
+      "obligation_level": "mandatory",
+      "legal_basis": ["장기요양급여 제공기준", "욕구조사"],
+      "evaluation_basis": ["주야간보호 업무의 이해", "초기 확인"],
+      "practical_basis": ["기피식품", "낙상예방", "욕창예방"],
+      "synonyms": ["초기 확인", "입소 초기 확인", "초기 위험 확인"]
+    },
+    {
+      "id": "recipient-guidance",
+      "label": "수급자·보호자 지침 설명과 상담 기록",
+      "workflow_event": "new-recipient-onboarding",
+      "actor": "social-worker",
+      "time_window": "within-14-days",
+      "required_artifact": ["guidance-record", "consult-record"],
+      "obligation_level": "mandatory",
+      "legal_basis": ["상담", "수급자 또는 가족"],
+      "evaluation_basis": ["8가지 지침", "안내", "설명"],
+      "practical_basis": ["노인인권보호", "감염예방", "치매예방"],
+      "synonyms": ["초기 안내", "입소 설명", "신규 수급자 교육"]
+    },
+    {
+      "id": "recipient-care-plan",
+      "label": "욕구사정 기반 급여제공계획 수립",
+      "workflow_event": "new-recipient-onboarding",
+      "actor": "social-worker",
+      "time_window": "within-14-days",
+      "required_artifact": ["needs-assessment", "care-plan"],
+      "obligation_level": "mandatory",
+      "legal_basis": ["욕구조사", "급여제공계획서"],
+      "evaluation_basis": ["초기 계획", "평가 지표"],
+      "practical_basis": ["상태 변화", "보호자 의견"],
+      "synonyms": ["초기 급여제공계획", "입소 후 계획 수립"]
+    },
+    {
+      "id": "recipient-meal-risk-check",
+      "label": "식사·기피식품·영양 관련 확인",
+      "workflow_event": "new-recipient-onboarding",
+      "actor": "care-worker",
+      "time_window": "at-intake",
+      "required_artifact": ["risk-checklist"],
+      "obligation_level": "recommended",
+      "legal_basis": ["영양상태"],
+      "evaluation_basis": ["식사만족도", "입소자 적용 시점"],
+      "practical_basis": ["기피식품", "식사 도움", "영양 관리"],
+      "synonyms": ["식사 확인", "영양 확인"]
+    },
+    {
+      "id": "staff-mandatory-education",
+      "label": "법정 또는 제도상 필수 직원교육 확인",
+      "workflow_event": "staff-education",
+      "actor": "facility-head",
+      "time_window": "per-schedule",
+      "required_artifact": ["education-log"],
+      "obligation_level": "mandatory",
+      "legal_basis": ["법정 의무", "교육"],
+      "evaluation_basis": ["직원교육", "평가 지표"],
+      "practical_basis": ["신규 직원 오리엔테이션"],
+      "synonyms": ["필수 교육", "법정 교육"]
+    },
+    {
+      "id": "staff-rights-protection",
+      "label": "직원 인권침해 예방 및 보호 조치",
+      "workflow_event": "staff-education",
+      "actor": "facility-head",
+      "time_window": "during-service",
+      "required_artifact": ["education-log", "consult-record"],
+      "obligation_level": "mandatory",
+      "legal_basis": ["장기요양요원의 보호", "고충 해소"],
+      "evaluation_basis": ["직원인권보호", "직원권익향상"],
+      "practical_basis": ["대응지침", "신고 절차"],
+      "synonyms": ["직원 인권침해 예방교육", "직원 보호"]
+    },
+    {
+      "id": "staff-evaluation-explanation",
+      "label": "평가 대응용 직원 설명과 증빙 정리",
+      "workflow_event": "staff-education",
+      "actor": "social-worker",
+      "time_window": "before-evaluation",
+      "required_artifact": ["education-log", "evaluation-evidence"],
+      "obligation_level": "recommended",
+      "legal_basis": [],
+      "evaluation_basis": ["평가 설명", "증빙"],
+      "practical_basis": ["질문 대응", "교육 계획표"],
+      "synonyms": ["직원 평가 준비", "직원 교육 증빙"]
+    },
+    {
+      "id": "evaluation-initial-check",
+      "label": "이번 평가에서 입소 초기 확인 항목 정리",
+      "workflow_event": "evaluation-prep",
+      "actor": "social-worker",
+      "time_window": "before-evaluation",
+      "required_artifact": ["evaluation-evidence", "risk-checklist"],
+      "obligation_level": "mandatory",
+      "legal_basis": [],
+      "evaluation_basis": ["입소 초기 확인", "평가매뉴얼", "지표"],
+      "practical_basis": ["설명 포인트", "누락 위험"],
+      "synonyms": ["초기 확인 지표", "평가 초기 확인"]
+    },
+    {
+      "id": "evaluation-document-pack",
+      "label": "평가용 필수 문서와 기록 묶음 준비",
+      "workflow_event": "evaluation-prep",
+      "actor": "social-worker",
+      "time_window": "before-evaluation",
+      "required_artifact": ["evaluation-evidence", "care-plan", "needs-assessment"],
+      "obligation_level": "mandatory",
+      "legal_basis": [],
+      "evaluation_basis": ["증빙", "필수 문서"],
+      "practical_basis": ["바인딩", "점검표"],
+      "synonyms": ["필수 문서 준비", "문서 준비"]
+    },
+    {
+      "id": "evaluation-explanation-pack",
+      "label": "평가 질문 대응 설명 포인트 준비",
+      "workflow_event": "evaluation-prep",
+      "actor": "social-worker",
+      "time_window": "before-evaluation",
+      "required_artifact": ["evaluation-evidence"],
+      "obligation_level": "recommended",
+      "legal_basis": [],
+      "evaluation_basis": ["평가 설명", "사례집"],
+      "practical_basis": ["후기", "질문 대응"],
+      "synonyms": ["설명 준비", "평가 질문 대응"]
+    },
+    {
+      "id": "care-needs-assessment",
+      "label": "욕구사정 실시",
+      "workflow_event": "care-plan-review",
+      "actor": "social-worker",
+      "time_window": "within-14-days",
+      "required_artifact": ["needs-assessment"],
+      "obligation_level": "mandatory",
+      "legal_basis": ["욕구조사"],
+      "evaluation_basis": ["욕구사정"],
+      "practical_basis": ["보유질환", "영양상태", "일상생활기능"],
+      "synonyms": ["욕구 조사", "욕구 확인"]
+    },
+    {
+      "id": "care-plan-establishment",
+      "label": "급여제공계획 수립",
+      "workflow_event": "care-plan-review",
+      "actor": "social-worker",
+      "time_window": "within-14-days",
+      "required_artifact": ["care-plan"],
+      "obligation_level": "mandatory",
+      "legal_basis": ["급여제공계획서"],
+      "evaluation_basis": ["급여제공계획"],
+      "practical_basis": ["목표", "서비스 내용", "보호자 의견"],
+      "synonyms": ["계획 수립", "제공계획 작성"]
+    },
+    {
+      "id": "care-plan-review-change",
+      "label": "상태 변화에 따른 계획 점검·변경",
+      "workflow_event": "care-plan-review",
+      "actor": "social-worker",
+      "time_window": "during-service",
+      "required_artifact": ["care-plan", "consult-record"],
+      "obligation_level": "conditional",
+      "legal_basis": ["상담", "계획 변경"],
+      "evaluation_basis": ["사례관리 회의"],
+      "practical_basis": ["유지", "악화", "호전"],
+      "synonyms": ["급여제공계획 변경", "변화 상태 점검"]
+    }
+  ],
+  "terms": [
+    { "term": "신규 수급자", "synonyms": ["처음 오는 수급자"], "related_terms": ["욕구사정", "급여제공계획", "상담기록"] },
+    { "term": "직원교육", "synonyms": ["직원 교육 운영"], "related_terms": ["교육기록", "인권교육", "평가 준비"] },
+    { "term": "평가 준비", "synonyms": ["평가 사전 정리"], "related_terms": ["증빙", "평가매뉴얼", "사례집"] },
+    { "term": "욕구사정", "synonyms": ["욕구 파악"], "related_terms": ["급여제공계획", "상태 변화", "사례관리"] },
+    { "term": "급여제공계획", "synonyms": ["급여제공계획서"], "related_terms": ["욕구사정", "계획 변경"] }
+  ]
+}

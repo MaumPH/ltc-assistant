@@ -2,15 +2,24 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, Scale, Send } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { MODELS, type ModelId } from './TopNav';
-import StructuredAnswerCard from './StructuredAnswerCard';
+import ExpertAnswerCard from './ExpertAnswerCard';
 import { getApiUrl } from '../lib/apiUrl';
-import type { ChatCapabilities } from '../lib/ragTypes';
-import { parseStructuredAnswer } from '../lib/structuredAnswer';
+import type { ChatCapabilities, ExpertAnswerEnvelope } from '../lib/ragTypes';
 
 export interface Message {
   id: string;
   role: 'user' | 'model';
   text: string;
+  answer?: ExpertAnswerEnvelope;
+  citations?: Array<{
+    evidenceId: string;
+    label?: string;
+    docTitle: string;
+    articleNo?: string;
+    sectionPath: string[];
+    effectiveDate?: string;
+  }>;
+  retrieval?: Record<string, unknown>;
 }
 
 interface ChatViewProps {
@@ -22,7 +31,10 @@ interface ChatViewProps {
 
 interface ChatApiResponse {
   model?: string;
+  answer?: ExpertAnswerEnvelope;
   text?: string;
+  citations?: Message['citations'];
+  retrieval?: Message['retrieval'];
 }
 
 interface ChatApiErrorResponse {
@@ -53,12 +65,13 @@ function resizeTextarea(element: HTMLTextAreaElement) {
   element.style.height = `${element.scrollHeight}px`;
 }
 
-function createMessage(role: Message['role'], text: string): Message {
+function createMessage(role: Message['role'], text: string, extras?: Partial<Message>): Message {
   messageSequence += 1;
   return {
     id: `message-${Date.now()}-${messageSequence}`,
     role,
     text,
+    ...extras,
   };
 }
 
@@ -185,7 +198,14 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
 
         const data = (await response.json()) as ChatApiResponse;
         const responseText = data.text?.trim() || '응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.';
-        setMessages([...newMessages, createMessage('model', responseText)]);
+        setMessages([
+          ...newMessages,
+          createMessage('model', responseText, {
+            answer: data.answer,
+            citations: data.citations,
+            retrieval: data.retrieval,
+          }),
+        ]);
       } catch (error) {
         const isTimeout = error instanceof Error && error.name === 'TimeoutError';
         const timeoutSeconds = Math.round(requestTimeoutMs / 1000);
@@ -219,16 +239,15 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
     await submitCurrentMessage();
   };
 
-  const renderModelMessage = (text: string) => {
-    const structuredAnswer = parseStructuredAnswer(text);
-    if (structuredAnswer) {
-      return <StructuredAnswerCard answer={structuredAnswer} />;
+  const renderModelMessage = (message: Message) => {
+    if (message.answer) {
+      return <ExpertAnswerCard answer={message.answer} />;
     }
 
     return (
       <div className="rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-3 text-slate-800 shadow-sm sm:px-5 sm:py-4">
         <div className="prose prose-sm max-w-none break-words prose-headings:font-semibold prose-p:leading-relaxed prose-a:text-blue-600 md:prose-base">
-          <ReactMarkdown>{text}</ReactMarkdown>
+          <ReactMarkdown>{message.text}</ReactMarkdown>
         </div>
       </div>
     );
@@ -264,7 +283,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
                     <p className="whitespace-pre-wrap text-[15px] leading-relaxed sm:text-base">{message.text}</p>
                   </div>
                 ) : (
-                  renderModelMessage(message.text)
+                  renderModelMessage(message)
                 )}
               </div>
             </div>

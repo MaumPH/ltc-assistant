@@ -1,18 +1,7 @@
-import type { PromptMode } from './ragCore';
+import type { PromptMode, RetrievalMode } from './ragTypes';
 
-export const EVIDENCE_STATES = ['확정', '부분확정', '충돌', '확인 불가'] as const;
-export type EvidenceState = typeof EVIDENCE_STATES[number];
 export type PromptVariant = 'baseline' | 'v2';
-
-export const REQUIRED_RESPONSE_SECTIONS = [
-  '[답변 가능 상태]',
-  '[기준 시점]',
-  '[결론]',
-  '[확정 근거]',
-  '[실무 해석/운영 참고]',
-  '[예외·주의 및 추가 확인사항]',
-  '[출처]',
-] as const;
+export type PromptContract = 'planner' | 'synthesizer';
 
 export interface PromptSourceSet {
   baseline: string;
@@ -20,28 +9,54 @@ export interface PromptSourceSet {
   overlays: Record<PromptMode, string>;
 }
 
-const CONTEXT_HEADER = '# 관련 지식베이스 문서 (아래 문서에만 근거하여 답변할 것)';
+const CONTEXT_HEADER = '# Retrieved Knowledge Context';
 const EMPTY_CONTEXT_FALLBACK = [
-  '(검색된 관련 문서 없음)',
-  '이 경우 외부 지식으로 보완하지 말고, 필요한 확인 질문 또는 "확인 불가"로 처리할 것.',
+  '(no retrieved knowledge context)',
+  'If direct grounding is missing, keep the answer conservative and surface what is missing.',
 ].join('\n');
 
 function normalizeBlock(text: string): string {
   return text.replace(/\r\n/g, '\n').trim();
 }
 
-export function getPromptBody(
-  mode: PromptMode,
-  variant: PromptVariant,
-  sources: PromptSourceSet,
-): string {
-  if (variant === 'baseline') return normalizeBlock(sources.baseline);
-  return [sources.base, sources.overlays[mode]].map(normalizeBlock).join('\n\n---\n\n');
+function getPromptBody(mode: PromptMode, variant: PromptVariant, sources: PromptSourceSet): string {
+  if (variant === 'baseline') {
+    return normalizeBlock(sources.baseline);
+  }
+
+  return [sources.base, sources.overlays[mode]].map(normalizeBlock).filter(Boolean).join('\n\n---\n\n');
 }
 
-export function buildSystemInstruction(promptBody: string, knowledgeContext: string): string {
+function buildContextBlock(knowledgeContext: string): string {
   const contextBlock = normalizeBlock(knowledgeContext) || EMPTY_CONTEXT_FALLBACK;
-  return `${normalizeBlock(promptBody)}\n\n---\n${CONTEXT_HEADER}\n${contextBlock}`;
+  return `${CONTEXT_HEADER}\n${contextBlock}`;
+}
+
+function buildContractInstructions(contract: PromptContract, retrievalMode: RetrievalMode | undefined): string {
+  if (contract === 'planner') {
+    return [
+      '# Planner Contract',
+      '- Interpret the user question as an expert work-assistant request, not as a markdown formatting task.',
+      '- Decide the most useful answer shape from the supported answer types.',
+      '- Keep legal, evaluation, and practical basis separate.',
+      '- Prefer concise, deterministic planning over stylistic prose.',
+      retrievalMode ? `- The selected retrieval mode is \`${retrievalMode}\`. Respect that choice unless the evidence clearly shows a mismatch.` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  return [
+    '# Synthesizer Contract',
+    '- Produce an expert answer as semantic JSON only.',
+    '- Do not emit markdown section headers or presentation markup.',
+    '- Use blocks to organize the answer by user need: verdict, checklist, procedure, comparison, definition, or mixed.',
+    '- Keep legal, evaluation, and practical basis explicitly separated.',
+    '- Prefer practical completeness over rhetorical flourish.',
+    retrievalMode ? `- The selected retrieval mode is \`${retrievalMode}\`. Keep the structure aligned with what that retrieval path can justify.` : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 export function buildVariantSystemInstruction(options: {
@@ -49,7 +64,47 @@ export function buildVariantSystemInstruction(options: {
   variant: PromptVariant;
   knowledgeContext: string;
   sources: PromptSourceSet;
+  contract?: PromptContract;
+  retrievalMode?: RetrievalMode;
+  extraInstructions?: string[];
 }): string {
   const promptBody = getPromptBody(options.mode, options.variant, options.sources);
-  return buildSystemInstruction(promptBody, options.knowledgeContext);
+  const contract = options.contract ?? 'synthesizer';
+
+  return [
+    promptBody,
+    buildContractInstructions(contract, options.retrievalMode),
+    ...(options.extraInstructions ?? []).filter(Boolean),
+    buildContextBlock(options.knowledgeContext),
+  ]
+    .filter(Boolean)
+    .join('\n\n---\n\n');
+}
+
+export function buildPlannerSystemInstruction(options: {
+  mode: PromptMode;
+  variant: PromptVariant;
+  knowledgeContext: string;
+  sources: PromptSourceSet;
+  retrievalMode?: RetrievalMode;
+  extraInstructions?: string[];
+}): string {
+  return buildVariantSystemInstruction({
+    ...options,
+    contract: 'planner',
+  });
+}
+
+export function buildSynthesizerSystemInstruction(options: {
+  mode: PromptMode;
+  variant: PromptVariant;
+  knowledgeContext: string;
+  sources: PromptSourceSet;
+  retrievalMode?: RetrievalMode;
+  extraInstructions?: string[];
+}): string {
+  return buildVariantSystemInstruction({
+    ...options,
+    contract: 'synthesizer',
+  });
 }

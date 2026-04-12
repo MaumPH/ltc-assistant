@@ -24,6 +24,12 @@ export type RetrievalReadiness = 'lexical_only' | 'hybrid_partial' | 'hybrid_rea
 
 export type GenerationMode = 'user' | 'server';
 
+export type RetrievalMode = 'local' | 'workflow-global' | 'drift-refine';
+
+export type ExpertAnswerType = 'verdict' | 'checklist' | 'procedure' | 'comparison' | 'definition' | 'mixed';
+
+export type BasisBucketKey = 'legal' | 'evaluation' | 'practical';
+
 export interface KnowledgeFile {
   path: string;
   name: string;
@@ -139,6 +145,87 @@ export interface CompiledPage {
   summary: string;
   body: string;
   tags: string[];
+}
+
+export interface ExpertBasisEntry {
+  label: string;
+  summary: string;
+  citationIds: string[];
+}
+
+export interface ExpertBasisBuckets {
+  legal: ExpertBasisEntry[];
+  evaluation: ExpertBasisEntry[];
+  practical: ExpertBasisEntry[];
+}
+
+export interface ExpertAnswerBlockItem {
+  label: string;
+  detail: string;
+  actor?: string;
+  timeWindow?: string;
+  artifact?: string;
+  basis?: BasisBucketKey;
+  citationIds?: string[];
+  side?: string;
+  term?: string;
+}
+
+export interface ExpertAnswerBlock {
+  type: 'checklist' | 'steps' | 'comparison' | 'bullets' | 'warning' | 'definition' | 'followup';
+  title: string;
+  intro?: string;
+  items: ExpertAnswerBlockItem[];
+}
+
+export interface ExpertAnswerCitation {
+  evidenceId: string;
+  label: string;
+  docTitle: string;
+  articleNo?: string;
+  sectionPath: string[];
+  effectiveDate?: string;
+  whyItMatters?: string;
+}
+
+export interface ExpertAnswerEnvelope {
+  answerType: ExpertAnswerType;
+  headline: string;
+  summary: string;
+  confidence: ConfidenceLevel;
+  evidenceState: EvidenceState;
+  keyIssueDate?: string;
+  scope: string;
+  basis: ExpertBasisBuckets;
+  blocks: ExpertAnswerBlock[];
+  citations: ExpertAnswerCitation[];
+  followUps: string[];
+}
+
+export interface AnswerPlanTaskCandidate {
+  title: string;
+  actor?: string;
+  timeWindow?: string;
+  artifact?: string;
+  basis: BasisBucketKey;
+  note: string;
+}
+
+export interface PlannerTraceEntry {
+  step: string;
+  detail: string;
+}
+
+export interface AnswerPlan {
+  questionArchetype: string;
+  selectedRetrievalMode: RetrievalMode;
+  intentSummary: string;
+  workflowEvents: string[];
+  taskCandidates: AnswerPlanTaskCandidate[];
+  basisBuckets: Record<BasisBucketKey, string[]>;
+  missingDimensions: string[];
+  selectedEvidenceIds: string[];
+  recommendedAnswerType: ExpertAnswerType;
 }
 
 export interface BenchmarkCase {
@@ -273,6 +360,11 @@ export interface RetrievalDiagnostics {
   routingDocuments: string[];
   primaryExpansionDocuments: string[];
   finalEvidenceDocuments: string[];
+  selectedRetrievalMode: RetrievalMode;
+  workflowEventsHit: string[];
+  subquestions: string[];
+  basisCoverage: Record<BasisBucketKey, number>;
+  plannerTrace: PlannerTraceEntry[];
 }
 
 export interface RecentRetrievalMatch {

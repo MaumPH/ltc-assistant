@@ -324,9 +324,11 @@ async function startServer() {
 
         res.json({
           model: requestedModel,
+          answer: response.answer,
           text: response.text,
           citations: response.citations.map((citation) => ({
-            id: citation.id,
+            evidenceId: citation.id,
+            label: citation.fileName || citation.docTitle,
             docTitle: citation.docTitle,
             articleNo: citation.articleNo,
             sectionPath: citation.sectionPath,
@@ -348,8 +350,13 @@ async function startServer() {
             routingDocuments: response.retrieval.routingDocuments,
             primaryExpansionDocuments: response.retrieval.primaryExpansionDocuments,
             finalEvidenceDocuments: response.retrieval.finalEvidenceDocuments,
+            selectedRetrievalMode: response.retrieval.selectedRetrievalMode,
+            workflowEventsHit: response.retrieval.workflowEventsHit,
+            subquestions: response.retrieval.subquestions,
+            basisCoverage: response.retrieval.basisCoverage,
+            plannerTrace: response.retrieval.plannerTrace,
             evidence: response.search.evidence.map((item) => ({
-              id: item.id,
+              evidenceId: item.id,
               docTitle: item.docTitle,
               articleNo: item.articleNo,
               sectionPath: item.sectionPath,

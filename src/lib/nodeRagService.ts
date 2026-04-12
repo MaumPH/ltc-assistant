@@ -18,6 +18,25 @@ import {
   compareIndexStatus,
 } from './ragIndex';
 import {
+  buildBrainDocumentBoosts,
+  buildBrainQueryProfile,
+  buildDriftSubquestions,
+  buildWorkflowBriefs,
+  loadDomainBrain,
+  selectWorkflowBriefs,
+  summarizeWorkflowEvents,
+  type DomainBrain,
+  type WorkflowBrief,
+} from './brain';
+import {
+  buildBasisCoverage,
+  buildExpertKnowledgeContext,
+  createExpertAbstainAnswer,
+  generateAnswerPlan,
+  renderExpertAnswerMarkdown,
+  synthesizeExpertAnswer,
+} from './expertAnswering';
+import {
   buildPreciseCitationLabel,
   compareIsoDateDesc,
   extractLinkedDocumentTitles,
@@ -29,12 +48,13 @@ import {
 } from './ragMetadata';
 import { loadKnowledgeCorporaFromDisk } from './nodeKnowledge';
 import { loadPromptSourceSet } from './nodePrompts';
-import { buildVariantSystemInstruction, type PromptVariant } from './promptAssembly';
+import type { PromptVariant } from './promptAssembly';
 import { resolveEmbeddingApiKey, resolveGenerationMode, resolveServerGenerationApiKey } from './ragRuntime';
 import { buildCompiledPages, buildStructuredChunks, buildStructuredSections, chunksToEvidenceContext } from './ragStructured';
 import type {
   BenchmarkCase,
   CandidateDiagnostic,
+  ExpertAnswerEnvelope,
   ChatCapabilities,
   ChatMessage,
   ChunkWindowRef,
@@ -49,6 +69,7 @@ import type {
   KnowledgeDoctorIssue,
   PromptMode,
   QueryIntent,
+  RetrievalMode,
   RetrievalDiagnostics,
   RetrievalReadiness,
   RecentRetrievalMatch,
@@ -119,6 +140,7 @@ interface GroundedChatRequest {
 }
 
 export interface GroundedChatResponse {
+  answer: ExpertAnswerEnvelope;
   text: string;
   search: SearchRun;
   citations: StructuredChunk[];
@@ -141,6 +163,11 @@ export interface RetrievalInspectionResponse {
   routingDocuments: string[];
   primaryExpansionDocuments: string[];
   finalEvidenceDocuments: string[];
+  selectedRetrievalMode: RetrievalDiagnostics['selectedRetrievalMode'];
+  workflowEventsHit: RetrievalDiagnostics['workflowEventsHit'];
+  subquestions: RetrievalDiagnostics['subquestions'];
+  basisCoverage: RetrievalDiagnostics['basisCoverage'];
+  plannerTrace: RetrievalDiagnostics['plannerTrace'];
 }
 
 interface RagStore {
@@ -547,6 +574,30 @@ interface RetrievalScopeContext {
 interface SearchExecutionResult {
   search: SearchRun;
   scope: RetrievalScopeContext;
+}
+
+interface SearchPlanningOptions {
+  additionalDocumentScoreBoosts?: Map<string, number>;
+  extraAliases?: string[];
+}
+
+interface RetrievalPlanResult {
+  normalizedQuery: string;
+  querySources: string[];
+  aliases: string[];
+  questionArchetype: string;
+  recommendedAnswerType: ExpertAnswerEnvelope['answerType'];
+  selectedRetrievalMode: RetrievalMode;
+  workflowEventIds: string[];
+  workflowEventsHit: string[];
+  subquestions: string[];
+  plannerTrace: Array<{ step: string; detail: string }>;
+  search: SearchRun;
+  scope: RetrievalScopeContext;
+  evidence: SearchRun['evidence'];
+  workflowBriefs: WorkflowBrief[];
+  knowledgeContext: string;
+  basisCoverage: Record<'legal' | 'evaluation' | 'practical', number>;
 }
 
 function uniqueDocumentPaths(chunks: Array<Pick<StructuredChunk, 'documentId' | 'path'>>): string[] {
@@ -1045,6 +1096,13 @@ function buildRetrievalDiagnostics(
   allChunks: StructuredChunk[],
   retrievalReadiness: RetrievalReadiness,
   scope: RetrievalScopeContext,
+  extras?: {
+    selectedRetrievalMode?: RetrievalMode;
+    workflowEventsHit?: string[];
+    subquestions?: string[];
+    basisCoverage?: Record<'legal' | 'evaluation' | 'practical', number>;
+    plannerTrace?: Array<{ step: string; detail: string }>;
+  },
 ): RetrievalDiagnostics {
   const neighborWindows = collectNeighborWindows(allChunks, search.evidence);
   const candidateDiagnostics = buildCandidateDiagnostics(search, neighborWindows, scope);
@@ -1068,6 +1126,11 @@ function buildRetrievalDiagnostics(
     routingDocuments: scope.routingDocuments,
     primaryExpansionDocuments: scope.primaryExpansionDocuments,
     finalEvidenceDocuments: uniqueDocumentPaths(search.evidence),
+    selectedRetrievalMode: extras?.selectedRetrievalMode ?? 'local',
+    workflowEventsHit: extras?.workflowEventsHit ?? [],
+    subquestions: extras?.subquestions ?? [],
+    basisCoverage: extras?.basisCoverage ?? { legal: 0, evaluation: 0, practical: 0 },
+    plannerTrace: extras?.plannerTrace ?? [],
   };
 }
 
@@ -1949,13 +2012,9 @@ function buildCompiledPageContext(pages: CompiledPage[]): string {
     .join('\n\n');
 }
 
-function isGemini3FamilyModel(model: string): boolean {
-  return /^gemini-3(?:\.1)?-/.test(model.trim());
-}
-
 function resolveGenerationTemperature(model: string): number {
-  // Google recommends keeping Gemini 3 family models at the default temperature.
-  return isGemini3FamilyModel(model) ? 1 : 0.1;
+  void model;
+  return 0.1;
 }
 
 function constrainEvidence(search: SearchRun): SearchRun['evidence'] {
@@ -2073,9 +2132,11 @@ async function generateGroundedAnswer(params: {
 export class NodeRagService {
   private readonly projectRoot: string;
   private readonly promptSources;
+  private readonly brain: DomainBrain;
   private store: RagStore;
   private readonly embeddingAi: GoogleGenAI | null;
   private readonly generationMode: GenerationMode;
+  private workflowBriefs: WorkflowBrief[] = [];
   private diskFiles: KnowledgeFile[] = [];
   private diskManifestEntries: IndexManifestEntry[] = [];
   private doctorIssues: KnowledgeDoctorIssue[] = [];
@@ -2092,6 +2153,7 @@ export class NodeRagService {
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
     this.promptSources = loadPromptSourceSet(projectRoot);
+    this.brain = loadDomainBrain(projectRoot);
     this.generationMode = resolveGenerationMode();
 
     const storageMode = process.env.RAG_STORAGE_MODE?.toLowerCase() ?? 'memory';
@@ -2187,13 +2249,25 @@ export class NodeRagService {
     return this.indexStatus.retrievalReadiness;
   }
 
+  private buildWorkflowBriefIndex(): WorkflowBrief[] {
+    const chunks = this.store.getChunks();
+    const documentIds = Array.from(new Set(chunks.map((chunk) => chunk.documentId)));
+    const pages = [
+      ...this.store.getCompiledPages('integrated', documentIds),
+      ...this.store.getCompiledPages('evaluation', documentIds),
+    ];
+    return buildWorkflowBriefs(this.brain, pages, chunks);
+  }
+
   private executeSearch(
     mode: PromptMode,
     normalizedQuery: string,
     queryEmbedding: number[] | null,
     aliases: string[],
+    options?: SearchPlanningOptions,
   ): SearchExecutionResult {
-    const searchQuery = uniqueNonEmptyLines([normalizedQuery, ...aliases]).join('\n');
+    const combinedAliases = uniqueNonEmptyLines([...(options?.extraAliases ?? []), ...aliases]);
+    const searchQuery = uniqueNonEmptyLines([normalizedQuery, ...combinedAliases]).join('\n');
     const emptyScope: RetrievalScopeContext = {
       routeOnlyDocumentIds: new Set<string>(),
       primaryExpansionDocumentIds: new Set<string>(),
@@ -2204,12 +2278,15 @@ export class NodeRagService {
     if (mode !== 'evaluation') {
       const allChunks = this.store.getChunks();
       const representatives = buildDocumentRepresentativeMap(allChunks);
-      const heuristicDocumentScoreBoosts = buildOperationalDocumentBoosts(allChunks, normalizedQuery);
+      const heuristicDocumentScoreBoosts = mergeDocumentScoreBoostMaps(
+        buildOperationalDocumentBoosts(allChunks, normalizedQuery),
+        options?.additionalDocumentScoreBoosts ?? new Map<string, number>(),
+      );
       const initialSearch = this.store.search(
         searchQuery,
         mode,
         queryEmbedding,
-        aliases,
+        combinedAliases,
         heuristicDocumentScoreBoosts.size > 0 ? { documentScoreBoosts: heuristicDocumentScoreBoosts } : undefined,
       );
       const routingCandidates = uniqueDocumentCandidates(
@@ -2234,7 +2311,7 @@ export class NodeRagService {
       }
 
       const expansionAliases = uniqueNonEmptyLines([
-        ...aliases,
+        ...combinedAliases,
         ...routingCandidates.map((candidate) => candidate.docTitle),
         ...routingCandidates.map((candidate) => candidate.parentSectionTitle),
         ...routingCandidates.flatMap((candidate) => candidate.sectionPath.slice(-2)),
@@ -2246,7 +2323,7 @@ export class NodeRagService {
       ]).join('\n');
 
       const rerankedSearch = applyGroundingGate(
-        this.store.search(searchQuery, mode, queryEmbedding, aliases, {
+        this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
           documentScoreBoosts,
           excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
         }),
@@ -2272,7 +2349,10 @@ export class NodeRagService {
 
     const allChunks = this.store.getChunks();
     const representatives = buildDocumentRepresentativeMap(allChunks);
-    const heuristicDocumentScoreBoosts = buildOperationalDocumentBoosts(allChunks, normalizedQuery);
+    const heuristicDocumentScoreBoosts = mergeDocumentScoreBoostMaps(
+      buildOperationalDocumentBoosts(allChunks, normalizedQuery),
+      options?.additionalDocumentScoreBoosts ?? new Map<string, number>(),
+    );
     const evaluationDocumentIds = new Set(
       allChunks.filter((chunk) => chunk.mode === 'evaluation').map((chunk) => chunk.documentId),
     );
@@ -2282,7 +2362,7 @@ export class NodeRagService {
         .map((chunk) => chunk.documentId),
     );
 
-    const routingSearch = this.store.search(searchQuery, mode, queryEmbedding, aliases, {
+    const routingSearch = this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
       allowedDocumentIds: evaluationDocumentIds,
     });
     const routingCandidates = uniqueDocumentCandidates(
@@ -2299,7 +2379,7 @@ export class NodeRagService {
     const directSupportDocumentIds =
       integratedSupportDocumentIds.size > 0
         ? selectDirectSupportReferenceIds(
-            this.store.search(searchQuery, mode, queryEmbedding, aliases, {
+            this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
               allowedDocumentIds: integratedSupportDocumentIds,
             }),
           )
@@ -2323,7 +2403,7 @@ export class NodeRagService {
     }
 
     const expansionAliases = uniqueNonEmptyLines([
-      ...aliases,
+      ...combinedAliases,
       ...routingCandidates.map((candidate) => candidate.docTitle),
       ...routingCandidates.map((candidate) => candidate.parentSectionTitle),
       ...routingCandidates.flatMap((candidate) => candidate.sectionPath.slice(-2)),
@@ -2335,7 +2415,7 @@ export class NodeRagService {
     ]).join('\n');
 
     const baseSearch = applyGroundingGate(
-      this.store.search(searchQuery, mode, queryEmbedding, aliases, {
+      this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
         allowedDocumentIds,
         documentScoreBoosts,
         excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
@@ -2395,6 +2475,7 @@ export class NodeRagService {
       await this.store.ensureEmbeddings(this.embeddingAi);
     }
     this.refreshIndexStatus();
+    this.workflowBriefs = this.buildWorkflowBriefIndex();
     this.startBackgroundEmbeddingRefresh();
     this.initialized = true;
   }
@@ -2431,12 +2512,7 @@ export class NodeRagService {
     });
   }
 
-  async inspectRetrieval(input: string | ChatMessage[], mode: PromptMode, apiKey?: string): Promise<RetrievalInspectionResponse> {
-    await this.initialize();
-    void apiKey;
-    if (this.embeddingAi) {
-      await this.store.ensureEmbeddings(this.embeddingAi);
-    }
+  private async runRetrievalPlan(input: string | ChatMessage[], mode: PromptMode): Promise<RetrievalPlanResult> {
     const recentMessages = Array.isArray(input) ? input.slice(-4) : [];
     const query = Array.isArray(input)
       ? [...recentMessages].reverse().find((message) => message.role === 'user')?.text ?? ''
@@ -2444,26 +2520,155 @@ export class NodeRagService {
     const normalized = buildNormalizedRetrievalQuery(
       recentMessages.length > 0 ? recentMessages : query.trim() ? [{ role: 'user', text: query.trim() }] : [],
     );
-    const { normalizedQuery, querySources, aliases } = normalized;
-    const embeddingQuery = [normalizedQuery, ...aliases].filter(Boolean).join('\n');
+    const profile = buildBrainQueryProfile(this.brain, normalized.normalizedQuery, mode);
+    const plannerTrace: Array<{ step: string; detail: string }> = [
+      { step: 'question-archetype', detail: profile.questionArchetype },
+      { step: 'preferred-answer-type', detail: profile.recommendedAnswerType },
+      { step: 'initial-retrieval-mode', detail: profile.preferredRetrievalMode },
+    ];
+    const workflowBriefs = selectWorkflowBriefs(this.workflowBriefs, profile.workflowEvents);
+    const aliases = uniqueNonEmptyLines([
+      ...normalized.aliases,
+      ...profile.aliases,
+      ...profile.relatedTerms,
+    ]);
+    const embeddingQuery = [normalized.normalizedQuery, ...aliases].filter(Boolean).join('\n');
     const queryEmbedding = await this.getQueryEmbedding(embeddingQuery);
-    const { search, scope } = this.executeSearch(mode, normalizedQuery, queryEmbedding, aliases);
-    const compiledPages = this.store.getCompiledPages(mode, search.evidence.map((item) => item.documentId));
+    const workflowBoosts = buildBrainDocumentBoosts(
+      this.brain,
+      this.store.getChunks(),
+      profile.workflowEvents,
+      normalized.normalizedQuery,
+    );
+    const workflowAliasHints = workflowBriefs.flatMap((brief) => [brief.label, brief.summary]);
+    let selectedRetrievalMode: RetrievalMode = profile.preferredRetrievalMode;
+    let { search, scope } = this.executeSearch(mode, normalized.normalizedQuery, queryEmbedding, aliases, {
+      additionalDocumentScoreBoosts: workflowBoosts,
+      extraAliases: selectedRetrievalMode === 'workflow-global' ? workflowAliasHints : [],
+    });
+    const subquestions: string[] = [];
+
+    if (
+      profile.preferredRetrievalMode !== 'local' &&
+      (search.confidence === 'low' || search.evidence.length < 2 || (search.mismatchSignals ?? []).length > 0)
+    ) {
+      const refined = buildDriftSubquestions(this.brain, normalized.normalizedQuery, profile, mode);
+      subquestions.push(...refined);
+      plannerTrace.push({ step: 'drift-refine', detail: refined.length > 0 ? refined.join(' | ') : 'no-subquestions' });
+
+      const mergedEvidence = new Map(search.evidence.map((item) => [item.id, item]));
+      const mergedCandidates = new Map(search.fusedCandidates.map((item) => [item.id, item]));
+
+      for (const subquestion of refined) {
+        const refinedAliases = uniqueNonEmptyLines([...aliases, subquestion]);
+        const refinedEmbedding = await this.getQueryEmbedding([subquestion, ...refinedAliases].join('\n'));
+        const refinedSearch = this.executeSearch(mode, subquestion, refinedEmbedding, refinedAliases, {
+          additionalDocumentScoreBoosts: workflowBoosts,
+          extraAliases: workflowAliasHints,
+        });
+
+        refinedSearch.search.evidence.forEach((item) => {
+          if (!mergedEvidence.has(item.id) || (mergedEvidence.get(item.id)?.rerankScore ?? 0) < item.rerankScore) {
+            mergedEvidence.set(item.id, item);
+          }
+        });
+        refinedSearch.search.fusedCandidates.forEach((item) => {
+          if (!mergedCandidates.has(item.id) || (mergedCandidates.get(item.id)?.rerankScore ?? 0) < item.rerankScore) {
+            mergedCandidates.set(item.id, item);
+          }
+        });
+      }
+
+      search = {
+        ...search,
+        confidence: mergedEvidence.size >= 3 ? 'medium' : search.confidence,
+        fusedCandidates: Array.from(mergedCandidates.values())
+          .sort((left, right) => right.rerankScore - left.rerankScore)
+          .slice(0, Math.max(search.fusedCandidates.length, 20)),
+        evidence: Array.from(mergedEvidence.values())
+          .sort((left, right) => right.rerankScore - left.rerankScore)
+          .slice(0, Math.max(search.evidence.length, 10)),
+      };
+      selectedRetrievalMode = refined.length > 0 ? 'drift-refine' : selectedRetrievalMode;
+    }
+
+    const evidence = constrainEvidence({
+      ...search,
+      evidence: expandEvidenceWithNeighbors(search.evidence, this.store.getChunks()),
+    });
+    const basisCoverage = buildBasisCoverage(evidence);
+    const knowledgeContext = buildExpertKnowledgeContext({
+      evidence,
+      workflowBriefs,
+    });
+    plannerTrace.push({
+      step: 'workflow-events',
+      detail: profile.workflowEvents.length > 0 ? summarizeWorkflowEvents(this.brain, profile.workflowEvents).join(', ') : 'none',
+    });
+    plannerTrace.push({
+      step: 'basis-coverage',
+      detail: `legal=${basisCoverage.legal}, evaluation=${basisCoverage.evaluation}, practical=${basisCoverage.practical}`,
+    });
+
+    return {
+      normalizedQuery: normalized.normalizedQuery,
+      querySources: normalized.querySources,
+      aliases,
+      questionArchetype: profile.questionArchetype,
+      recommendedAnswerType: profile.recommendedAnswerType,
+      selectedRetrievalMode,
+      workflowEventIds: profile.workflowEvents,
+      workflowEventsHit: summarizeWorkflowEvents(this.brain, profile.workflowEvents),
+      subquestions,
+      plannerTrace,
+      search,
+      scope,
+      evidence,
+      workflowBriefs,
+      knowledgeContext,
+      basisCoverage,
+    };
+  }
+
+  async inspectRetrieval(input: string | ChatMessage[], mode: PromptMode, apiKey?: string): Promise<RetrievalInspectionResponse> {
+    await this.initialize();
+    void apiKey;
+    if (this.embeddingAi) {
+      await this.store.ensureEmbeddings(this.embeddingAi);
+    }
+    const query = Array.isArray(input)
+      ? [...input.slice(-4)].reverse().find((message) => message.role === 'user')?.text ?? ''
+      : input;
+    const planned = await this.runRetrievalPlan(input, mode);
+    const compiledPages = this.store.getCompiledPages(mode, planned.evidence.map((item) => item.documentId));
     const indexStatus = this.refreshIndexStatus();
     const retrieval = buildRetrievalDiagnostics(
-      search,
-      normalizedQuery,
-      querySources,
+      {
+        ...planned.search,
+        evidence: planned.evidence,
+      },
+      planned.normalizedQuery,
+      planned.querySources,
       this.store.getChunks(),
       indexStatus.retrievalReadiness,
-      scope,
+      planned.scope,
+      {
+        selectedRetrievalMode: planned.selectedRetrievalMode,
+        workflowEventsHit: planned.workflowEventsHit,
+        subquestions: planned.subquestions,
+        basisCoverage: planned.basisCoverage,
+        plannerTrace: planned.plannerTrace,
+      },
     );
     this.rememberRetrieval(retrieval, query);
     return {
       query,
-      normalizedQuery,
-      querySources,
-      search,
+      normalizedQuery: planned.normalizedQuery,
+      querySources: planned.querySources,
+      search: {
+        ...planned.search,
+        evidence: planned.evidence,
+      },
       compiledPages,
       indexStatus,
       candidateDiagnostics: retrieval.candidateDiagnostics,
@@ -2475,6 +2680,11 @@ export class NodeRagService {
       routingDocuments: retrieval.routingDocuments,
       primaryExpansionDocuments: retrieval.primaryExpansionDocuments,
       finalEvidenceDocuments: retrieval.finalEvidenceDocuments,
+      selectedRetrievalMode: retrieval.selectedRetrievalMode,
+      workflowEventsHit: retrieval.workflowEventsHit,
+      subquestions: retrieval.subquestions,
+      basisCoverage: retrieval.basisCoverage,
+      plannerTrace: retrieval.plannerTrace,
     };
   }
 
@@ -2495,98 +2705,106 @@ export class NodeRagService {
 
     const recentMessages = request.messages.slice(-4);
     const latestUserMessage = [...recentMessages].reverse().find((message) => message.role === 'user')?.text ?? '';
-    const { normalizedQuery, querySources, aliases } = buildNormalizedRetrievalQuery(recentMessages);
-    const embeddingQuery = [normalizedQuery, ...aliases].filter(Boolean).join('\n');
-    const queryEmbedding = await this.getQueryEmbedding(embeddingQuery);
-    const { search, scope } = this.executeSearch(request.mode, normalizedQuery, queryEmbedding, aliases);
-    const evidence = constrainEvidence({
-      ...search,
-      evidence: expandEvidenceWithNeighbors(search.evidence, this.store.getChunks()),
-    });
+    const planned = await this.runRetrievalPlan(recentMessages, request.mode);
     const indexStatus = this.refreshIndexStatus();
     const retrieval = buildRetrievalDiagnostics(
       {
-        ...search,
-        evidence,
+        ...planned.search,
+        evidence: planned.evidence,
       },
-      normalizedQuery,
-      querySources,
+      planned.normalizedQuery,
+      planned.querySources,
       this.store.getChunks(),
       indexStatus.retrievalReadiness,
-      scope,
+      planned.scope,
+      {
+        selectedRetrievalMode: planned.selectedRetrievalMode,
+        workflowEventsHit: planned.workflowEventsHit,
+        subquestions: planned.subquestions,
+        basisCoverage: planned.basisCoverage,
+        plannerTrace: planned.plannerTrace,
+      },
     );
-    this.rememberRetrieval(retrieval, latestUserMessage || normalizedQuery);
+    this.rememberRetrieval(retrieval, latestUserMessage || planned.normalizedQuery);
 
-    if (evidence.length === 0 || search.confidence === 'low') {
-      const abstain = createAbstainAnswer(search);
-      const citations = dedupeCitations(evidence);
+    const keyIssueDate = planned.evidence.find((item) => item.effectiveDate)?.effectiveDate;
+    const citations = dedupeCitations(planned.evidence);
+
+    if (planned.evidence.length === 0 || planned.search.confidence === 'low') {
+      const answer = createExpertAbstainAnswer({
+        question: latestUserMessage || planned.normalizedQuery,
+        confidence: planned.search.confidence,
+        evidenceState: planned.search.confidence === 'low' ? 'not_enough' : 'partial',
+        keyIssueDate,
+        evidence: citations,
+      });
       return {
-        text: formatMarkdownAnswer(abstain, citations),
+        answer,
+        text: renderExpertAnswerMarkdown(answer),
         search: {
-          ...search,
-          evidence,
+          ...planned.search,
+          evidence: planned.evidence,
         },
         citations,
         retrieval,
       };
     }
 
-    const compiledPages =
-      request.mode === 'evaluation'
-        ? []
-        : this.store.getCompiledPages(request.mode, evidence.map((item) => item.documentId));
-    const knowledgeContext = [chunksToEvidenceContext(evidence), buildCompiledPageContext(compiledPages)]
-      .filter(Boolean)
-      .join('\n\n---\n\n');
-
-    const systemInstruction = [
-      buildVariantSystemInstruction({
-        mode: request.mode,
-        variant: request.promptVariant,
-        knowledgeContext,
-        sources: this.promptSources,
-      }),
-      '',
-      ...(request.mode === 'evaluation'
-        ? [
-            '평가채팅에서는 knowledge/evaluation 요약 문서를 최종 근거로 사용하지 말고, 평가매뉴얼 원문·법령·고시·사업안내 같은 1차 문서만 최종 근거와 출처로 사용하세요.',
-            '요약 문서는 1차 문서를 찾기 위한 라우팅 힌트로만 취급하고, [확정 근거], [출처], 실무 해석은 최종 evidence에 포함된 1차 문서에서만 작성하세요.',
-          ]
-        : []),
-      'JSON 필드 작성 규칙:',
-      '- keyIssueDate는 확인 가능한 기준 시점을 사람이 읽는 형태로 적으세요. 예: "2026년 1월 (평가매뉴얼 신규 기준 적용 시점)", "2026-01-20 시행". 정말 근거가 없을 때만 "확인 필요"를 쓰세요.',
-      '- conclusion은 2~4문장으로 쓰고, 질문이 의무/존재 여부를 묻는 경우 첫 문장에서 "있다", "없다", "없지만 별도로 필요하다" 중 하나로 바로 답하세요.',
-      '- directEvidence는 2~4개 항목으로 쓰고, 각 항목마다 어떤 문서에 무엇이 적혀 있으며 그래서 결론에 어떤 의미인지까지 설명하세요. 문서명만 나열하지 마세요.',
-      '- 법정 의무, 평가 기준상 요구, 실무상 운영 참고가 함께 있으면 conclusion과 practicalGuidance에서 범위를 분리하세요. 예: "법정 의무는 아니지만", "평가 기준상", "이와 별개로".',
-      '반드시 제공된 evidence id만 citationEvidenceIds에 넣고, evidence에 없는 문서명을 출처로 쓰지 마세요.',
-      '답변 본문에는 Evidence 번호, evidence id, window 번호 같은 내부 추적 표기를 쓰지 말고 정확한 파일명과 조문·섹션명만 쓰세요.',
-      '근거가 부족하면 evidenceState를 not_enough로 두고 followUpQuestion을 작성하세요.',
-    ].join('\n');
-
-    const contents = recentMessages.map((message) => ({
-      role: message.role,
-      parts: [{ text: message.text }],
-    }));
-
-    const answer = await generateGroundedAnswer({
+    const answerPlan = await generateAnswerPlan({
       ai,
       model: request.model,
-      contents,
-      systemInstruction,
-      evidence,
+      brain: this.brain,
+      mode: request.mode,
+      variant: request.promptVariant,
+      sources: this.promptSources,
+      question: latestUserMessage || planned.normalizedQuery,
+      retrievalMode: planned.selectedRetrievalMode,
+      questionArchetype: planned.questionArchetype,
+      recommendedAnswerType: planned.recommendedAnswerType,
+      workflowEventIds: planned.workflowEventIds,
+      workflowBriefs: planned.workflowBriefs,
+      evidence: planned.evidence,
+      knowledgeContext: planned.knowledgeContext,
     });
+    retrieval.plannerTrace = [
+      ...retrieval.plannerTrace,
+      { step: 'planner-answer-type', detail: answerPlan.recommendedAnswerType },
+      { step: 'planner-tasks', detail: answerPlan.taskCandidates.map((task) => task.title).join(', ') || 'none' },
+    ];
 
-    const citations = dedupeCitations(
-      evidence.filter((item) => answer.citationEvidenceIds.includes(item.id)),
-    );
+    const answer = await synthesizeExpertAnswer({
+      ai,
+      model: request.model,
+      mode: request.mode,
+      variant: request.promptVariant,
+      sources: this.promptSources,
+      question: latestUserMessage || planned.normalizedQuery,
+      brain: this.brain,
+      plan: answerPlan,
+      evidence: planned.evidence,
+      knowledgeContext: planned.knowledgeContext,
+      retrievalMode: planned.selectedRetrievalMode,
+      evidenceState:
+        planned.search.confidence === 'high'
+          ? 'confirmed'
+          : planned.search.confidence === 'medium'
+            ? 'partial'
+            : 'not_enough',
+      confidence: planned.search.confidence,
+      keyIssueDate,
+    });
+    const answerEvidenceIds = new Set(answer.citations.map((item) => item.evidenceId));
+    const resolvedCitations = citations.filter((item) => answerEvidenceIds.has(item.id));
+    const finalCitations = resolvedCitations.length > 0 ? resolvedCitations : citations.slice(0, 4);
 
     return {
-      text: formatMarkdownAnswer(answer, citations.length > 0 ? citations : evidence.slice(0, 2)),
+      answer,
+      text: renderExpertAnswerMarkdown(answer),
       search: {
-        ...search,
-        evidence,
+        ...planned.search,
+        evidence: planned.evidence,
       },
-      citations: citations.length > 0 ? citations : evidence.slice(0, 2),
+      citations: finalCitations,
       retrieval,
     };
   }
