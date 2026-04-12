@@ -147,7 +147,7 @@ What it does:
 - runs `npm install` only when package files changed
 - runs `npm run rag:index` when knowledge or RAG indexing files changed
 - restarts the `ltc-rag` systemd service
-- calls `http://127.0.0.1:3000/api/health` at the end
+- retries `http://127.0.0.1:3000/api/health` for up to 30 seconds at the end so a slow restart does not fail immediately
 
 Useful overrides:
 
@@ -156,6 +156,7 @@ FORCE_INDEX=1 ./deploy.sh
 SKIP_INDEX=1 ./deploy.sh
 DEPLOY_SERVICE_NAME=ltc-rag ./deploy.sh
 DEPLOY_HEALTHCHECK_URL=https://rag.maumph.uk/api/health ./deploy.sh
+DEPLOY_HEALTHCHECK_RETRIES=45 DEPLOY_HEALTHCHECK_INTERVAL_SEC=1 ./deploy.sh
 ```
 
 ## 8. Run the Node backend as a service

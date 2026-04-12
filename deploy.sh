@@ -7,6 +7,8 @@ REPO_DIR="$SCRIPT_DIR"
 DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
 DEPLOY_SERVICE_NAME="${DEPLOY_SERVICE_NAME:-ltc-rag}"
 DEPLOY_HEALTHCHECK_URL="${DEPLOY_HEALTHCHECK_URL:-http://127.0.0.1:3000/api/health}"
+DEPLOY_HEALTHCHECK_RETRIES="${DEPLOY_HEALTHCHECK_RETRIES:-30}"
+DEPLOY_HEALTHCHECK_INTERVAL_SEC="${DEPLOY_HEALTHCHECK_INTERVAL_SEC:-1}"
 
 cd "$REPO_DIR"
 
@@ -120,6 +122,20 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 
 log "checking backend health: $DEPLOY_HEALTHCHECK_URL"
-sleep 2
-curl --fail --silent --show-error "$DEPLOY_HEALTHCHECK_URL"
-printf '\n'
+attempt=1
+while true; do
+  if HEALTH_RESPONSE="$(curl --fail --silent --show-error --connect-timeout 1 --max-time 5 "$DEPLOY_HEALTHCHECK_URL" 2>&1)"; then
+    printf '%s\n' "$HEALTH_RESPONSE"
+    break
+  fi
+
+  if [[ "$attempt" -ge "$DEPLOY_HEALTHCHECK_RETRIES" ]]; then
+    log "health check failed after $attempt attempts"
+    printf '%s\n' "$HEALTH_RESPONSE" >&2
+    exit 1
+  fi
+
+  log "health check attempt $attempt/$DEPLOY_HEALTHCHECK_RETRIES failed; retrying in ${DEPLOY_HEALTHCHECK_INTERVAL_SEC}s"
+  sleep "$DEPLOY_HEALTHCHECK_INTERVAL_SEC"
+  attempt=$((attempt + 1))
+done
