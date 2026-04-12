@@ -16,7 +16,7 @@ import {
   buildKnowledgeManifest,
   compareIndexStatus,
 } from './ragIndex';
-import { buildCitationLabel, compareIsoDateDesc, formatEvidenceStateLabel, sha1, toDocumentMetadata } from './ragMetadata';
+import { buildPreciseCitationLabel, compareIsoDateDesc, formatEvidenceStateLabel, sha1, toDocumentMetadata } from './ragMetadata';
 import { loadKnowledgeCorporaFromDisk } from './nodeKnowledge';
 import { loadPromptSourceSet } from './nodePrompts';
 import { buildVariantSystemInstruction, type PromptVariant } from './promptAssembly';
@@ -349,7 +349,7 @@ function manifestEntriesToKnowledgeStats(entries: IndexManifestEntry[]): Array<{
 }
 
 function chunkToCitationLine(chunk: StructuredChunk): string {
-  return buildCitationLabel(chunk);
+  return buildPreciseCitationLabel(chunk);
 }
 
 function dedupeCitations(chunks: StructuredChunk[]): StructuredChunk[] {
@@ -655,6 +655,26 @@ function deriveKeyIssueDate(answer: GroundedAnswer, citations: StructuredChunk[]
   return datedCitation?.effectiveDate ?? CURRENT_DATE;
 }
 
+function stripInternalCitationArtifacts(text: string | undefined): string {
+  if (!text) return '';
+
+  return text
+    .replace(/\((?:\s*(?:Evidence|evidence)\s*[\d,\s]+)\)/g, '')
+    .replace(/\b(?:Evidence|evidence)\s*[\d,\s]+\b/g, '')
+    .replace(/\bwindow\s+\d+\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.;:)\]])/g, '$1')
+    .trim();
+}
+
+function sanitizeAnswerList(values: string[] | undefined): string[] {
+  if (!Array.isArray(values)) return [];
+
+  return values
+    .map((item) => stripInternalCitationArtifacts(item))
+    .filter(Boolean);
+}
+
 function mapConfidence(value: string | undefined): ConfidenceLevel {
   return value === 'high' || value === 'medium' || value === 'low' ? value : 'low';
 }
@@ -670,12 +690,12 @@ function normalizeAnswerShape(candidate: Partial<GroundedAnswer>): GroundedAnswe
     evidenceState: mapEvidenceState(candidate.evidenceState),
     confidence: mapConfidence(candidate.confidence),
     keyIssueDate: candidate.keyIssueDate,
-    conclusion: candidate.conclusion?.trim() || '검색된 근거만으로 결론을 확정하기 어렵습니다.',
-    directEvidence: Array.isArray(candidate.directEvidence) ? candidate.directEvidence.map((item) => item.trim()).filter(Boolean) : [],
-    practicalGuidance: Array.isArray(candidate.practicalGuidance) ? candidate.practicalGuidance.map((item) => item.trim()).filter(Boolean) : [],
-    caveats: Array.isArray(candidate.caveats) ? candidate.caveats.map((item) => item.trim()).filter(Boolean) : [],
+    conclusion: stripInternalCitationArtifacts(candidate.conclusion?.trim()) || '검색된 근거만으로 결론을 확정하기 어렵습니다.',
+    directEvidence: sanitizeAnswerList(candidate.directEvidence),
+    practicalGuidance: sanitizeAnswerList(candidate.practicalGuidance),
+    caveats: sanitizeAnswerList(candidate.caveats),
     citationEvidenceIds: Array.isArray(candidate.citationEvidenceIds) ? candidate.citationEvidenceIds.map((item) => item.trim()).filter(Boolean) : [],
-    followUpQuestion: candidate.followUpQuestion?.trim() || undefined,
+    followUpQuestion: stripInternalCitationArtifacts(candidate.followUpQuestion?.trim()) || undefined,
   };
 }
 
@@ -1776,6 +1796,7 @@ export class NodeRagService {
       }),
       '',
       '반드시 제공된 evidence id만 citationEvidenceIds에 넣고, evidence에 없는 문서명을 출처로 쓰지 마세요.',
+      '답변 본문에는 Evidence 번호, evidence id, window 번호 같은 내부 추적 표기를 쓰지 말고 정확한 파일명과 조문·섹션명만 쓰세요.',
       '근거가 부족하면 evidenceState를 not_enough로 두고 followUpQuestion을 작성하세요.',
     ].join('\n');
 

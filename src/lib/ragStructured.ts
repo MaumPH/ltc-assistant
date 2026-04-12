@@ -1,4 +1,4 @@
-import { buildCitationLabel, extractArticleNo, normalizeWhitespace, sha1, toDocumentMetadata } from './ragMetadata';
+import { buildCitationLabel, buildPreciseCitationLabel, extractArticleNo, normalizeWhitespace, sha1, toDocumentMetadata } from './ragMetadata';
 import type { CompiledPage, KnowledgeFile, StructuredChunk, StructuredSection } from './ragTypes';
 
 const MAX_CHUNK_CHARS = 1200;
@@ -416,13 +416,13 @@ export function buildStructuredChunks(files: KnowledgeFile[]): StructuredChunk[]
 export function chunksToEvidenceContext(chunks: StructuredChunk[]): string {
   return chunks
     .map(
-      (chunk, index) =>
+      (chunk) =>
         [
-          `Evidence ${index + 1} [${chunk.id}]`,
+          `EvidenceId: ${chunk.id}`,
+          `Source: ${buildPreciseCitationLabel(chunk)}`,
           `Document: ${chunk.docTitle}`,
           chunk.articleNo ? `Article: ${chunk.articleNo}` : null,
           chunk.sectionPath.length > 0 ? `Path: ${chunk.sectionPath.join(' > ')}` : null,
-          chunk.windowIndex > 0 ? `Window: ${chunk.windowIndex + 1}` : null,
           chunk.effectiveDate ? `EffectiveDate: ${chunk.effectiveDate}` : null,
           `Content:\n${chunk.text}`,
         ]

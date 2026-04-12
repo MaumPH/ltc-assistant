@@ -37,9 +37,9 @@ const REQUEST_TIMEOUT_MS_BY_MODEL: Record<ModelId, number> = {
 
 const INITIAL_MESSAGES: Record<ChatViewProps['mode'], string> = {
   integrated:
-    '안녕하세요. 장기요양 통합 상담 모드입니다.\n\n문서 검색과 임베딩은 서버 지식기반을 사용하고, 답변은 근거가 충분할 때만 확정적으로 안내합니다.',
+    '안녕하세요. 장기요양 통합채팅 모드입니다.\n\n문서 검색과 임베딩은 서버 지식기반을 사용하고, 답변은 근거가 충분할 때만 확정적으로 안내합니다.',
   evaluation:
-    '안녕하세요. 평가 상담 모드입니다.\n\n평가 관련 문서를 우선 검색하고, 근거가 부족하면 보수적으로 `확인 불가`로 답합니다.',
+    '안녕하세요. 평가채팅 모드입니다.\n\n평가 관련 문서를 우선 검색하고, 근거가 부족하면 보수적으로 `확인 불가`로 답합니다.',
 };
 
 function wait(ms: number) {

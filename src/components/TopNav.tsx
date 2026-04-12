@@ -6,8 +6,8 @@ import { CHAT_MODELS, MODEL_STORAGE, type ChatModelId } from '../lib/chatModels'
 export type TabId = 'integrated' | 'evaluation' | 'wiki' | 'dashboard' | 'knowledge';
 
 export const TABS: { id: TabId; label: string; shortLabel: string }[] = [
-  { id: 'integrated', label: '통합 상담', shortLabel: '통합' },
-  { id: 'evaluation', label: '평가 상담', shortLabel: '평가' },
+  { id: 'integrated', label: '통합채팅', shortLabel: '통합' },
+  { id: 'evaluation', label: '평가채팅', shortLabel: '평가' },
   { id: 'wiki', label: '평가 지침 정리', shortLabel: '지침' },
   { id: 'dashboard', label: '대시보드', shortLabel: '대시' },
   { id: 'knowledge', label: '지식기반', shortLabel: '문서' },

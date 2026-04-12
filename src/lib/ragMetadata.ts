@@ -204,3 +204,19 @@ export function buildCitationLabel(chunk: StructuredChunk): string {
   if (chunk.effectiveDate) bits.push(chunk.effectiveDate);
   return bits.join(' | ');
 }
+
+export function buildPreciseCitationLabel(chunk: StructuredChunk): string {
+  const bits = [chunk.path.replace(/^\/+/, '') || chunk.fileName || chunk.docTitle];
+  const sectionBits = chunk.sectionPath.filter((part, index) => !(index === 0 && part === chunk.docTitle));
+
+  if (chunk.articleNo && !sectionBits.includes(chunk.articleNo)) {
+    bits.push(chunk.articleNo);
+  }
+
+  if (sectionBits.length > 0) {
+    bits.push(sectionBits.join(' > '));
+  }
+
+  if (chunk.effectiveDate) bits.push(chunk.effectiveDate);
+  return bits.join(' | ');
+}
