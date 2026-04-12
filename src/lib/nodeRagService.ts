@@ -173,7 +173,10 @@ const EMBEDDING_BATCH_SIZE = parsePositiveInteger(process.env.RAG_EMBEDDING_BATC
 const EMBEDDING_MAX_CHUNKS_PER_PASS = parsePositiveInteger(process.env.RAG_EMBEDDING_MAX_CHUNKS_PER_PASS, 400);
 const EMBEDDING_REFRESH_INTERVAL_MS = parsePositiveInteger(process.env.RAG_EMBEDDING_REFRESH_INTERVAL_MS, 15 * 60 * 1000);
 const EMBEDDING_QUOTA_COOLDOWN_MS = parsePositiveInteger(process.env.RAG_EMBEDDING_QUOTA_COOLDOWN_MS, 6 * 60 * 60 * 1000);
-const MAX_CONTEXT_CHARS = 20_000;
+const MAX_CONTEXT_CHARS_BY_MODE: Record<PromptMode, number> = {
+  integrated: 16_000,
+  evaluation: 12_000,
+};
 const EMBEDDING_CACHE_FILE = 'embeddings.json';
 
 let embeddingQuotaBlockedUntil = 0;
@@ -435,9 +438,7 @@ function buildRetrievalAliases(query: string): string[] {
 
   if (employeeRightsAbuse) {
     add('직원인권침해대응지침');
-    if (employeeEducation) {
-      add('직원교육');
-    }
+    add('급여제공지침');
   }
 
   if (compact.includes('인권') && compact.includes('교육') && !employeeRightsAbuse) {
@@ -625,6 +626,30 @@ function selectDirectSupportReferenceIds(search: SearchRun): Set<string> {
   }
 
   return selected;
+}
+
+function pruneIrrelevantSupportEvidence(search: SearchRun): SearchRun {
+  const focusTerms = search.focusTerms ?? deriveFocusTerms(search.query);
+  if (focusTerms.length === 0) return search;
+  const queryRequestsEvaluationReference = /(q\s*&\s*a|q&a|qa|질문|답변|문의|사례|비교|후기)/i.test(search.query);
+
+  const hasPriorityEvidence = search.evidence.some(
+    (candidate) =>
+      candidate.sourceRole === 'primary_evaluation' ||
+      ['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType),
+  );
+  if (!hasPriorityEvidence) return search;
+
+  const filteredEvidence = search.evidence.filter((candidate) => {
+    if (candidate.sourceRole !== 'support_reference') return true;
+    if (candidate.mode === 'evaluation' && !queryRequestsEvaluationReference) return false;
+
+    const focusMatches = getCandidateFocusMatches(candidate, focusTerms);
+    const hasNonGenericFocusMatch = focusMatches.some((term) => !isGenericQueryTerm(term));
+    return hasNonGenericFocusMatch;
+  });
+
+  return filteredEvidence.length > 0 ? { ...search, evidence: filteredEvidence } : search;
 }
 
 function injectEvidenceCandidate(search: SearchRun, candidate: SearchCandidate | null): SearchRun {
@@ -898,27 +923,51 @@ function buildRetrievalDiagnostics(
 }
 
 function deriveKeyIssueDate(answer: GroundedAnswer, citations: StructuredChunk[]): string {
-  const citationDates = Array.from(
-    new Set(
-      citations
-        .flatMap((citation) => [citation.effectiveDate, citation.publishedDate])
-        .filter((value): value is string => Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value))),
-    ),
-  ).sort(compareIsoDateDesc);
-
-  if (answer.keyIssueDate && citationDates.includes(answer.keyIssueDate)) {
-    return answer.keyIssueDate;
+  const provided = answer.keyIssueDate?.replace(/\s+/g, ' ').trim();
+  if (provided && /20\d{2}(?:[-./]\d{1,2}|년\s*\d{1,2}\s*월?)/.test(provided) && !/^확인 필요/.test(provided)) {
+    return provided;
   }
 
+  const collectCitationDateLabels = (items: StructuredChunk[]): string[] =>
+    Array.from(
+      new Set(
+        items
+          .flatMap((citation) => {
+            const compactDate = citation.fileName.match(/\((20\d{2})(\d{2})(\d{2})\)/);
+            if (compactDate) {
+              return [`${compactDate[1]}-${compactDate[2]}-${compactDate[3]}`];
+            }
+
+            const yearMonthDate = citation.fileName.match(/\((20\d{2})\.(\d{1,2})\.?\)/);
+            if (yearMonthDate) {
+              return [`${yearMonthDate[1]}년 ${Number(yearMonthDate[2])}월`];
+            }
+
+            return [citation.effectiveDate, citation.publishedDate].filter(
+              (value): value is string => Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value)),
+            );
+          })
+          .filter(Boolean),
+      ),
+    ).sort(compareIsoDateDesc);
+
+  const primaryCitationDates = collectCitationDateLabels(citations.filter((citation) => citation.sourceRole === 'primary_evaluation'));
+  if (primaryCitationDates.length === 1) {
+    return primaryCitationDates[0];
+  }
+  if (primaryCitationDates.length > 1) {
+    return `확인 필요 (${primaryCitationDates.join(', ')})`;
+  }
+
+  const citationDates = collectCitationDateLabels(citations);
   if (citationDates.length === 1) {
     return citationDates[0];
   }
-
   if (citationDates.length > 1) {
     return `확인 필요 (${citationDates.join(', ')})`;
   }
 
-  return '확인 필요';
+  return provided && !/^확인 필요/.test(provided) ? provided : '확인 필요';
 }
 
 function stripInternalCitationArtifacts(text: string | undefined): string {
@@ -939,6 +988,52 @@ function sanitizeAnswerList(values: string[] | undefined): string[] {
   return values
     .map((item) => stripInternalCitationArtifacts(item))
     .filter(Boolean);
+}
+
+function buildEvidenceSnippet(chunk: StructuredChunk): string {
+  const cleanedLines = chunk.text
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/\|/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter((line) => line.length >= 8);
+
+  const uniqueLines = Array.from(new Set(cleanedLines));
+  const prioritized =
+    uniqueLines.find((line) => /(연\s*1회|7일 이내|급여제공지침|인권침해 대응지침|성희롱|성폭력|폭언|폭행|대응방법|예방|실시)/.test(line)) ??
+    uniqueLines[0] ??
+    '';
+
+  return prioritized.length > 180 ? `${prioritized.slice(0, 177).trim()}…` : prioritized;
+}
+
+function needsEvidenceFallback(values: string[]): boolean {
+  if (values.length < 2) return true;
+  return values.every(
+    (value) =>
+      value.length < 90 &&
+      !/(제\d+조|연\s*1회|7일|급여제공지침|성희롱|성폭력|폭언|폭행|대응|예방|의무)/.test(value),
+  );
+}
+
+function mergeEvidenceLines(answerLines: string[], citations: StructuredChunk[]): string[] {
+  const fallbackLines = dedupeCitations(citations)
+    .slice(0, 3)
+    .map((chunk) => `${buildPreciseCitationLabel(chunk)}: ${buildEvidenceSnippet(chunk)}`)
+    .filter((line) => !line.endsWith(':'));
+
+  const preferred = needsEvidenceFallback(answerLines) ? [...fallbackLines, ...answerLines] : [...answerLines, ...fallbackLines];
+  const merged: string[] = [];
+  const seen = new Set<string>();
+
+  for (const line of preferred) {
+    const normalized = line.replace(/\s+/g, ' ').trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    merged.push(normalized);
+    if (merged.length >= 4) break;
+  }
+
+  return merged.length > 0 ? merged : ['직접 근거를 확인할 수 없어 결론을 제한했습니다.'];
 }
 
 function mapConfidence(value: string | undefined): ConfidenceLevel {
@@ -988,13 +1083,14 @@ function formatSection(title: string, body: string | string[]): string {
 function formatMarkdownAnswer(answer: GroundedAnswer, citations: StructuredChunk[]): string {
   const keyIssueDate = deriveKeyIssueDate(answer, citations);
   const evidenceState = formatEvidenceStateLabel(answer.evidenceState);
+  const directEvidence = mergeEvidenceLines(answer.directEvidence, citations);
   const sourceLines = dedupeCitations(citations).map(chunkToCitationLine);
 
   return [
-    formatSection('답변 가용 상태', evidenceState),
+    formatSection('답변 가능 상태', evidenceState),
     formatSection('기준 시점', keyIssueDate),
     formatSection('결론', answer.conclusion),
-    formatSection('확정 근거', answer.directEvidence.length > 0 ? answer.directEvidence : ['직접 근거를 확인할 수 없어 결론을 제한했습니다.']),
+    formatSection('확정 근거', directEvidence),
     formatSection('실무 해석/운영 참고', answer.practicalGuidance.length > 0 ? answer.practicalGuidance : ['실무 참고 사항이 없으면 출처 확인을 우선합니다.']),
     formatSection(
       '예외·주의 및 추가 확인사항',
@@ -1642,35 +1738,48 @@ function buildGroundedAnswerSchema() {
       evidenceState: {
         type: 'string',
         enum: ['confirmed', 'partial', 'conflict', 'not_enough'],
+        description: '검색 근거 기준 최종 상태. confirmed=확정, partial=부분확정, conflict=충돌, not_enough=확인 불가.',
       },
       confidence: {
         type: 'string',
         enum: ['high', 'medium', 'low'],
+        description: '근거 밀도에 대한 내부 자신감.',
       },
       keyIssueDate: {
         type: 'string',
+        description: '확인 가능한 기준 시점. 예: "2026년 1월 (평가매뉴얼 신규 기준 적용 시점)", "2026-01-20 시행". 정말 불가할 때만 "확인 필요".',
       },
       conclusion: {
         type: 'string',
+        description: '2~4문장 요약. 질문이 의무/존재 여부를 묻는 경우 첫 문장에서 있다, 없다, 없지만 별도로 필요하다를 분명히 쓴다.',
       },
       directEvidence: {
         type: 'array',
+        minItems: 1,
         items: { type: 'string' },
+        description: '각 항목은 문서명/항목 + 핵심 문구 + 그 문구가 결론에 주는 의미를 한 문장으로 설명한다. 문서명만 나열하지 않는다.',
       },
       practicalGuidance: {
         type: 'array',
+        minItems: 1,
         items: { type: 'string' },
+        description: '평가 대응이나 운영 참고만 적고, 법적 결론과 섞지 않는다.',
       },
       caveats: {
         type: 'array',
+        minItems: 1,
         items: { type: 'string' },
+        description: '예외, 적용 조건, 추가 확인 필요사항만 적는다.',
       },
       citationEvidenceIds: {
         type: 'array',
+        minItems: 1,
         items: { type: 'string' },
+        description: '반드시 제공된 evidence id만 넣는다.',
       },
       followUpQuestion: {
         type: 'string',
+        description: '근거가 부족할 때만 짧고 구체적으로 쓴다.',
       },
     },
   };
@@ -1701,10 +1810,11 @@ function resolveGenerationTemperature(model: string): number {
 }
 
 function constrainEvidence(search: SearchRun): SearchRun['evidence'] {
+  const maxContextChars = MAX_CONTEXT_CHARS_BY_MODE[search.mode];
   let totalChars = 0;
   const constrained: SearchRun['evidence'] = [];
   for (const evidence of search.evidence) {
-    if (totalChars + evidence.text.length > MAX_CONTEXT_CHARS) break;
+    if (totalChars + evidence.text.length > maxContextChars) break;
     totalChars += evidence.text.length;
     constrained.push(evidence);
   }
@@ -1826,6 +1936,7 @@ export class NodeRagService {
     storageMode: 'memory',
   });
   private lastRetrievalByPath = new Map<string, RecentRetrievalMatch>();
+  private readonly queryEmbeddingCache = new Map<string, number[] | null>();
   private embeddingRefreshTimer: NodeJS.Timeout | null = null;
   private initialized = false;
 
@@ -1888,6 +1999,29 @@ export class NodeRagService {
     this.lastRetrievalByPath = matches;
   }
 
+  private async getQueryEmbedding(query: string): Promise<number[] | null> {
+    if (!this.embeddingAi) return null;
+
+    const normalized = query.trim();
+    if (!normalized) return null;
+
+    if (this.queryEmbeddingCache.has(normalized)) {
+      return this.queryEmbeddingCache.get(normalized) ?? null;
+    }
+
+    const embedding = await embedQuery(this.embeddingAi, normalized);
+    this.queryEmbeddingCache.set(normalized, embedding);
+
+    if (this.queryEmbeddingCache.size > 128) {
+      const oldestKey = this.queryEmbeddingCache.keys().next().value;
+      if (oldestKey) {
+        this.queryEmbeddingCache.delete(oldestKey);
+      }
+    }
+
+    return embedding;
+  }
+
   private startBackgroundEmbeddingRefresh(): void {
     if (!this.embeddingAi || this.embeddingRefreshTimer) return;
     const intervalMs = Math.max(60_000, Math.min(EMBEDDING_REFRESH_INTERVAL_MS, 5 * 60 * 1000));
@@ -1918,9 +2052,64 @@ export class NodeRagService {
     };
 
     if (mode !== 'evaluation') {
+      const allChunks = this.store.getChunks();
+      const representatives = buildDocumentRepresentativeMap(allChunks);
+      const initialSearch = this.store.search(normalizedQuery, mode, queryEmbedding, aliases);
+      const routingCandidates = uniqueDocumentCandidates(
+        initialSearch.fusedCandidates.filter((candidate) => candidate.sourceRole === 'routing_summary'),
+        4,
+      );
+      const primaryExpansionDocumentIds = resolveRoutingExpansionDocumentIds(routingCandidates, allChunks);
+
+      if (primaryExpansionDocumentIds.size === 0) {
+        return {
+          search: pruneIrrelevantSupportEvidence(applyGroundingGate(initialSearch)),
+          scope: emptyScope,
+        };
+      }
+
+      const routeOnlyDocumentIds = new Set(routingCandidates.map((candidate) => candidate.documentId));
+      const documentScoreBoosts = new Map<string, number>();
+      for (const documentId of primaryExpansionDocumentIds) {
+        const sourceRole = representatives.get(documentId)?.sourceRole;
+        const boost = sourceRole === 'primary_evaluation' ? 32 : 16;
+        documentScoreBoosts.set(documentId, boost);
+      }
+
+      const expansionAliases = uniqueNonEmptyLines([
+        ...aliases,
+        ...routingCandidates.map((candidate) => candidate.docTitle),
+        ...routingCandidates.map((candidate) => candidate.parentSectionTitle),
+        ...routingCandidates.flatMap((candidate) => candidate.sectionPath.slice(-2)),
+      ]);
+      const expansionQuery = uniqueNonEmptyLines([
+        normalizedQuery,
+        ...routingCandidates.map((candidate) => candidate.docTitle),
+        ...routingCandidates.map((candidate) => candidate.parentSectionTitle),
+      ]).join('\n');
+
+      const rerankedSearch = applyGroundingGate(
+        this.store.search(normalizedQuery, mode, queryEmbedding, aliases, {
+          documentScoreBoosts,
+          excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+        }),
+      );
+      const promotedPrimaryCandidate = this.store
+        .search(expansionQuery, mode, queryEmbedding, expansionAliases, {
+          allowedDocumentIds: primaryExpansionDocumentIds,
+          documentScoreBoosts,
+          excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+        })
+        .fusedCandidates.find((candidate) => candidate.sourceRole !== 'routing_summary') ?? null;
+
       return {
-        search: applyGroundingGate(this.store.search(normalizedQuery, mode, queryEmbedding, aliases)),
-        scope: emptyScope,
+        search: pruneIrrelevantSupportEvidence(injectEvidenceCandidate(rerankedSearch, promotedPrimaryCandidate)),
+        scope: {
+          routeOnlyDocumentIds,
+          primaryExpansionDocumentIds,
+          routingDocuments: uniqueDocumentPaths(routingCandidates),
+          primaryExpansionDocuments: documentPathsFromIds(primaryExpansionDocumentIds, representatives),
+        },
       };
     }
 
@@ -2006,7 +2195,7 @@ export class NodeRagService {
         : null;
 
     return {
-      search: injectEvidenceCandidate(baseSearch, promotedPrimaryCandidate),
+      search: pruneIrrelevantSupportEvidence(injectEvidenceCandidate(baseSearch, promotedPrimaryCandidate)),
       scope: {
         routeOnlyDocumentIds,
         primaryExpansionDocumentIds,
@@ -2099,7 +2288,7 @@ export class NodeRagService {
     );
     const { normalizedQuery, querySources, aliases } = normalized;
     const embeddingQuery = [normalizedQuery, ...aliases].filter(Boolean).join('\n');
-    const queryEmbedding = this.embeddingAi ? await embedQuery(this.embeddingAi, embeddingQuery) : null;
+    const queryEmbedding = await this.getQueryEmbedding(embeddingQuery);
     const { search, scope } = this.executeSearch(mode, normalizedQuery, queryEmbedding, aliases);
     const compiledPages = this.store.getCompiledPages(mode, search.evidence.map((item) => item.documentId));
     const indexStatus = this.refreshIndexStatus();
@@ -2150,7 +2339,7 @@ export class NodeRagService {
     const latestUserMessage = [...recentMessages].reverse().find((message) => message.role === 'user')?.text ?? '';
     const { normalizedQuery, querySources, aliases } = buildNormalizedRetrievalQuery(recentMessages);
     const embeddingQuery = [normalizedQuery, ...aliases].filter(Boolean).join('\n');
-    const queryEmbedding = this.embeddingAi ? await embedQuery(this.embeddingAi, embeddingQuery) : null;
+    const queryEmbedding = await this.getQueryEmbedding(embeddingQuery);
     const { search, scope } = this.executeSearch(request.mode, normalizedQuery, queryEmbedding, aliases);
     const evidence = constrainEvidence({
       ...search,
@@ -2206,6 +2395,11 @@ export class NodeRagService {
             '요약 문서는 1차 문서를 찾기 위한 라우팅 힌트로만 취급하고, [확정 근거], [출처], 실무 해석은 최종 evidence에 포함된 1차 문서에서만 작성하세요.',
           ]
         : []),
+      'JSON 필드 작성 규칙:',
+      '- keyIssueDate는 확인 가능한 기준 시점을 사람이 읽는 형태로 적으세요. 예: "2026년 1월 (평가매뉴얼 신규 기준 적용 시점)", "2026-01-20 시행". 정말 근거가 없을 때만 "확인 필요"를 쓰세요.',
+      '- conclusion은 2~4문장으로 쓰고, 질문이 의무/존재 여부를 묻는 경우 첫 문장에서 "있다", "없다", "없지만 별도로 필요하다" 중 하나로 바로 답하세요.',
+      '- directEvidence는 2~4개 항목으로 쓰고, 각 항목마다 어떤 문서에 무엇이 적혀 있으며 그래서 결론에 어떤 의미인지까지 설명하세요. 문서명만 나열하지 마세요.',
+      '- 법정 의무, 평가 기준상 요구, 실무상 운영 참고가 함께 있으면 conclusion과 practicalGuidance에서 범위를 분리하세요. 예: "법정 의무는 아니지만", "평가 기준상", "이와 별개로".',
       '반드시 제공된 evidence id만 citationEvidenceIds에 넣고, evidence에 없는 문서명을 출처로 쓰지 마세요.',
       '답변 본문에는 Evidence 번호, evidence id, window 번호 같은 내부 추적 표기를 쓰지 말고 정확한 파일명과 조문·섹션명만 쓰세요.',
       '근거가 부족하면 evidenceState를 not_enough로 두고 followUpQuestion을 작성하세요.',

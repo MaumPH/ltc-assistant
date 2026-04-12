@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import * as dotenv from 'dotenv';
-import { loadKnowledgeCorporaFromDisk } from '../src/lib/nodeKnowledge';
+import { NodeRagService } from '../src/lib/nodeRagService';
 import {
   EVIDENCE_STATES,
   REQUIRED_RESPONSE_SECTIONS,
@@ -11,7 +11,8 @@ import {
   type PromptVariant,
 } from '../src/lib/promptAssembly';
 import { loadPromptSourceSet } from '../src/lib/nodePrompts';
-import { searchKnowledge, chunksToContext, type PromptMode } from '../src/lib/ragCore';
+import { chunksToEvidenceContext } from '../src/lib/ragStructured';
+import type { CompiledPage, PromptMode } from '../src/lib/ragTypes';
 
 dotenv.config();
 
@@ -154,18 +155,25 @@ function loadCases(projectRoot: string): HarnessCase[] {
   return parsed;
 }
 
-function buildRetrievedContext(
-  testCase: HarnessCase,
-  corpora: Record<PromptMode, ReturnType<typeof loadKnowledgeCorporaFromDisk>[PromptMode]>,
-): string {
-  const retrieved = chunksToContext(searchKnowledge(corpora[testCase.mode], testCase.question));
-  return [retrieved.trim(), testCase.extra_context?.trim()].filter(Boolean).join('\n\n');
+function buildCompiledPageContext(pages: CompiledPage[]): string {
+  if (pages.length === 0) return '';
+  return pages
+    .map((page) => [`CompiledPage: ${page.title}`, `Type: ${page.pageType}`, `Summary: ${page.summary}`].join('\n'))
+    .join('\n\n');
+}
+
+async function buildRetrievedContext(service: NodeRagService, testCase: HarnessCase): Promise<string> {
+  const inspection = await service.inspectRetrieval(testCase.question, testCase.mode);
+  return [chunksToEvidenceContext(inspection.search.evidence), buildCompiledPageContext(inspection.compiledPages), testCase.extra_context?.trim()]
+    .filter(Boolean)
+    .join('\n\n---\n\n');
 }
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const projectRoot = process.cwd();
-  const corpora = loadKnowledgeCorporaFromDisk(projectRoot);
+  const ragService = new NodeRagService(projectRoot);
+  await ragService.initialize();
   const promptSources = loadPromptSourceSet(projectRoot);
   let cases = loadCases(projectRoot);
 
@@ -189,7 +197,7 @@ async function main() {
   }> = [];
 
   for (const testCase of cases) {
-    const knowledgeContext = buildRetrievedContext(testCase, corpora);
+    const knowledgeContext = await buildRetrievedContext(ragService, testCase);
     const perVariant: VariantResult[] = [];
 
     for (const variant of variants) {
