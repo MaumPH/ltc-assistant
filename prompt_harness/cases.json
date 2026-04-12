@@ -154,6 +154,26 @@
     "notes": "입소 초기 해야 할 일 질문은 단일 세부 지표로 축소하지 말고 신규 수급자 초기 체크리스트를 함께 보여줘야 한다."
   },
   {
+    "id": "integrated-new-recipient-when-arriving-tasks",
+    "mode": "integrated",
+    "question": "신규 수급자가 오면 해야하는 업무는?",
+    "expected_state": "확정",
+    "must_include": [
+      "[답변 가능 상태]",
+      "8가지 지침",
+      "기피식품",
+      "급여제공계획",
+      "14일 이내"
+    ],
+    "must_not_include": [
+      "업무를 전환",
+      "상담만",
+      "인권교육만"
+    ],
+    "requires_clarification": false,
+    "notes": "`오면`, `해야하는 업무`처럼 자연어 변형이 들어와도 신규 수급자 온보딩 체크리스트 질문으로 인식해 초기 업무를 묶어서 답해야 한다."
+  },
+  {
     "id": "integrated-recipient-onboarding-education-direct",
     "mode": "integrated",
     "question": "수급자 입소후 해야할 교육은?",

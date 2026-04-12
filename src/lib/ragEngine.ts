@@ -360,24 +360,12 @@ function isAdjacentWindow(left: SearchCandidate, right: SearchCandidate): boolea
 
 function shouldExpandChecklistEvidence(query: string): boolean {
   const compact = query.replace(/\s+/g, '');
+  const checklistCueTerms = ['해야할', '해야하는', '해야되는', '할일', '체크리스트', '무엇', '뭐', '안내', '설명', '교육', '업무', '절차'];
+  const onboardingOrOperationalTerms = ['입소', '신규', '초기', '준비', '수급자', '보호자', '직원', '평가', '오면', '왔을때', '처음'];
   const broadChecklistCue =
-    compact.includes('해야할') ||
-    compact.includes('할일') ||
-    compact.includes('체크리스트') ||
-    compact.includes('무엇') ||
-    compact.includes('뭐') ||
-    compact.includes('안내') ||
-    compact.includes('설명') ||
-    compact.includes('교육');
+    checklistCueTerms.some((term) => compact.includes(term));
   const onboardingOrOperationalCue =
-    compact.includes('입소') ||
-    compact.includes('신규') ||
-    compact.includes('초기') ||
-    compact.includes('준비') ||
-    compact.includes('수급자') ||
-    compact.includes('보호자') ||
-    compact.includes('직원') ||
-    compact.includes('평가');
+    onboardingOrOperationalTerms.some((term) => compact.includes(term));
 
   return broadChecklistCue && onboardingOrOperationalCue;
 }

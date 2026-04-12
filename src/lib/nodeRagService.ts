@@ -415,17 +415,15 @@ function isFollowUpQuery(query: string): boolean {
 function buildRetrievalAliases(query: string): string[] {
   const compact = query.replace(/\s+/g, '');
   const aliases: string[] = [];
+  const recipientOnboardingContextTerms = ['입소', '신규', '초기', '계약초기', '시작일', '오면', '왔을때', '처음'];
+  const recipientOnboardingChecklistTerms = ['해야할', '해야하는', '해야되는', '할일', '무엇', '뭐', '업무', '절차'];
   const employeeEducation = compact.includes('직원') && compact.includes('교육');
   const employeeRights = compact.includes('직원') && compact.includes('인권');
   const employeeAbuse = compact.includes('직원') && compact.includes('침해');
   const employeeRightsAbuse = employeeRights && employeeAbuse;
   const recipientContext = compact.includes('수급자') || compact.includes('보호자');
   const onboardingContext =
-    compact.includes('입소') ||
-    compact.includes('신규') ||
-    compact.includes('초기') ||
-    compact.includes('계약초기') ||
-    compact.includes('시작일');
+    recipientOnboardingContextTerms.some((term) => compact.includes(term));
   const recipientEducation =
     recipientContext &&
     onboardingContext &&
@@ -433,7 +431,7 @@ function buildRetrievalAliases(query: string): string[] {
   const recipientChecklist =
     recipientContext &&
     onboardingContext &&
-    (compact.includes('해야할') || compact.includes('할일') || compact.includes('무엇') || compact.includes('뭐'));
+    recipientOnboardingChecklistTerms.some((term) => compact.includes(term));
 
   const add = (...items: string[]) => {
     for (const item of items) {
@@ -467,6 +465,8 @@ function buildRetrievalAliases(query: string): string[] {
   if (recipientEducation || recipientChecklist) {
     add(
       '신규수급자',
+      '수급자 입소 초기 해야 할 일',
+      '신규 수급자 초기 업무',
       '급여제공 시작일부터 14일 이내',
       '수급자(보호자) 8가지 지침 설명',
       '모든 수급자(보호자)에게 8가지 지침',
@@ -631,21 +631,11 @@ function uniqueDocumentCandidates(candidates: SearchCandidate[], limit = 4): Sea
 
 function isRecipientOnboardingQuery(query: string): boolean {
   const compact = query.replace(/\s+/g, '');
+  const recipientOnboardingContextTerms = ['입소', '신규', '초기', '계약초기', '시작일', '오면', '왔을때', '처음'];
+  const recipientOnboardingChecklistTerms = ['해야할', '해야하는', '해야되는', '할일', '무엇', '뭐', '교육', '설명', '안내', '업무', '절차'];
   const recipientContext = compact.includes('수급자') || compact.includes('보호자');
-  const onboardingContext =
-    compact.includes('입소') ||
-    compact.includes('신규') ||
-    compact.includes('초기') ||
-    compact.includes('계약초기') ||
-    compact.includes('시작일');
-  const checklistContext =
-    compact.includes('해야할') ||
-    compact.includes('할일') ||
-    compact.includes('무엇') ||
-    compact.includes('뭐') ||
-    compact.includes('교육') ||
-    compact.includes('설명') ||
-    compact.includes('안내');
+  const onboardingContext = recipientOnboardingContextTerms.some((term) => compact.includes(term));
+  const checklistContext = recipientOnboardingChecklistTerms.some((term) => compact.includes(term));
 
   return recipientContext && onboardingContext && checklistContext;
 }
