@@ -648,11 +648,27 @@ function buildRetrievalDiagnostics(
 }
 
 function deriveKeyIssueDate(answer: GroundedAnswer, citations: StructuredChunk[]): string {
-  if (answer.keyIssueDate && /^\d{4}-\d{2}-\d{2}$/.test(answer.keyIssueDate)) {
+  const citationDates = Array.from(
+    new Set(
+      citations
+        .flatMap((citation) => [citation.effectiveDate, citation.publishedDate])
+        .filter((value): value is string => Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value))),
+    ),
+  ).sort(compareIsoDateDesc);
+
+  if (answer.keyIssueDate && citationDates.includes(answer.keyIssueDate)) {
     return answer.keyIssueDate;
   }
-  const datedCitation = citations.find((citation) => citation.effectiveDate);
-  return datedCitation?.effectiveDate ?? CURRENT_DATE;
+
+  if (citationDates.length === 1) {
+    return citationDates[0];
+  }
+
+  if (citationDates.length > 1) {
+    return `확인 필요 (${citationDates.join(', ')})`;
+  }
+
+  return '확인 필요';
 }
 
 function stripInternalCitationArtifacts(text: string | undefined): string {

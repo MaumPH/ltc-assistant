@@ -206,7 +206,7 @@ export function buildCitationLabel(chunk: StructuredChunk): string {
 }
 
 export function buildPreciseCitationLabel(chunk: StructuredChunk): string {
-  const bits = [chunk.path.replace(/^\/+/, '') || chunk.fileName || chunk.docTitle];
+  const bits = [chunk.fileName || chunk.docTitle];
   const sectionBits = chunk.sectionPath.filter((part, index) => !(index === 0 && part === chunk.docTitle));
 
   if (chunk.articleNo && !sectionBits.includes(chunk.articleNo)) {

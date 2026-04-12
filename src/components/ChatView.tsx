@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Info, Loader2, Scale, Send, ShieldAlert } from 'lucide-react';
+import { Loader2, Scale, Send } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { MODELS, type ModelId } from './TopNav';
 import type { ChatCapabilities } from '../lib/ragTypes';
@@ -36,10 +36,8 @@ const REQUEST_TIMEOUT_MS_BY_MODEL: Record<ModelId, number> = {
 };
 
 const INITIAL_MESSAGES: Record<ChatViewProps['mode'], string> = {
-  integrated:
-    '안녕하세요. 장기요양 통합채팅 모드입니다.\n\n문서 검색과 임베딩은 서버 지식기반을 사용하고, 답변은 근거가 충분할 때만 확정적으로 안내합니다.',
-  evaluation:
-    '안녕하세요. 평가채팅 모드입니다.\n\n평가 관련 문서를 우선 검색하고, 근거가 부족하면 보수적으로 `확인 불가`로 답합니다.',
+  integrated: '장기요양 통합채팅입니다.',
+  evaluation: '평가채팅입니다.',
 };
 
 function wait(ms: number) {
@@ -84,19 +82,6 @@ function buildServerErrorMessage(status: number, fallback = '서버 오류'): st
 
 function buildErrorMessage(title: string, detail?: string): string {
   return detail ? `${title}\n\n> ${detail}` : title;
-}
-
-function getReadinessLabel(capabilities: ChatCapabilities | null): string {
-  switch (capabilities?.retrievalReadiness) {
-    case 'hybrid_ready':
-      return '하이브리드 검색 준비 완료';
-    case 'hybrid_partial':
-      return '하이브리드 검색 부분 준비';
-    case 'lexical_only':
-      return '현재는 lexical 위주 검색';
-    default:
-      return '검색 상태 확인 중';
-  }
 }
 
 export default function ChatView({ mode, apiKey, capabilities, selectedModel }: ChatViewProps) {
@@ -241,31 +226,10 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
     await submitCurrentMessage();
   };
 
-  const sourceLabel =
-    mode === 'evaluation' ? '평가 문서와 평가 근거 자료' : '법령, 고시, 운영 문서, 평가 문서 evidence';
-
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex-1 overflow-y-auto px-3 pb-6 pt-4 sm:p-4 md:px-8 md:pb-8 md:pt-6">
         <div className="mx-auto max-w-4xl space-y-4 sm:space-y-6 md:space-y-8">
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
-            <div className="font-medium text-slate-900">검색 상태: {getReadinessLabel(capabilities)}</div>
-            <div className="mt-1 text-xs leading-5 text-slate-500">
-              {capabilities
-                ? capabilities.generationMode === 'user'
-                  ? '문서 검색은 서버 임베딩 키로 수행되고, 최종 답변 생성은 개인 키가 필요합니다.'
-                  : '문서 검색과 답변 생성이 모두 서버 설정 기준으로 동작합니다.'
-                : '서버의 검색 준비 상태를 확인하는 중입니다.'}
-            </div>
-          </div>
-
-          {mode === 'evaluation' && (
-            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-              <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
-              평가 모드에서는 평가 문서군과 평가 관련 자료를 우선 검색합니다.
-            </div>
-          )}
-
           {requiresUserKey && !apiKey && (
             <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
               개인 Gemini API 키를 등록하면 이 채팅창에서 바로 답변 생성을 시작할 수 있습니다.
@@ -362,10 +326,6 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
             </button>
           </form>
 
-          <p className="mt-3 flex items-center justify-center gap-1 text-center text-[11px] text-slate-400">
-            <Info className="h-3 w-3" />
-            답변은 {sourceLabel}를 기준으로 생성됩니다.
-          </p>
         </div>
       </div>
     </div>
