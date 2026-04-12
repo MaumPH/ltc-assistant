@@ -95,6 +95,21 @@ export interface BrainQueryProfile {
   relatedTerms: string[];
 }
 
+export type ServiceScopeId = 'day-care' | 'home-visit' | 'facility';
+
+export interface ServiceScopeClarification {
+  needsClarification: boolean;
+  candidateScopes: Array<{
+    id: ServiceScopeId;
+    label: string;
+    score: number;
+    explicitHits: string[];
+    contextualHits: string[];
+  }>;
+  ambiguitySignals: string[];
+  clarificationQuestion?: string;
+}
+
 function compact(value: string): string {
   return value.replace(/\s+/g, '').toLowerCase();
 }
@@ -106,6 +121,32 @@ function safeArray<T>(value: T[] | undefined): T[] {
 function uniqueStrings(values: Iterable<string>): string[] {
   return Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean)));
 }
+
+const SERVICE_SCOPE_PATTERNS: Array<{
+  id: ServiceScopeId;
+  label: string;
+  explicitTerms: string[];
+  contextualTerms: string[];
+}> = [
+  {
+    id: 'day-care',
+    label: '주간보호(주야간보호)',
+    explicitTerms: ['주간보호', '주야간보호', '데이케어', '데이케어센터'],
+    contextualTerms: ['프로그램', '송영', '등원', '하원', '토요일', '센터', '오시', '오시는데'],
+  },
+  {
+    id: 'home-visit',
+    label: '방문요양',
+    explicitTerms: ['방문요양', '인지활동형 방문요양', '인지활동형방문요양'],
+    contextualTerms: ['인지활동형', '5등급', '방문선생님', '댁', '가정', '집으로'],
+  },
+  {
+    id: 'facility',
+    label: '시설급여(입소시설)',
+    explicitTerms: ['시설급여', '입소시설', '요양원', '노인의료복지시설'],
+    contextualTerms: ['입소', '생활실', '입실', '시설'],
+  },
+];
 
 function listJsonFiles(root: string): string[] {
   if (!fs.existsSync(root)) return [];
@@ -275,6 +316,62 @@ export function buildBrainQueryProfile(brain: DomainBrain, query: string, mode: 
     workflowEvents: workflowEvents.map((event) => event.id),
     aliases,
     relatedTerms,
+  };
+}
+
+export function detectServiceScopeClarification(query: string): ServiceScopeClarification {
+  const queryCompact = compact(query);
+  const containsProgramCue = ['프로그램', '인지', '신체'].some((term) => queryCompact.includes(compact(term)));
+  const containsAttendanceCue = ['오시', '오시는데', '토요일', '요일'].some((term) => queryCompact.includes(compact(term)));
+
+  const candidateScopes = SERVICE_SCOPE_PATTERNS.map((scope) => {
+    const explicitHits = scope.explicitTerms.filter((term) => queryCompact.includes(compact(term)));
+    const contextualHits = scope.contextualTerms.filter((term) => queryCompact.includes(compact(term)));
+    const score = explicitHits.length * 4 + contextualHits.length;
+    return {
+      id: scope.id,
+      label: scope.label,
+      score,
+      explicitHits,
+      contextualHits,
+    };
+  }).sort((left, right) => right.score - left.score);
+
+  const explicitMatches = candidateScopes.filter((scope) => scope.explicitHits.length > 0);
+  const meaningfulCandidates = candidateScopes.filter((scope) => scope.score >= 2);
+  const ambiguitySignals: string[] = [];
+
+  if (explicitMatches.length > 1) {
+    ambiguitySignals.push('multiple-explicit-service-scopes');
+  }
+
+  if (
+    explicitMatches.length === 0 &&
+    meaningfulCandidates.length >= 2 &&
+    meaningfulCandidates[0].score - meaningfulCandidates[1].score <= 2
+  ) {
+    ambiguitySignals.push('competing-service-scope-signals');
+  }
+
+  if (
+    explicitMatches.length === 0 &&
+    queryCompact.includes('5등급') &&
+    containsProgramCue &&
+    containsAttendanceCue
+  ) {
+    ambiguitySignals.push('grade-5-program-attendance-mix');
+  }
+
+  const needsClarification = ambiguitySignals.length > 0;
+  const topCandidates = candidateScopes.filter((scope) => scope.score > 0).slice(0, 3);
+
+  return {
+    needsClarification,
+    candidateScopes: topCandidates,
+    ambiguitySignals,
+    clarificationQuestion: needsClarification
+      ? `${topCandidates.slice(0, 2).map((scope) => scope.label).join('인지, ')}인지 먼저 알려주세요. 급여 유형에 따라 인지·신체 프로그램 기준이 달라집니다.`
+      : undefined,
   };
 }
 

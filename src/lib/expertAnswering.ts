@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import {
+  type ServiceScopeClarification,
   findTasksForWorkflowEvents,
   inferBasisBucketFromChunk,
   summarizeWorkflowEvents,
@@ -18,6 +19,7 @@ import type {
   AnswerPlan,
   AnswerPlanTaskCandidate,
   BasisBucketKey,
+  ChatMessage,
   ConfidenceLevel,
   EvidenceState,
   ExpertAnswerBlock,
@@ -28,6 +30,23 @@ import type {
   RetrievalMode,
   StructuredChunk,
 } from './ragTypes';
+
+type ClarificationDimension =
+  | 'service_scope'
+  | 'comparison_target'
+  | 'document_reference'
+  | 'time_reference'
+  | 'actor_scope'
+  | 'workflow_stage'
+  | 'target_subject';
+
+export interface ClarificationDecision {
+  needsClarification: boolean;
+  reason: string;
+  missingDimensions: ClarificationDimension[];
+  clarificationQuestion?: string;
+  candidateOptions: string[];
+}
 
 function uniqueStrings(values: Iterable<string>): string[] {
   return Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean)));
@@ -306,6 +325,170 @@ function normalizePlan(
         ? candidate.recommendedAnswerType
         : fallback.recommendedAnswerType,
   };
+}
+
+function sanitizeClarificationDimensions(value: unknown): ClarificationDimension[] {
+  if (!Array.isArray(value)) return [];
+  return uniqueStrings(
+    value
+      .map((item) => (typeof item === 'string' ? item : ''))
+      .filter(
+        (item): item is ClarificationDimension =>
+          item === 'service_scope' ||
+          item === 'comparison_target' ||
+          item === 'document_reference' ||
+          item === 'time_reference' ||
+          item === 'actor_scope' ||
+          item === 'workflow_stage' ||
+          item === 'target_subject',
+      ),
+  ).slice(0, 4) as ClarificationDimension[];
+}
+
+function buildClarificationSchema() {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['needsClarification', 'reason', 'missingDimensions', 'clarificationQuestion', 'candidateOptions'],
+    properties: {
+      needsClarification: { type: 'boolean' },
+      reason: { type: 'string' },
+      missingDimensions: {
+        type: 'array',
+        items: {
+          type: 'string',
+          enum: [
+            'service_scope',
+            'comparison_target',
+            'document_reference',
+            'time_reference',
+            'actor_scope',
+            'workflow_stage',
+            'target_subject',
+          ],
+        },
+      },
+      clarificationQuestion: { type: 'string' },
+      candidateOptions: { type: 'array', items: { type: 'string' } },
+    },
+  };
+}
+
+function normalizeClarificationDecision(
+  candidate: Partial<ClarificationDecision>,
+  fallback: ClarificationDecision,
+): ClarificationDecision {
+  const needsClarification =
+    typeof candidate.needsClarification === 'boolean' ? candidate.needsClarification : fallback.needsClarification;
+  const missingDimensions = sanitizeClarificationDimensions(candidate.missingDimensions);
+  const candidateOptions = sanitizeStringList(candidate.candidateOptions, 4);
+  const clarificationQuestion = sanitizeText(candidate.clarificationQuestion, fallback.clarificationQuestion ?? '');
+
+  return {
+    needsClarification,
+    reason: sanitizeText(candidate.reason, fallback.reason),
+    missingDimensions: missingDimensions.length > 0 ? missingDimensions : fallback.missingDimensions,
+    clarificationQuestion: needsClarification ? clarificationQuestion || fallback.clarificationQuestion : undefined,
+    candidateOptions: candidateOptions.length > 0 ? candidateOptions : fallback.candidateOptions,
+  };
+}
+
+function buildClarificationPrompt(params: {
+  recentMessages: ChatMessage[];
+  question: string;
+  normalizedQuery: string;
+  mode: PromptMode;
+  questionArchetype: string;
+  retrievalMode: RetrievalMode;
+  workflowEvents: string[];
+  serviceScopeClarification: ServiceScopeClarification;
+}): string {
+  const conversation = params.recentMessages.map((message) => `${message.role}: ${message.text}`).join('\n');
+
+  return [
+    'Conversation:',
+    conversation || '(none)',
+    '',
+    `Current question: ${params.question}`,
+    `Normalized query: ${params.normalizedQuery}`,
+    `Mode: ${params.mode}`,
+    `Question archetype: ${params.questionArchetype}`,
+    `Retrieval mode: ${params.retrievalMode}`,
+    params.workflowEvents.length > 0 ? `Workflow events: ${params.workflowEvents.join(', ')}` : 'Workflow events: none',
+    '',
+    'Heuristic service-scope signal:',
+    JSON.stringify(params.serviceScopeClarification, null, 2),
+    '',
+    'Decide whether exactly one clarifying question is required before answering.',
+    'Set needsClarification=true only when answering now would likely choose the wrong rule, workflow, comparison target, document target, time reference, actor scope, or subject.',
+    'Default to false when the question can be answered safely with conditional guidance or when recent conversation already resolves the ambiguity.',
+    'Do not ask the user to choose between legal/evaluation/practical basis because the system always covers all three.',
+    'If clarification is needed, return one short Korean question and optional candidate options.',
+    'If clarification is not needed, leave clarificationQuestion empty and candidateOptions empty.',
+  ].join('\n');
+}
+
+export async function detectClarificationNeed(params: {
+  ai: GoogleGenAI;
+  model: string;
+  recentMessages: ChatMessage[];
+  question: string;
+  normalizedQuery: string;
+  mode: PromptMode;
+  questionArchetype: string;
+  retrievalMode: RetrievalMode;
+  workflowEvents: string[];
+  serviceScopeClarification: ServiceScopeClarification;
+}): Promise<ClarificationDecision> {
+  const serviceScopeFallback: ClarificationDecision = params.serviceScopeClarification.needsClarification
+    ? {
+        needsClarification: true,
+        reason: '적용 급여 유형이 둘 이상으로 읽혀 먼저 확인하지 않으면 잘못된 기준으로 답할 가능성이 큽니다.',
+        missingDimensions: ['service_scope'],
+        clarificationQuestion: params.serviceScopeClarification.clarificationQuestion,
+        candidateOptions: params.serviceScopeClarification.candidateScopes.map((scope) => scope.label).slice(0, 3),
+      }
+    : {
+        needsClarification: false,
+        reason: '',
+        missingDimensions: [],
+        clarificationQuestion: undefined,
+        candidateOptions: [],
+      };
+
+  if (serviceScopeFallback.needsClarification) {
+    return serviceScopeFallback;
+  }
+
+  if (!params.question.trim()) {
+    return serviceScopeFallback;
+  }
+
+  try {
+    const response = await params.ai.models.generateContent({
+      model: params.model,
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: buildClarificationPrompt(params),
+            },
+          ],
+        },
+      ],
+      config: {
+        temperature: 0,
+        responseMimeType: 'application/json',
+        responseJsonSchema: buildClarificationSchema(),
+      },
+    });
+
+    const parsed = JSON.parse(response.text || '{}') as Partial<ClarificationDecision>;
+    return normalizeClarificationDecision(parsed, serviceScopeFallback);
+  } catch {
+    return serviceScopeFallback;
+  }
 }
 
 export async function generateAnswerPlan(params: {
@@ -955,6 +1138,102 @@ export function createExpertAbstainAnswer(params: {
     ],
     citations,
     followUps: ['기관 유형 또는 기준 시점을 알려주면 근거를 다시 좁혀보겠습니다.'],
+  };
+}
+
+function describeClarificationDimension(dimension: ClarificationDimension): string {
+  switch (dimension) {
+    case 'service_scope':
+      return '급여 유형';
+    case 'comparison_target':
+      return '비교 대상';
+    case 'document_reference':
+      return '대상 문서나 항목';
+    case 'time_reference':
+      return '기준 시점';
+    case 'actor_scope':
+      return '적용 대상 또는 수행 주체';
+    case 'workflow_stage':
+      return '업무 단계';
+    case 'target_subject':
+      return '질문이 가리키는 대상';
+  }
+}
+
+export function createExpertClarificationAnswer(params: {
+  question: string;
+  decision: ClarificationDecision;
+  serviceScopeClarification?: ServiceScopeClarification;
+}): ExpertAnswerEnvelope {
+  const serviceScopeCandidates = params.serviceScopeClarification?.candidateScopes.slice(0, 2) ?? [];
+  const optionItems =
+    serviceScopeCandidates.length > 0
+      ? serviceScopeCandidates.map((candidate) => ({
+          label: candidate.label,
+          detail:
+            candidate.explicitHits.length > 0 || candidate.contextualHits.length > 0
+              ? `질문에 ${[...candidate.explicitHits, ...candidate.contextualHits].slice(0, 4).join(', ')} 신호가 보여 이 가능성을 함께 보고 있습니다.`
+              : '현재 질문만으로는 이 가능성을 배제하기 어렵습니다.',
+        }))
+      : params.decision.candidateOptions.slice(0, 3).map((option) => ({
+          label: option,
+          detail: `${option} 기준으로 확인되면 그 기준에 맞춰 바로 답변하겠습니다.`,
+        }));
+
+  const followUpQuestion =
+    params.decision.clarificationQuestion ??
+    '정확한 답변을 위해 적용 기준을 한 가지만 더 알려주세요.';
+  const missingDimensionLabels = uniqueStrings(params.decision.missingDimensions.map(describeClarificationDimension));
+
+  return {
+    answerType: 'mixed',
+    headline: '먼저 한 가지만 확인할게요',
+    summary:
+      params.decision.reason || '현재 질문은 해석이 둘 이상 가능해 바로 답하면 잘못된 기준을 적용할 수 있습니다.',
+    confidence: 'low',
+    evidenceState: 'not_enough',
+    scope: '핵심 기준이 확인되면 같은 질문이라도 적용 조문, 평가 포인트, 실무 안내가 달라질 수 있습니다.',
+    basis: {
+      legal: [],
+      evaluation: [],
+      practical: [],
+    },
+    blocks: [
+      {
+        type: 'warning',
+        title: '왜 확인이 필요한지',
+        items: [
+          {
+            label: '오답 위험 방지',
+            detail:
+              params.decision.reason || '현재 정보만으로는 서로 다른 기준 중 하나를 임의로 선택하게 되어 답변 정확도가 떨어질 수 있습니다.',
+          },
+          {
+            label: '추가로 필요한 축',
+            detail:
+              missingDimensionLabels.length > 0
+                ? `${missingDimensionLabels.join(', ')} 정보가 확인되면 바로 정확한 기준으로 정리할 수 있습니다.`
+                : '질문의 적용 범위를 한 번만 더 확인하면 정확한 답변으로 바로 이어질 수 있습니다.',
+          },
+        ],
+      },
+      {
+        type: 'followup',
+        title: '확인 질문',
+        intro: '한 번만 확인되면 그 기준으로 바로 정리해드릴 수 있습니다.',
+        items:
+          optionItems.length > 0
+            ? optionItems
+            : [
+                {
+                  label: '추가 확인',
+                  detail: followUpQuestion,
+                },
+              ],
+      },
+    ],
+    citations: [],
+    followUps: [followUpQuestion],
   };
 }
 
