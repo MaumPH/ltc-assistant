@@ -344,7 +344,7 @@ export function formatEvidenceStateLabel(state: EvidenceState): string {
     case 'confirmed':
       return '확정';
     case 'partial':
-      return '부분 확정';
+      return '부분확정';
     case 'conflict':
       return '충돌';
     case 'not_enough':
