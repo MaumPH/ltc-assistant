@@ -6,12 +6,19 @@ import TopNav, {
   type ModelId,
   type TabId,
 } from './components/TopNav';
-import { ApiKeyModal, API_KEY_STORAGE, ApiKeySetupScreen } from './components/ApiKeySetup';
+import { ApiKeyModal, API_KEY_STORAGE } from './components/ApiKeySetup';
+import type { ChatCapabilities } from './lib/ragTypes';
 
 const ChatView = lazy(() => import('./components/ChatView'));
 const EvaluationWiki = lazy(() => import('./components/EvaluationWiki'));
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const KnowledgeBaseView = lazy(() => import('./components/KnowledgeBaseView'));
+
+const API_BASE_URL = (import.meta.env.VITE_RAG_API_BASE_URL || '').replace(/\/$/, '');
+
+function getApiUrl(route: string): string {
+  return API_BASE_URL ? `${API_BASE_URL}${route}` : route;
+}
 
 function readStoredApiKey() {
   if (typeof window === 'undefined') return null;
@@ -48,14 +55,39 @@ export default function App() {
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [showMobileSettings, setShowMobileSettings] = useState(false);
   const [selectedModel, setSelectedModel] = useState<ModelId>(readStoredModel);
+  const [capabilities, setCapabilities] = useState<ChatCapabilities | null>(null);
+  const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem(MODEL_STORAGE, selectedModel);
   }, [selectedModel]);
 
-  if (!apiKey) {
-    return <ApiKeySetupScreen onSave={setApiKey} />;
-  }
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCapabilities = async () => {
+      try {
+        const response = await fetch(getApiUrl('/api/chat/capabilities'));
+        if (!response.ok) {
+          throw new Error(`Capabilities request failed with ${response.status}`);
+        }
+        const payload = (await response.json()) as ChatCapabilities;
+        if (!cancelled) {
+          setCapabilities(payload);
+          setCapabilitiesError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCapabilitiesError(error instanceof Error ? error.message : 'Failed to load chat capabilities');
+        }
+      }
+    };
+
+    void loadCapabilities();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleTabChange = (tab: TabId) => {
     startTransition(() => {
@@ -80,13 +112,29 @@ export default function App() {
         onMobileSettingsClick={() => setShowMobileSettings(true)}
       />
 
+      {capabilitiesError && (
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+          채팅 기능 상태를 불러오지 못했습니다. 검색은 서버 상태에 따라 제한될 수 있습니다.
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1 flex-col">
         <Suspense fallback={<ScreenLoader />}>
           {activeTab === 'integrated' && (
-            <ChatView mode="integrated" apiKey={apiKey} selectedModel={selectedModel} />
+            <ChatView
+              mode="integrated"
+              apiKey={apiKey}
+              capabilities={capabilities}
+              selectedModel={selectedModel}
+            />
           )}
           {activeTab === 'evaluation' && (
-            <ChatView mode="evaluation" apiKey={apiKey} selectedModel={selectedModel} />
+            <ChatView
+              mode="evaluation"
+              apiKey={apiKey}
+              capabilities={capabilities}
+              selectedModel={selectedModel}
+            />
           )}
           {activeTab === 'wiki' && <EvaluationWiki />}
           {activeTab === 'dashboard' && <Dashboard />}

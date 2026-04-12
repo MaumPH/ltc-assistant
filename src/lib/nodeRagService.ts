@@ -20,14 +20,18 @@ import { buildCitationLabel, compareIsoDateDesc, formatEvidenceStateLabel, sha1,
 import { loadKnowledgeCorporaFromDisk } from './nodeKnowledge';
 import { loadPromptSourceSet } from './nodePrompts';
 import { buildVariantSystemInstruction, type PromptVariant } from './promptAssembly';
+import { resolveEmbeddingApiKey, resolveGenerationMode, resolveServerGenerationApiKey } from './ragRuntime';
 import { buildCompiledPages, buildStructuredChunks, buildStructuredSections, chunksToEvidenceContext } from './ragStructured';
 import type {
   BenchmarkCase,
   CandidateDiagnostic,
+  ChatCapabilities,
   ChatMessage,
+  ChunkWindowRef,
   CompiledPage,
   ConfidenceLevel,
   DocumentDiagnostics,
+  GenerationMode,
   GroundedAnswer,
   IndexManifestEntry,
   IndexStatus,
@@ -36,10 +40,12 @@ import type {
   PromptMode,
   QueryIntent,
   RetrievalDiagnostics,
+  RetrievalReadiness,
   RecentRetrievalMatch,
   SearchRun,
   StructuredChunk,
 } from './ragTypes';
+import { CHAT_MODELS } from './chatModels';
 
 interface StoredChunkRow {
   id: string;
@@ -60,6 +66,12 @@ interface StoredChunkRow {
   article_no?: string | null;
   matched_labels?: string[] | string | null;
   chunk_hash: string;
+  parent_section_id?: string | null;
+  parent_section_title?: string | null;
+  window_index?: number | string | null;
+  span_start?: number | string | null;
+  span_end?: number | string | null;
+  citation_group_id?: string | null;
   embedding?: number[] | string | null;
 }
 
@@ -107,6 +119,10 @@ export interface RetrievalInspectionResponse {
   indexStatus: IndexStatus;
   candidateDiagnostics: CandidateDiagnostic[];
   matchedDocumentPaths: string[];
+  retrievalReadiness: RetrievalReadiness;
+  stageTrace: SearchRun['stageTrace'];
+  neighborWindows: ChunkWindowRef[];
+  rejectionReasons: RetrievalDiagnostics['rejectionReasons'];
 }
 
 interface RagStore {
@@ -211,6 +227,10 @@ function markEmbeddingQuotaExceeded(error: unknown, context: string): void {
   );
 }
 
+function getNextEmbeddingRetryAt(): string | undefined {
+  return Date.now() < embeddingQuotaBlockedUntil ? new Date(embeddingQuotaBlockedUntil).toISOString() : undefined;
+}
+
 function parseStringArray(value: string[] | string | null | undefined): string[] {
   if (Array.isArray(value)) return value;
   if (!value) return [];
@@ -246,6 +266,9 @@ function parseNumberValue(value: number | string | null | undefined): number {
 }
 
 function rowToChunk(row: StoredChunkRow): StructuredChunk {
+  const sectionPath = parseStringArray(row.section_path);
+  const parentSectionId = row.parent_section_id ?? sha1(`${row.document_id}:${sectionPath.join('>')}`);
+  const parentSectionTitle = row.parent_section_title ?? row.title;
   return {
     id: row.id,
     documentId: row.document_id,
@@ -262,10 +285,16 @@ function rowToChunk(row: StoredChunkRow): StructuredChunk {
     path: row.path,
     effectiveDate: row.effective_date ?? undefined,
     publishedDate: row.published_date ?? undefined,
-    sectionPath: parseStringArray(row.section_path),
+    sectionPath,
     articleNo: row.article_no ?? undefined,
     matchedLabels: parseStringArray(row.matched_labels),
     chunkHash: row.chunk_hash,
+    parentSectionId,
+    parentSectionTitle,
+    windowIndex: parseNumberValue(row.window_index),
+    spanStart: parseNumberValue(row.span_start),
+    spanEnd: parseNumberValue(row.span_end),
+    citationGroupId: row.citation_group_id ?? sha1(`${row.document_id}:${parentSectionId}`),
     embedding: parseEmbedding(row.embedding),
   };
 }
@@ -282,6 +311,31 @@ function rowToManifestEntry(row: StoredDocumentRow): IndexManifestEntry {
     chunkCount: parseNumberValue(row.chunk_count),
     embeddingCount: parseNumberValue(row.embedding_count),
   };
+}
+
+function updateManifestEntriesFromChunks(
+  entries: IndexManifestEntry[],
+  chunks: StructuredChunk[],
+): IndexManifestEntry[] {
+  const countsByDocument = new Map<string, { chunkCount: number; embeddingCount: number }>();
+  for (const chunk of chunks) {
+    const current = countsByDocument.get(chunk.documentId) ?? { chunkCount: 0, embeddingCount: 0 };
+    current.chunkCount += 1;
+    if (Array.isArray(chunk.embedding) && chunk.embedding.length > 0) {
+      current.embeddingCount += 1;
+    }
+    countsByDocument.set(chunk.documentId, current);
+  }
+
+  return entries.map((entry) => {
+    const counts = countsByDocument.get(entry.documentId);
+    if (!counts) return entry;
+    return {
+      ...entry,
+      chunkCount: counts.chunkCount,
+      embeddingCount: counts.embeddingCount,
+    };
+  });
 }
 
 function manifestEntriesToKnowledgeStats(entries: IndexManifestEntry[]): Array<{ name: string; size: number; updatedAt: Date }> {
@@ -302,7 +356,7 @@ function dedupeCitations(chunks: StructuredChunk[]): StructuredChunk[] {
   const seen = new Set<string>();
   const result: StructuredChunk[] = [];
   for (const chunk of chunks) {
-    const key = `${chunk.docTitle}:${chunk.articleNo ?? chunk.sectionPath.join('>')}`;
+    const key = chunk.citationGroupId;
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(chunk);
@@ -339,9 +393,75 @@ function buildNormalizedRetrievalQuery(messages: ChatMessage[]): { normalizedQue
   };
 }
 
-function buildCandidateDiagnostics(search: SearchRun): CandidateDiagnostic[] {
+function buildChunkWindowRef(
+  chunk: StructuredChunk,
+  relation: ChunkWindowRef['relation'],
+  selectedAsEvidence: boolean,
+): ChunkWindowRef {
+  return {
+    id: chunk.id,
+    documentId: chunk.documentId,
+    path: chunk.path,
+    docTitle: chunk.docTitle,
+    articleNo: chunk.articleNo,
+    sectionPath: chunk.sectionPath,
+    parentSectionId: chunk.parentSectionId,
+    parentSectionTitle: chunk.parentSectionTitle,
+    windowIndex: chunk.windowIndex,
+    spanStart: chunk.spanStart,
+    spanEnd: chunk.spanEnd,
+    relation,
+    selectedAsEvidence,
+  };
+}
+
+function collectNeighborWindows(allChunks: StructuredChunk[], evidence: StructuredChunk[]): ChunkWindowRef[] {
+  const byParentSection = new Map<string, StructuredChunk[]>();
+  for (const chunk of allChunks) {
+    const key = `${chunk.documentId}:${chunk.parentSectionId}`;
+    const list = byParentSection.get(key) ?? [];
+    list.push(chunk);
+    byParentSection.set(key, list);
+  }
+
+  const refs = new Map<string, ChunkWindowRef>();
+  for (const chunk of evidence) {
+    const key = `${chunk.documentId}:${chunk.parentSectionId}`;
+    const sectionChunks = (byParentSection.get(key) ?? []).slice().sort((left, right) => left.windowIndex - right.windowIndex);
+    const currentIndex = sectionChunks.findIndex((item) => item.id === chunk.id);
+    if (currentIndex < 0) continue;
+
+    const current = sectionChunks[currentIndex];
+    refs.set(`${current.id}:current`, buildChunkWindowRef(current, 'current', true));
+
+    const previous = sectionChunks[currentIndex - 1];
+    if (previous) {
+      refs.set(`${previous.id}:previous`, buildChunkWindowRef(previous, 'previous', false));
+    }
+
+    const next = sectionChunks[currentIndex + 1];
+    if (next) {
+      refs.set(`${next.id}:next`, buildChunkWindowRef(next, 'next', false));
+    }
+  }
+
+  return Array.from(refs.values()).sort((left, right) => {
+    const pathDiff = left.path.localeCompare(right.path, 'ko');
+    if (pathDiff !== 0) return pathDiff;
+    if (left.parentSectionId !== right.parentSectionId) return left.parentSectionId.localeCompare(right.parentSectionId);
+    return left.windowIndex - right.windowIndex;
+  });
+}
+
+function buildCandidateDiagnostics(
+  search: SearchRun,
+  neighborWindows: ChunkWindowRef[],
+): CandidateDiagnostic[] {
   const focusTerms = search.focusTerms ?? deriveFocusTerms(search.query);
   const evidenceIds = new Set(search.evidence.map((item) => item.id));
+  const selectedClusters = new Set(search.evidence.map((item) => item.citationGroupId));
+  const selectedDocuments = new Set(search.evidence.map((item) => item.documentId));
+  const neighborWindowIds = new Set(neighborWindows.map((item) => item.id));
 
   return search.fusedCandidates.map((candidate) => {
     const focusTermMatches = getCandidateFocusMatches(candidate, focusTerms);
@@ -349,6 +469,26 @@ function buildCandidateDiagnostics(search: SearchRun): CandidateDiagnostic[] {
     const matchedOnlyGenericTerms =
       focusTermMatches.length === 0 &&
       (concreteMatchedTerms.length === 0 || concreteMatchedTerms.every((term) => isGenericQueryTerm(term)));
+    const rejectionReasons: string[] = [];
+    const selectedAsEvidence = evidenceIds.has(candidate.id);
+
+    if (!selectedAsEvidence) {
+      if (matchedOnlyGenericTerms) {
+        rejectionReasons.push('generic-only-match');
+      }
+      if (selectedDocuments.has(candidate.documentId) && !selectedClusters.has(candidate.citationGroupId)) {
+        rejectionReasons.push('document-cluster-limit');
+      }
+      if (selectedClusters.has(candidate.citationGroupId) && !neighborWindowIds.has(candidate.id)) {
+        rejectionReasons.push('non-adjacent-window-in-selected-cluster');
+      }
+      if (candidate.rerankScore < (search.evidence.at(-1)?.rerankScore ?? Infinity)) {
+        rejectionReasons.push('lower-rerank-score-than-selected-evidence');
+      }
+      if (candidate.vectorScore <= 0) {
+        rejectionReasons.push('no-vector-signal');
+      }
+    }
 
     return {
       id: candidate.id,
@@ -357,8 +497,12 @@ function buildCandidateDiagnostics(search: SearchRun): CandidateDiagnostic[] {
       rerankScore: candidate.rerankScore,
       matchedTerms: candidate.matchedTerms,
       focusTermMatches,
-      selectedAsEvidence: evidenceIds.has(candidate.id),
+      selectedAsEvidence,
       matchedOnlyGenericTerms,
+      rejectionReasons,
+      citationGroupId: candidate.citationGroupId,
+      parentSectionId: candidate.parentSectionId,
+      windowIndex: candidate.windowIndex,
     };
   });
 }
@@ -374,9 +518,10 @@ function hasExactArticleGrounding(evidence: SearchRun['evidence']): boolean {
 function hasSequentialDocumentGrounding(evidence: SearchRun['evidence']): boolean {
   const chunkIndexesByDocument = new Map<string, number[]>();
   for (const candidate of evidence) {
-    const list = chunkIndexesByDocument.get(candidate.documentId) ?? [];
-    list.push(candidate.chunkIndex);
-    chunkIndexesByDocument.set(candidate.documentId, list);
+    const key = `${candidate.documentId}:${candidate.parentSectionId}`;
+    const list = chunkIndexesByDocument.get(key) ?? [];
+    list.push(candidate.windowIndex);
+    chunkIndexesByDocument.set(key, list);
   }
 
   for (const indexes of chunkIndexesByDocument.values()) {
@@ -425,12 +570,63 @@ function applyGroundingGate(search: SearchRun): SearchRun {
   };
 }
 
+function buildRetrievalStageTrace(search: SearchRun, normalizedQuery: string, querySources: string[]): SearchRun['stageTrace'] {
+  return [
+    {
+      stage: 'query_normalization',
+      inputCount: querySources.length > 0 ? querySources.length : 1,
+      outputCount: normalizedQuery.trim() ? 1 : 0,
+      notes: querySources.length > 1 ? ['follow-up-query-combined'] : ['latest-user-query'],
+    },
+    {
+      stage: 'lexical_candidates',
+      inputCount: 1,
+      outputCount: search.lexicalCandidates.length,
+      notes: search.lexicalCandidates.length > 0 ? [`top=${search.lexicalCandidates[0].docTitle}`] : ['no-lexical-match'],
+    },
+    {
+      stage: 'vector_candidates',
+      inputCount: 1,
+      outputCount: search.vectorCandidates.length,
+      notes: search.vectorCandidates.length > 0 ? [`top=${search.vectorCandidates[0].docTitle}`] : ['vector-unavailable-or-empty'],
+    },
+    {
+      stage: 'fusion',
+      inputCount: search.exactCandidates.length + search.lexicalCandidates.length + search.vectorCandidates.length,
+      outputCount: search.fusedCandidates.length,
+      notes: [
+        `exact=${search.exactCandidates.length}`,
+        `lexical=${search.lexicalCandidates.length}`,
+        `vector=${search.vectorCandidates.length}`,
+      ],
+    },
+    {
+      stage: 'document_diversification',
+      inputCount: search.fusedCandidates.length,
+      outputCount: search.evidence.length,
+      notes: [
+        `documents=${new Set(search.evidence.map((item) => item.documentId)).size}`,
+        `clusters=${new Set(search.evidence.map((item) => item.citationGroupId)).size}`,
+      ],
+    },
+    {
+      stage: 'answer_evidence_gate',
+      inputCount: search.evidence.length,
+      outputCount: search.groundingGatePassed ? search.evidence.length : 0,
+      notes: search.mismatchSignals && search.mismatchSignals.length > 0 ? search.mismatchSignals : [search.groundingGatePassed ? 'grounding-passed' : 'grounding-failed'],
+    },
+  ];
+}
+
 function buildRetrievalDiagnostics(
   search: SearchRun,
   normalizedQuery: string,
   querySources: string[],
+  allChunks: StructuredChunk[],
+  retrievalReadiness: RetrievalReadiness,
 ): RetrievalDiagnostics {
-  const candidateDiagnostics = buildCandidateDiagnostics(search);
+  const neighborWindows = collectNeighborWindows(allChunks, search.evidence);
+  const candidateDiagnostics = buildCandidateDiagnostics(search, neighborWindows);
   return {
     normalizedQuery,
     querySources,
@@ -439,6 +635,15 @@ function buildRetrievalDiagnostics(
     focusTerms: search.focusTerms ?? deriveFocusTerms(search.query),
     mismatchSignals: search.mismatchSignals ?? [],
     groundingGatePassed: search.groundingGatePassed ?? false,
+    stageTrace: buildRetrievalStageTrace(search, normalizedQuery, querySources),
+    retrievalReadiness,
+    neighborWindows,
+    rejectionReasons: candidateDiagnostics
+      .filter((candidate) => candidate.rejectionReasons.length > 0)
+      .map((candidate) => ({
+        candidateId: candidate.id,
+        reasons: candidate.rejectionReasons,
+      })),
   };
 }
 
@@ -649,6 +854,12 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       article_no text,
       matched_labels jsonb not null default '[]'::jsonb,
       chunk_hash text not null,
+      parent_section_id text not null,
+      parent_section_title text not null,
+      window_index integer not null default 0,
+      span_start integer not null default 0,
+      span_end integer not null default 0,
+      citation_group_id text not null,
       embedding vector(768),
       created_at timestamptz not null default now()
     )
@@ -656,6 +867,12 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'create index if not exists chunks_mode_idx on chunks(mode)',
   'create index if not exists chunks_doc_title_idx on chunks(doc_title)',
   'create index if not exists chunks_article_idx on chunks(article_no)',
+  'alter table chunks add column if not exists parent_section_id text',
+  'alter table chunks add column if not exists parent_section_title text',
+  'alter table chunks add column if not exists window_index integer not null default 0',
+  'alter table chunks add column if not exists span_start integer not null default 0',
+  'alter table chunks add column if not exists span_end integer not null default 0',
+  'alter table chunks add column if not exists citation_group_id text',
   'create index if not exists chunks_effective_date_idx on chunks(effective_date desc)',
   'create index if not exists chunks_embedding_ivfflat_idx on chunks using ivfflat (embedding vector_cosine_ops) with (lists = 100)',
   `
@@ -835,6 +1052,73 @@ class PostgresRagStore implements RagStore {
     this.pool = new Pool({ connectionString });
   }
 
+  private async persistEmbeddingUpdates(): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+
+      for (const chunk of this.chunks) {
+        await client.query(
+          'update chunks set embedding = $2 where id = $1',
+          [
+            chunk.id,
+            Array.isArray(chunk.embedding) && chunk.embedding.length === EMBEDDING_DIMENSIONS
+              ? `[${chunk.embedding.join(',')}]`
+              : null,
+          ],
+        );
+      }
+
+      for (const entry of this.manifestEntries) {
+        await client.query(
+          'update documents set chunk_count = $2, embedding_count = $3 where id = $1',
+          [entry.documentId, entry.chunkCount, entry.embeddingCount],
+        );
+      }
+
+      const metadataRow = buildIndexMetadataRow(this.manifestEntries, 'postgres');
+      await client.query(
+        `
+        insert into rag_index_metadata (
+          id,
+          generated_at,
+          storage_mode,
+          manifest_hash,
+          document_count,
+          chunk_count,
+          embedding_count,
+          mode_counts
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8)
+        on conflict (id) do update set
+          generated_at = excluded.generated_at,
+          storage_mode = excluded.storage_mode,
+          manifest_hash = excluded.manifest_hash,
+          document_count = excluded.document_count,
+          chunk_count = excluded.chunk_count,
+          embedding_count = excluded.embedding_count,
+          mode_counts = excluded.mode_counts
+        `,
+        [
+          metadataRow.id,
+          metadataRow.generated_at,
+          metadataRow.storage_mode,
+          metadataRow.manifest_hash,
+          metadataRow.document_count,
+          metadataRow.chunk_count,
+          metadataRow.embedding_count,
+          JSON.stringify(metadataRow.mode_counts),
+        ],
+      );
+
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async initialize(): Promise<void> {
     const client = await this.pool.connect();
     try {
@@ -860,9 +1144,15 @@ class PostgresRagStore implements RagStore {
         article_no,
         matched_labels,
         chunk_hash,
+        parent_section_id,
+        parent_section_title,
+        window_index,
+        span_start,
+        span_end,
+        citation_group_id,
         embedding
       from chunks
-      order by doc_title asc, chunk_index asc
+      order by doc_title asc, parent_section_id asc, window_index asc, chunk_index asc
     `);
 
       if (chunkResult.rows.length === 0) {
@@ -948,8 +1238,16 @@ class PostgresRagStore implements RagStore {
 
     const missing = this.chunks.filter((chunk) => !chunk.embedding || chunk.embedding.length === 0);
     if (missing.length === 0) return;
+    const before = missing.length;
     await embedChunks(ai, missing);
+    const after = this.chunks.filter((chunk) => !chunk.embedding || chunk.embedding.length === 0).length;
     this.index = buildRagCorpusIndex(this.chunks);
+    this.manifestEntries = updateManifestEntriesFromChunks(this.manifestEntries, this.chunks);
+    this.knowledgeStats = manifestEntriesToKnowledgeStats(this.manifestEntries);
+    this.indexGeneratedAt = new Date().toISOString();
+    if (after < before) {
+      await this.persistEmbeddingUpdates();
+    }
   }
 
   search(query: string, mode: PromptMode, queryEmbedding: number[] | null): SearchRun {
@@ -1106,6 +1404,44 @@ function constrainEvidence(search: SearchRun): SearchRun['evidence'] {
   return constrained;
 }
 
+function expandEvidenceWithNeighbors(evidence: SearchRun['evidence'], allChunks: StructuredChunk[]): SearchRun['evidence'] {
+  const byParentSection = new Map<string, StructuredChunk[]>();
+  for (const chunk of allChunks) {
+    const key = `${chunk.documentId}:${chunk.parentSectionId}`;
+    const list = byParentSection.get(key) ?? [];
+    list.push(chunk);
+    byParentSection.set(key, list);
+  }
+
+  const expanded = new Map<string, SearchRun['evidence'][number]>();
+  for (const candidate of evidence) {
+    expanded.set(candidate.id, candidate);
+    const key = `${candidate.documentId}:${candidate.parentSectionId}`;
+    const siblings = (byParentSection.get(key) ?? []).slice().sort((left, right) => left.windowIndex - right.windowIndex);
+    const index = siblings.findIndex((item) => item.id === candidate.id);
+    for (const neighbor of [siblings[index - 1], siblings[index + 1]]) {
+      if (!neighbor) continue;
+      expanded.set(neighbor.id, {
+        ...neighbor,
+        exactScore: candidate.exactScore,
+        lexicalScore: candidate.lexicalScore,
+        vectorScore: candidate.vectorScore,
+        fusedScore: candidate.fusedScore,
+        rerankScore: candidate.rerankScore - 0.5,
+        matchedTerms: candidate.matchedTerms,
+      });
+    }
+  }
+
+  return Array.from(expanded.values()).sort((left, right) => {
+    const rerankDiff = right.rerankScore - left.rerankScore;
+    if (rerankDiff !== 0) return rerankDiff;
+    if (left.documentId !== right.documentId) return left.documentId.localeCompare(right.documentId);
+    if (left.parentSectionId !== right.parentSectionId) return left.parentSectionId.localeCompare(right.parentSectionId);
+    return left.windowIndex - right.windowIndex;
+  });
+}
+
 async function generateGroundedAnswer(params: {
   ai: GoogleGenAI;
   model: string;
@@ -1172,7 +1508,8 @@ export class NodeRagService {
   private readonly projectRoot: string;
   private readonly promptSources;
   private store: RagStore;
-  private readonly bootstrapAi: GoogleGenAI | null;
+  private readonly embeddingAi: GoogleGenAI | null;
+  private readonly generationMode: GenerationMode;
   private diskFiles: KnowledgeFile[] = [];
   private diskManifestEntries: IndexManifestEntry[] = [];
   private doctorIssues: KnowledgeDoctorIssue[] = [];
@@ -1182,11 +1519,13 @@ export class NodeRagService {
     storageMode: 'memory',
   });
   private lastRetrievalByPath = new Map<string, RecentRetrievalMatch>();
+  private embeddingRefreshTimer: NodeJS.Timeout | null = null;
   private initialized = false;
 
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
     this.promptSources = loadPromptSourceSet(projectRoot);
+    this.generationMode = resolveGenerationMode();
 
     const storageMode = process.env.RAG_STORAGE_MODE?.toLowerCase() ?? 'memory';
     const databaseUrl = process.env.DATABASE_URL;
@@ -1196,8 +1535,8 @@ export class NodeRagService {
       this.store = new MemoryRagStore(projectRoot);
     }
 
-    const bootstrapApiKey = process.env.GEMINI_API_KEY;
-    this.bootstrapAi = bootstrapApiKey ? new GoogleGenAI({ apiKey: bootstrapApiKey }) : null;
+    const embeddingApiKey = resolveEmbeddingApiKey();
+    this.embeddingAi = embeddingApiKey ? new GoogleGenAI({ apiKey: embeddingApiKey }) : null;
   }
 
   private loadDiskKnowledgeState(): { files: KnowledgeFile[]; manifestEntries: IndexManifestEntry[]; issues: KnowledgeDoctorIssue[] } {
@@ -1222,6 +1561,7 @@ export class NodeRagService {
       storageMode: this.store.getStats().storageMode,
       generatedAt: this.store.getIndexGeneratedAt(),
       issues: this.doctorIssues,
+      nextEmbeddingRetryAt: getNextEmbeddingRetryAt(),
     });
     return this.indexStatus;
   }
@@ -1241,23 +1581,55 @@ export class NodeRagService {
     this.lastRetrievalByPath = matches;
   }
 
+  private startBackgroundEmbeddingRefresh(): void {
+    if (!this.embeddingAi || this.embeddingRefreshTimer) return;
+    const intervalMs = Math.max(60_000, Math.min(EMBEDDING_REFRESH_INTERVAL_MS, 5 * 60 * 1000));
+    this.embeddingRefreshTimer = setInterval(() => {
+      void this.store.ensureEmbeddings(this.embeddingAi).then(() => {
+        this.refreshIndexStatus();
+      }).catch((error) => {
+        console.warn(`[embedding] background refresh failed: ${describeError(error)}`);
+      });
+    }, intervalMs);
+  }
+
+  private getRetrievalReadiness(): RetrievalReadiness {
+    return this.indexStatus.retrievalReadiness;
+  }
+
+  async getChatCapabilities(): Promise<ChatCapabilities> {
+    await this.initialize();
+    const status = this.refreshIndexStatus();
+    return {
+      generationMode: this.generationMode,
+      requiresUserGenerationKey: this.generationMode === 'user',
+      serverEmbeddingReady: status.retrievalReadiness !== 'lexical_only',
+      retrievalReadiness: status.retrievalReadiness,
+      supportedModels: CHAT_MODELS.map((model) => ({
+        id: model.id,
+        label: model.label,
+      })),
+    };
+  }
+
   async initialize(): Promise<void> {
     if (this.initialized) return;
     try {
-      await this.store.initialize(this.bootstrapAi);
+      await this.store.initialize(this.embeddingAi);
     } catch (error) {
       if (!(this.store instanceof MemoryRagStore)) {
         console.warn(`Falling back to memory RAG store: ${error instanceof Error ? error.message : String(error)}`);
         this.store = new MemoryRagStore(this.projectRoot);
-        await this.store.initialize(this.bootstrapAi);
+        await this.store.initialize(this.embeddingAi);
       } else {
         throw error;
       }
     }
-    if (this.bootstrapAi) {
-      await this.store.ensureEmbeddings(this.bootstrapAi);
+    if (this.embeddingAi) {
+      await this.store.ensureEmbeddings(this.embeddingAi);
     }
     this.refreshIndexStatus();
+    this.startBackgroundEmbeddingRefresh();
     this.initialized = true;
   }
 
@@ -1295,10 +1667,9 @@ export class NodeRagService {
 
   async inspectRetrieval(input: string | ChatMessage[], mode: PromptMode, apiKey?: string): Promise<RetrievalInspectionResponse> {
     await this.initialize();
-    const effectiveApiKey = apiKey || process.env.GEMINI_API_KEY;
-    const ai = effectiveApiKey ? new GoogleGenAI({ apiKey: effectiveApiKey }) : null;
-    if (ai) {
-      await this.store.ensureEmbeddings(ai);
+    void apiKey;
+    if (this.embeddingAi) {
+      await this.store.ensureEmbeddings(this.embeddingAi);
     }
     const recentMessages = Array.isArray(input) ? input.slice(-4) : [];
     const query = Array.isArray(input)
@@ -1309,11 +1680,17 @@ export class NodeRagService {
         ? buildNormalizedRetrievalQuery(recentMessages)
         : { normalizedQuery: query.trim(), querySources: query.trim() ? [query.trim()] : [] };
     const { normalizedQuery, querySources } = normalized;
-    const queryEmbedding = ai ? await embedQuery(ai, normalizedQuery) : null;
+    const queryEmbedding = this.embeddingAi ? await embedQuery(this.embeddingAi, normalizedQuery) : null;
     const search = applyGroundingGate(this.store.search(normalizedQuery, mode, queryEmbedding));
     const compiledPages = this.store.getCompiledPages(mode, search.evidence.map((item) => item.documentId));
     const indexStatus = this.refreshIndexStatus();
-    const retrieval = buildRetrievalDiagnostics(search, normalizedQuery, querySources);
+    const retrieval = buildRetrievalDiagnostics(
+      search,
+      normalizedQuery,
+      querySources,
+      this.store.getChunks(),
+      indexStatus.retrievalReadiness,
+    );
     this.rememberRetrieval(retrieval, query);
     return {
       query,
@@ -1324,25 +1701,38 @@ export class NodeRagService {
       indexStatus,
       candidateDiagnostics: retrieval.candidateDiagnostics,
       matchedDocumentPaths: retrieval.matchedDocumentPaths,
+      retrievalReadiness: retrieval.retrievalReadiness,
+      stageTrace: retrieval.stageTrace,
+      neighborWindows: retrieval.neighborWindows,
+      rejectionReasons: retrieval.rejectionReasons,
     };
   }
 
   async generateChatResponse(request: GroundedChatRequest): Promise<GroundedChatResponse> {
     await this.initialize();
-    const effectiveApiKey = request.apiKey || process.env.GEMINI_API_KEY;
+    const effectiveApiKey =
+      this.generationMode === 'server'
+        ? resolveServerGenerationApiKey()
+        : request.apiKey?.trim();
     if (!effectiveApiKey) {
       throw new Error('API key is required for grounded chat.');
     }
 
     const ai = new GoogleGenAI({ apiKey: effectiveApiKey });
-    await this.store.ensureEmbeddings(ai);
+    if (this.embeddingAi) {
+      await this.store.ensureEmbeddings(this.embeddingAi);
+    }
 
     const recentMessages = request.messages.slice(-4);
     const latestUserMessage = [...recentMessages].reverse().find((message) => message.role === 'user')?.text ?? '';
     const { normalizedQuery, querySources } = buildNormalizedRetrievalQuery(recentMessages);
-    const queryEmbedding = await embedQuery(ai, normalizedQuery);
+    const queryEmbedding = this.embeddingAi ? await embedQuery(this.embeddingAi, normalizedQuery) : null;
     const search = applyGroundingGate(this.store.search(normalizedQuery, request.mode, queryEmbedding));
-    const evidence = constrainEvidence(search);
+    const evidence = constrainEvidence({
+      ...search,
+      evidence: expandEvidenceWithNeighbors(search.evidence, this.store.getChunks()),
+    });
+    const indexStatus = this.refreshIndexStatus();
     const retrieval = buildRetrievalDiagnostics(
       {
         ...search,
@@ -1350,6 +1740,8 @@ export class NodeRagService {
       },
       normalizedQuery,
       querySources,
+      this.store.getChunks(),
+      indexStatus.retrievalReadiness,
     );
     this.rememberRetrieval(retrieval, latestUserMessage || normalizedQuery);
 
@@ -1443,6 +1835,12 @@ export function buildChunkRows(files: KnowledgeFile[]): Array<Record<string, unk
     article_no: chunk.articleNo ?? null,
     matched_labels: chunk.matchedLabels,
     chunk_hash: chunk.chunkHash,
+    parent_section_id: chunk.parentSectionId,
+    parent_section_title: chunk.parentSectionTitle,
+    window_index: chunk.windowIndex,
+    span_start: chunk.spanStart,
+    span_end: chunk.spanEnd,
+    citation_group_id: chunk.citationGroupId,
     embedding: chunk.embedding ?? null,
   }));
 }
@@ -1755,9 +2153,15 @@ export async function upsertRowsToPostgres(params: {
           article_no,
           matched_labels,
           chunk_hash,
+          parent_section_id,
+          parent_section_title,
+          window_index,
+          span_start,
+          span_end,
+          citation_group_id,
           embedding
         ) values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25
         )
         `,
         [
@@ -1779,6 +2183,12 @@ export async function upsertRowsToPostgres(params: {
           pg(row.article_no),
           JSON.stringify(pg(row.matched_labels)),
           pg(row.chunk_hash),
+          pg(row.parent_section_id),
+          pg(row.parent_section_title),
+          row.window_index,
+          row.span_start,
+          row.span_end,
+          pg(row.citation_group_id),
           Array.isArray(row.embedding) && (row.embedding as number[]).length === EMBEDDING_DIMENSIONS
             ? `[${(row.embedding as number[]).join(',')}]`
             : null,

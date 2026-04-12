@@ -23,7 +23,7 @@ export function ApiKeyForm({ autoFocus = true, onCancel, onSave }: ApiKeyFormPro
     }
 
     if (!key.trim().startsWith('AIza')) {
-      setError('올바른 Gemini API 키 형식이 아닙니다. (AIza...로 시작)');
+      setError('Gemini API 키 형식이 아닙니다. `AIza...` 형태인지 확인해 주세요.');
       return;
     }
 
@@ -34,7 +34,7 @@ export function ApiKeyForm({ autoFocus = true, onCancel, onSave }: ApiKeyFormPro
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="mb-2 block text-sm font-medium text-slate-700">Gemini API 키</label>
+        <label className="mb-2 block text-sm font-medium text-slate-700">개인 Gemini API 키</label>
 
         <div className="relative">
           <input
@@ -62,7 +62,7 @@ export function ApiKeyForm({ autoFocus = true, onCancel, onSave }: ApiKeyFormPro
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-relaxed text-slate-500">
-        <strong className="mb-1 block text-slate-700">API 키 발급 방법</strong>
+        <strong className="mb-1 block text-slate-700">개인 키 발급 방법</strong>
         1.{' '}
         <a
           href="https://aistudio.google.com/app/apikey"
@@ -72,11 +72,11 @@ export function ApiKeyForm({ autoFocus = true, onCancel, onSave }: ApiKeyFormPro
         >
           Google AI Studio
         </a>{' '}
-        접속
+        로 이동합니다.
         <br />
-        2. &quot;Create API key&quot; 클릭 후 복사
+        2. `Create API key`를 눌러 새 키를 만듭니다.
         <br />
-        3. 위 입력창에 붙여넣기
+        3. 여기에는 답변 생성에 사용할 개인 키만 저장됩니다.
       </div>
 
       <div className="flex gap-2">
@@ -98,7 +98,7 @@ export function ApiKeyForm({ autoFocus = true, onCancel, onSave }: ApiKeyFormPro
       </div>
 
       <p className="text-center text-xs text-slate-400">
-        API 키는 이 브라우저에 저장되며, 질문 처리 시 설정된 RAG 백엔드로만 전송됩니다.
+        문서 검색용 임베딩은 서버 키를 사용하고, 여기에 저장한 키는 최종 답변 생성 요청에만 전달됩니다.
       </p>
     </form>
   );
@@ -114,15 +114,15 @@ export function ApiKeySetupScreen({ onSave }: { onSave: (key: string) => void })
               <Scale className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-slate-900">장기요양 실무 보조</h1>
-              <p className="text-xs text-slate-500">소스 기반 AI 어시스턴트</p>
+              <h1 className="text-lg font-semibold text-slate-900">장기요양 업무 보조</h1>
+              <p className="text-xs text-slate-500">근거 기반 AI 어시스턴트</p>
             </div>
           </div>
 
           <p className="mb-6 mt-4 text-sm leading-6 text-slate-500">
-            시작하려면 본인의 Google Gemini API 키를 입력해 주세요.
+            전체 앱을 보기 전부터 개인 키를 강제하지는 않지만, 채팅 답변을 직접 생성하려면 개인 Gemini 키가 필요합니다.
             <br />
-            키는 이 기기에 저장되며, 검색과 답변 조립을 수행하는 RAG 백엔드로만 전달됩니다.
+            문서 검색과 인덱싱은 서버 임베딩 키로 동작합니다.
           </p>
 
           <ApiKeyForm onSave={onSave} />
@@ -142,7 +142,7 @@ export function ApiKeyModal({ onClose, onSave }: { onClose: () => void; onSave: 
         <div className="mb-5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Key className="h-4 w-4 text-blue-600" />
-            <h2 className="text-base font-semibold text-slate-900">API 키 변경</h2>
+            <h2 className="text-base font-semibold text-slate-900">개인 답변 키</h2>
           </div>
           <button
             type="button"

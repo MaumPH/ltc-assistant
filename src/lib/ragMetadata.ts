@@ -10,7 +10,7 @@ import type {
 
 const DATE_TOKEN_RE = /\((20\d{2})(\d{2})(\d{2})\)/;
 const YEAR_MONTH_RE = /\((20\d{2})\.(\d{1,2})\.?\)/;
-const ARTICLE_RE = /(제\s*\d+\s*조(?:\s*의\s*\d+)*)/;
+const ARTICLE_RE = /(제\s*\d+\s*조(?:의\s*\d+)*)/;
 const HASH_SEEDS = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35, 0x27d4eb2f];
 
 function hashFragment(input: string, seed: number): string {
@@ -80,7 +80,7 @@ export function extractDateFromFileName(fileName: string): string | undefined {
 export function detectSourceType(fileName: string): SourceType {
   const lowered = fileName.toLowerCase();
 
-  if (lowered.includes('법률')) return 'law';
+  if (lowered.includes('법(') || lowered.includes('법률')) return 'law';
   if (lowered.includes('시행령')) return 'ordinance';
   if (lowered.includes('시행규칙') || lowered.includes('부령')) return 'rule';
   if (lowered.includes('고시')) return 'notice';
@@ -153,16 +153,13 @@ export function detectIntent(mode: PromptMode, query: string): QueryIntent {
   const compactQuery = query.replace(/\s+/g, '');
   const lowered = query.toLowerCase();
 
-  if (/(제\s*\d+\s*조(?:\s*의\s*\d+)*)|별표|별지|붙임|시행규칙|시행령|고시|법률|조문/.test(query)) {
+  if (/(제\s*\d+\s*조(?:의\s*\d+)*)|별표|별지|붙임|시행규칙|시행령|고시|법률|조문/.test(query)) {
     return 'legal-exact';
   }
-  if (/개정|전후|비교|충돌|어떻게달라|무엇이달라|차이/.test(query)) {
+  if (/개정|전후|비교|충돌|어떻게달라|무엇이다르|차이/.test(query)) {
     return 'synthesis';
   }
-  if (
-    /(q&a|qa|faq)/i.test(lowered) ||
-    /질문|답변|문의|사례|매뉴얼|지침|어떻게|준비|서류|운영/.test(query)
-  ) {
+  if (/(q&a|qa|faq)/i.test(lowered) || /질문|답변|문의|사례|매뉴얼|지침|어떻게|준비|서류|운영/.test(query)) {
     return 'manual-qna';
   }
   if (mode === 'evaluation' || compactQuery.includes('평가')) {
@@ -198,6 +195,10 @@ export function buildCitationLabel(chunk: StructuredChunk): string {
   const sectionBits = chunk.sectionPath.filter((part, index) => !(index === 0 && part === chunk.docTitle));
   if (sectionBits.length > 0) {
     bits.push(sectionBits.join(' > '));
+  }
+
+  if (chunk.windowIndex > 0) {
+    bits.push(`window ${chunk.windowIndex + 1}`);
   }
 
   if (chunk.effectiveDate) bits.push(chunk.effectiveDate);

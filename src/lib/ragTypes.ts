@@ -18,6 +18,10 @@ export type EvidenceState = 'confirmed' | 'partial' | 'conflict' | 'not_enough';
 
 export type ConfidenceLevel = 'high' | 'medium' | 'low';
 
+export type RetrievalReadiness = 'lexical_only' | 'hybrid_partial' | 'hybrid_ready';
+
+export type GenerationMode = 'user' | 'server';
+
 export interface KnowledgeFile {
   path: string;
   name: string;
@@ -72,6 +76,12 @@ export interface StructuredChunk {
   articleNo?: string;
   matchedLabels: string[];
   chunkHash: string;
+  parentSectionId: string;
+  parentSectionTitle: string;
+  windowIndex: number;
+  spanStart: number;
+  spanEnd: number;
+  citationGroupId: string;
   embedding?: number[];
 }
 
@@ -82,6 +92,19 @@ export interface SearchCandidate extends StructuredChunk {
   fusedScore: number;
   rerankScore: number;
   matchedTerms: string[];
+}
+
+export interface RetrievalStageTrace {
+  stage:
+    | 'query_normalization'
+    | 'lexical_candidates'
+    | 'vector_candidates'
+    | 'fusion'
+    | 'document_diversification'
+    | 'answer_evidence_gate';
+  inputCount: number;
+  outputCount: number;
+  notes?: string[];
 }
 
 export interface SearchRun {
@@ -97,6 +120,7 @@ export interface SearchRun {
   focusTerms?: string[];
   mismatchSignals?: string[];
   groundingGatePassed?: boolean;
+  stageTrace?: RetrievalStageTrace[];
 }
 
 export interface CompiledPage {
@@ -182,9 +206,28 @@ export interface IndexStatus {
   missingDocuments: string[];
   orphanedDocuments: string[];
   embeddingCoverage: EmbeddingCoverage;
+  retrievalReadiness: RetrievalReadiness;
+  pendingEmbeddingChunks: number;
+  nextEmbeddingRetryAt?: string;
   generatedAt?: string;
   modeCounts: Record<PromptMode, number>;
   issues: KnowledgeDoctorIssue[];
+}
+
+export interface ChunkWindowRef {
+  id: string;
+  documentId: string;
+  path: string;
+  docTitle: string;
+  articleNo?: string;
+  sectionPath: string[];
+  parentSectionId: string;
+  parentSectionTitle: string;
+  windowIndex: number;
+  spanStart: number;
+  spanEnd: number;
+  relation: 'previous' | 'current' | 'next';
+  selectedAsEvidence: boolean;
 }
 
 export interface CandidateDiagnostic {
@@ -196,6 +239,10 @@ export interface CandidateDiagnostic {
   focusTermMatches: string[];
   selectedAsEvidence: boolean;
   matchedOnlyGenericTerms: boolean;
+  rejectionReasons: string[];
+  citationGroupId: string;
+  parentSectionId: string;
+  windowIndex: number;
 }
 
 export interface RetrievalDiagnostics {
@@ -206,6 +253,10 @@ export interface RetrievalDiagnostics {
   focusTerms: string[];
   mismatchSignals: string[];
   groundingGatePassed: boolean;
+  stageTrace: RetrievalStageTrace[];
+  retrievalReadiness: RetrievalReadiness;
+  neighborWindows: ChunkWindowRef[];
+  rejectionReasons: Array<{ candidateId: string; reasons: string[] }>;
 }
 
 export interface RecentRetrievalMatch {
@@ -230,4 +281,15 @@ export interface DocumentDiagnostics {
   indexState: 'fresh' | 'stale' | 'missing';
   issues: KnowledgeDoctorIssue[];
   recentRetrieval: RecentRetrievalMatch | null;
+}
+
+export interface ChatCapabilities {
+  generationMode: GenerationMode;
+  requiresUserGenerationKey: boolean;
+  serverEmbeddingReady: boolean;
+  retrievalReadiness: RetrievalReadiness;
+  supportedModels: Array<{
+    id: string;
+    label: string;
+  }>;
 }

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Bot, ChevronDown, Key, Scale, Settings2, X } from 'lucide-react';
 import { ApiKeyForm } from './ApiKeySetup';
+import { CHAT_MODELS, MODEL_STORAGE, type ChatModelId } from '../lib/chatModels';
 
 export type TabId = 'integrated' | 'evaluation' | 'wiki' | 'dashboard' | 'knowledge';
 
@@ -9,17 +10,17 @@ export const TABS: { id: TabId; label: string; shortLabel: string }[] = [
   { id: 'evaluation', label: '평가 상담', shortLabel: '평가' },
   { id: 'wiki', label: '평가 지침 정리', shortLabel: '지침' },
   { id: 'dashboard', label: '대시보드', shortLabel: '대시' },
-  { id: 'knowledge', label: '지식베이스', shortLabel: '문서' },
+  { id: 'knowledge', label: '지식기반', shortLabel: '문서' },
 ];
 
-export const MODELS = [
-  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash', desc: '속도 우선, 미리보기 모델' },
-  { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', desc: '정확도 우선, 복합 질문에 강함' },
-  { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', desc: '가볍고 빠른 경량 모델' },
-] as const;
+export const MODELS = CHAT_MODELS.map((model) => ({
+  id: model.id,
+  label: model.label,
+  desc: model.description,
+})) as const;
 
-export type ModelId = typeof MODELS[number]['id'];
-export const MODEL_STORAGE = 'ltc_gemini_model';
+export type ModelId = ChatModelId;
+export { MODEL_STORAGE };
 
 const CHAT_TABS: TabId[] = ['integrated', 'evaluation'];
 
@@ -105,7 +106,7 @@ export function MobileSettingsSheet({
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4">
           <div>
             <h2 className="text-base font-semibold text-slate-900">모바일 설정</h2>
-            <p className="mt-1 text-xs text-slate-500">모델 선택과 API 키 관리를 한 번에 할 수 있습니다.</p>
+            <p className="mt-1 text-xs text-slate-500">모델 선택과 개인 답변 키 관리를 한 번에 할 수 있습니다.</p>
           </div>
           <button
             type="button"
@@ -127,7 +128,7 @@ export function MobileSettingsSheet({
                 <Bot className="h-4 w-4 text-blue-600" />
                 채팅 모델
               </div>
-              <p className="text-xs leading-5 text-slate-500">채팅 탭에서 사용할 모델을 선택해 주세요.</p>
+              <p className="text-xs leading-5 text-slate-500">대화 생성에 사용할 모델을 선택하세요.</p>
 
               <div className="space-y-2">
                 {MODELS.map((model) => (
@@ -147,10 +148,10 @@ export function MobileSettingsSheet({
                 <div>
                   <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                     <Key className="h-4 w-4 text-blue-600" />
-                    API 키
+                    개인 답변 키
                   </div>
                   <p className="mt-1 text-xs leading-5 text-slate-500">
-                    현재 기기 브라우저에만 저장되고, 서버로 전송되지 않습니다.
+                    검색용 서버 임베딩 키와 별개로, 최종 답변 생성에만 사용됩니다.
                   </p>
                 </div>
                 <span
@@ -168,7 +169,7 @@ export function MobileSettingsSheet({
                   onClick={() => setShowApiEditor(true)}
                   className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100"
                 >
-                  API 키 변경
+                  개인 키 변경
                 </button>
               )}
 
@@ -251,7 +252,7 @@ export default function TopNav({
             className="hidden items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-slate-400 transition-colors hover:bg-slate-700 hover:text-white sm:flex"
           >
             <Key className="h-3.5 w-3.5" />
-            <span>API 키</span>
+            <span>개인 키</span>
           </button>
 
           <button

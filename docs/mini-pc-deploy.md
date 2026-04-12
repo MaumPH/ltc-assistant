@@ -29,10 +29,13 @@ Use the backend in `postgres` mode once the database is ready:
 
 ```env
 PORT=3000
-GEMINI_API_KEY=replace-with-a-fresh-key
+GEMINI_API_KEY=optional-server-generation-key
+RAG_EMBEDDING_API_KEY=replace-with-a-fresh-key
+RAG_GENERATION_MODE=user
 RAG_STORAGE_MODE=postgres
 DATABASE_URL=postgres://ltc_rag:change-this-password@127.0.0.1:5432/ltc_rag
 RAG_FRONTEND_ORIGIN=https://maumph.github.io/ltc-assistant
+RAG_EMBEDDING_READY_THRESHOLD=0.9
 RAG_EMBEDDING_MAX_CHUNKS_PER_PASS=100
 RAG_EMBEDDING_REFRESH_INTERVAL_MS=1800000
 RAG_EMBEDDING_QUOTA_COOLDOWN_MS=21600000
@@ -41,6 +44,9 @@ RAG_EMBEDDING_QUOTA_COOLDOWN_MS=21600000
 Notes:
 
 - `RAG_FRONTEND_ORIGIN` must be the real frontend origin, not the GitHub repository URL.
+- `RAG_EMBEDDING_API_KEY` is the dedicated server key for document/query embeddings. If it is missing, the backend falls back to `GEMINI_API_KEY`.
+- `RAG_GENERATION_MODE=user` keeps final answer generation on each user's personal Gemini key while retrieval still works from the server embedding key.
+- `GEMINI_API_KEY` is only needed when you want server-side answer generation or a fallback embedding key.
 - rotate any Gemini API key that was pasted into chat or terminal history.
 
 ## 3. Pre-index into Postgres
@@ -55,10 +61,11 @@ What the indexer does:
 
 - loads all documents under `knowledge/`
 - restores any saved embeddings from `.rag-cache/embeddings.json`
-- asks Gemini only for still-missing chunk embeddings
+- asks Gemini only for still-missing chunk embeddings using `RAG_EMBEDDING_API_KEY` or the `GEMINI_API_KEY` fallback
 - writes the rows into Postgres when `DATABASE_URL` is present
 
 If quota is tight, run the command again later. Successful embeddings are reused on the next run, so the index warms up incrementally instead of restarting from zero.
+Once the backend is running, background refresh passes will keep filling missing embeddings until readiness reaches `hybrid_ready`.
 
 ## 4. Start the backend
 
@@ -76,6 +83,8 @@ Expected result:
 
 - `"ok": true`
 - `"storageMode": "postgres"` once the database-backed store is active
+- `/api/health` also reports `retrievalReadiness`, `pendingEmbeddingChunks`, and `nextEmbeddingRetryAt`
+- `/api/chat/capabilities` reports whether users must provide their own answer-generation key
 
 ## 5. Add a Cloudflare Tunnel hostname
 

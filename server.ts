@@ -99,6 +99,9 @@ async function startServer() {
         ok: true,
         storage: ragService.getStats(),
         indexStatus,
+        retrievalReadiness: indexStatus.retrievalReadiness,
+        pendingEmbeddingChunks: indexStatus.pendingEmbeddingChunks,
+        nextEmbeddingRetryAt: indexStatus.nextEmbeddingRetryAt,
       });
     } catch (error) {
       res.status(500).json({
@@ -118,6 +121,17 @@ async function startServer() {
     } catch (error) {
       res.status(500).json({
         error: 'Failed to inspect index status',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  app.get('/api/chat/capabilities', async (_req, res) => {
+    try {
+      res.json(await ragService.getChatCapabilities());
+    } catch (error) {
+      res.status(500).json({
+        error: 'Failed to inspect chat capabilities',
         details: error instanceof Error ? error.message : String(error),
       });
     }
@@ -244,10 +258,14 @@ async function startServer() {
             querySources: response.retrieval.querySources,
             intent: response.search.intent,
             confidence: response.search.confidence,
+            retrievalReadiness: response.retrieval.retrievalReadiness,
             mismatchSignals: response.retrieval.mismatchSignals,
             groundingGatePassed: response.retrieval.groundingGatePassed,
             matchedDocumentPaths: response.retrieval.matchedDocumentPaths,
             candidateDiagnostics: response.retrieval.candidateDiagnostics,
+            stageTrace: response.retrieval.stageTrace,
+            neighborWindows: response.retrieval.neighborWindows,
+            rejectionReasons: response.retrieval.rejectionReasons,
             evidence: response.search.evidence.map((item) => ({
               id: item.id,
               docTitle: item.docTitle,
@@ -302,6 +320,14 @@ async function startServer() {
       if (lowered.includes('500') || lowered.includes('internal')) {
         return res.status(502).json({
           error: '모델 호출 중 서버 측 오류가 발생했습니다.',
+          model: requestedModel,
+          details: message,
+        });
+      }
+
+      if (lowered.includes('api key is required')) {
+        return res.status(400).json({
+          error: '개인 Gemini API 키가 필요합니다.',
           model: requestedModel,
           details: message,
         });

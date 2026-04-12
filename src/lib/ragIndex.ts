@@ -9,6 +9,7 @@ import type {
   KnowledgeFile,
   PromptMode,
   RecentRetrievalMatch,
+  RetrievalReadiness,
   StructuredChunk,
 } from './ragTypes';
 
@@ -25,6 +26,12 @@ function emptyModeCounts(): Record<PromptMode, number> {
     integrated: 0,
     evaluation: 0,
   };
+}
+
+function parseReadyThreshold(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 && parsed <= 1 ? parsed : fallback;
 }
 
 export function buildKnowledgeManifest(files: KnowledgeFile[], chunks: StructuredChunk[]): IndexManifestEntry[] {
@@ -92,12 +99,20 @@ export function buildModeCounts(entries: IndexManifestEntry[]): Record<PromptMod
   return modeCounts;
 }
 
+export function inferRetrievalReadiness(embeddingCoverage: EmbeddingCoverage): RetrievalReadiness {
+  const readyThreshold = parseReadyThreshold(process.env.RAG_EMBEDDING_READY_THRESHOLD, 0.9);
+  if (embeddingCoverage.embeddedChunks <= 0) return 'lexical_only';
+  if (embeddingCoverage.ratio >= readyThreshold) return 'hybrid_ready';
+  return 'hybrid_partial';
+}
+
 export function compareIndexStatus(params: {
   diskEntries: IndexManifestEntry[];
   indexedEntries: IndexManifestEntry[];
   storageMode: string;
   generatedAt?: string;
   issues?: KnowledgeDoctorIssue[];
+  nextEmbeddingRetryAt?: string;
 }): IndexStatus {
   const diskManifestHash = buildManifestHash(params.diskEntries);
   const indexedManifestHash = buildManifestHash(params.indexedEntries);
@@ -151,6 +166,9 @@ export function compareIndexStatus(params: {
     missingDocuments,
     orphanedDocuments,
     embeddingCoverage,
+    retrievalReadiness: inferRetrievalReadiness(embeddingCoverage),
+    pendingEmbeddingChunks: Math.max(embeddingCoverage.totalChunks - embeddingCoverage.embeddedChunks, 0),
+    nextEmbeddingRetryAt: params.nextEmbeddingRetryAt,
     generatedAt: params.generatedAt,
     modeCounts: buildModeCounts(params.diskEntries),
     issues: params.issues ?? [],

@@ -1,5 +1,13 @@
 import { compareIsoDateDesc, detectIntent, extractArticleNo, tokenize } from './ragMetadata';
-import type { ConfidenceLevel, PromptMode, QueryIntent, SearchCandidate, SearchRun, StructuredChunk } from './ragTypes';
+import type {
+  ConfidenceLevel,
+  PromptMode,
+  QueryIntent,
+  RetrievalStageTrace,
+  SearchCandidate,
+  SearchRun,
+  StructuredChunk,
+} from './ragTypes';
 
 export interface RagCorpusIndex {
   chunks: StructuredChunk[];
@@ -10,7 +18,8 @@ export interface RagCorpusIndex {
 const VECTOR_TOP_K = 36;
 const FUSED_TOP_K = 24;
 const EVIDENCE_TOP_K = 12;
-const MAX_EVIDENCE_PER_DOCUMENT = 2;
+const MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT = 2;
+const MAX_WINDOWS_PER_CLUSTER = 2;
 const RRF_K = 50;
 const CANDIDATE_METADATA_TERMS = new Set([
   'document-title',
@@ -35,7 +44,7 @@ const GENERIC_QUERY_TERMS = new Set([
   '자료',
   '안내',
   '지침',
-  '허용',
+  '이용',
   '가능',
   '관련',
   '요양',
@@ -43,7 +52,7 @@ const GENERIC_QUERY_TERMS = new Set([
   '내용',
   '대상',
   '질문',
-  '이용',
+  '사용',
 ]);
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -119,7 +128,7 @@ function scoreExact(chunk: StructuredChunk, query: string, intent: QueryIntent, 
   const matchedTerms = new Set<string>();
   let score = 0;
 
-  if (titleCompact.includes(compactQuery) && compactQuery.length >= 4) {
+  if (compactQuery.length >= 4 && titleCompact.includes(compactQuery)) {
     score += 28;
     matchedTerms.add('document-title');
   }
@@ -279,31 +288,42 @@ function rerankCandidate(candidate: SearchCandidate, intent: QueryIntent, mode: 
   };
 }
 
-function selectEvidence(candidates: SearchCandidate[], intent: QueryIntent): SearchCandidate[] {
+function isAdjacentWindow(left: SearchCandidate, right: SearchCandidate): boolean {
+  return (
+    left.parentSectionId === right.parentSectionId &&
+    left.documentId === right.documentId &&
+    Math.abs(left.windowIndex - right.windowIndex) === 1
+  );
+}
+
+function selectEvidence(candidates: SearchCandidate[]): SearchCandidate[] {
   const selected: SearchCandidate[] = [];
-  const fingerprintCounts = new Map<string, number>();
-  const documentCounts = new Map<string, number>();
+  const documentClusters = new Map<string, Set<string>>();
+  const clusterWindowCounts = new Map<string, number>();
 
-  for (let pass = 0; pass < MAX_EVIDENCE_PER_DOCUMENT && selected.length < EVIDENCE_TOP_K; pass += 1) {
-    for (const candidate of candidates) {
-      if (selected.some((item) => item.id === candidate.id)) continue;
+  for (const candidate of candidates) {
+    if (selected.length >= EVIDENCE_TOP_K) break;
 
-      const documentCount = documentCounts.get(candidate.documentId) ?? 0;
-      if (documentCount > pass || documentCount >= MAX_EVIDENCE_PER_DOCUMENT) continue;
+    const clusterKey = `${candidate.documentId}:${candidate.parentSectionId}`;
+    const activeClusters = documentClusters.get(candidate.documentId) ?? new Set<string>();
+    const clusterCount = clusterWindowCounts.get(clusterKey) ?? 0;
+    const existingClusterWindows = selected.filter((item) => `${item.documentId}:${item.parentSectionId}` === clusterKey);
+    const clusterAlreadySelected = activeClusters.has(clusterKey);
 
-      const fingerprint = `${candidate.docTitle}:${candidate.articleNo ?? candidate.sectionPath.join('>')}`;
-      const fingerprintCount = fingerprintCounts.get(fingerprint) ?? 0;
-      if (fingerprintCount >= 2) continue;
-
-      if (intent !== 'synthesis' && selected.some((item) => item.id === candidate.id)) {
-        continue;
-      }
-
-      selected.push(candidate);
-      documentCounts.set(candidate.documentId, documentCount + 1);
-      fingerprintCounts.set(fingerprint, fingerprintCount + 1);
-      if (selected.length >= EVIDENCE_TOP_K) break;
+    if (!clusterAlreadySelected && activeClusters.size >= MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT) continue;
+    if (clusterCount >= MAX_WINDOWS_PER_CLUSTER) continue;
+    if (
+      clusterAlreadySelected &&
+      existingClusterWindows.length > 0 &&
+      !existingClusterWindows.some((window) => isAdjacentWindow(window, candidate))
+    ) {
+      continue;
     }
+
+    selected.push(candidate);
+    activeClusters.add(clusterKey);
+    documentClusters.set(candidate.documentId, activeClusters);
+    clusterWindowCounts.set(clusterKey, clusterCount + 1);
   }
 
   return selected;
@@ -347,6 +367,58 @@ function inferConfidence(intent: QueryIntent, evidence: SearchCandidate[], misma
   return 'low';
 }
 
+function buildStageTrace(params: {
+  query: string;
+  lexicalCandidates: SearchCandidate[];
+  vectorCandidates: SearchCandidate[];
+  exactCandidates: SearchCandidate[];
+  fusedCandidates: SearchCandidate[];
+  evidence: SearchCandidate[];
+  groundingGatePassed: boolean;
+}): RetrievalStageTrace[] {
+  return [
+    {
+      stage: 'query_normalization',
+      inputCount: 1,
+      outputCount: params.query.trim() ? 1 : 0,
+      notes: params.query.trim() ? [`normalizedLength=${params.query.trim().length}`] : ['empty-query'],
+    },
+    {
+      stage: 'lexical_candidates',
+      inputCount: 1,
+      outputCount: params.lexicalCandidates.length,
+      notes: params.lexicalCandidates.length > 0 ? [`top=${params.lexicalCandidates[0].docTitle}`] : ['no-lexical-match'],
+    },
+    {
+      stage: 'vector_candidates',
+      inputCount: 1,
+      outputCount: params.vectorCandidates.length,
+      notes: params.vectorCandidates.length > 0 ? [`top=${params.vectorCandidates[0].docTitle}`] : ['vector-unavailable-or-empty'],
+    },
+    {
+      stage: 'fusion',
+      inputCount: params.exactCandidates.length + params.lexicalCandidates.length + params.vectorCandidates.length,
+      outputCount: params.fusedCandidates.length,
+      notes: [`exact=${params.exactCandidates.length}`, `lexical=${params.lexicalCandidates.length}`, `vector=${params.vectorCandidates.length}`],
+    },
+    {
+      stage: 'document_diversification',
+      inputCount: params.fusedCandidates.length,
+      outputCount: params.evidence.length,
+      notes:
+        params.evidence.length > 0
+          ? [`documents=${new Set(params.evidence.map((item) => item.documentId)).size}`, `clusters=${new Set(params.evidence.map((item) => item.citationGroupId)).size}`]
+          : ['no-evidence-selected'],
+    },
+    {
+      stage: 'answer_evidence_gate',
+      inputCount: params.evidence.length,
+      outputCount: params.groundingGatePassed ? params.evidence.length : 0,
+      notes: [params.groundingGatePassed ? 'grounding-passed' : 'grounding-failed'],
+    },
+  ];
+}
+
 export function searchCorpus(params: {
   index: RagCorpusIndex;
   query: string;
@@ -372,7 +444,7 @@ export function searchCorpus(params: {
     .sort((left, right) => right.rerankScore - left.rerankScore)
     .slice(0, FUSED_TOP_K);
 
-  const evidence = selectEvidence(fusedCandidates, intent);
+  const evidence = selectEvidence(fusedCandidates);
   const { focusTerms, mismatchSignals } = detectTopicMismatch(query, fusedCandidates);
   const confidence = inferConfidence(intent, evidence, mismatchSignals);
 
@@ -388,5 +460,14 @@ export function searchCorpus(params: {
     evidence,
     focusTerms,
     mismatchSignals,
+    stageTrace: buildStageTrace({
+      query,
+      lexicalCandidates,
+      vectorCandidates,
+      exactCandidates,
+      fusedCandidates,
+      evidence,
+      groundingGatePassed: confidence !== 'low',
+    }),
   };
 }

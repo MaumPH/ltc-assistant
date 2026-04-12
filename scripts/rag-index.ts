@@ -17,6 +17,7 @@ import {
   prepareEmbedding,
   upsertRowsToPostgres,
 } from '../src/lib/nodeRagService';
+import { resolveEmbeddingApiKey } from '../src/lib/ragRuntime';
 
 dotenv.config();
 
@@ -74,7 +75,7 @@ async function main() {
     console.log(`Restored ${restoredEmbeddings} cached embeddings before indexing.`);
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = resolveEmbeddingApiKey();
   if (apiKey) {
     const ai = new GoogleGenAI({ apiKey });
     await embedIndexRows(ai, chunkRows);
