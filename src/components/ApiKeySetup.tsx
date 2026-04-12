@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, Key, Scale } from 'lucide-react';
 
-export const API_KEY_STORAGE = 'ltc_gemini_api_key';
-
 interface ApiKeyFormProps {
   autoFocus?: boolean;
+  hasStoredKey?: boolean;
   onCancel?: () => void;
+  onClear?: () => void;
   onSave: (key: string) => void;
 }
 
-export function ApiKeyForm({ autoFocus = true, onCancel, onSave }: ApiKeyFormProps) {
+export function ApiKeyForm({ autoFocus = true, hasStoredKey = false, onCancel, onClear, onSave }: ApiKeyFormProps) {
   const [key, setKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [error, setError] = useState('');
@@ -27,7 +27,6 @@ export function ApiKeyForm({ autoFocus = true, onCancel, onSave }: ApiKeyFormPro
       return;
     }
 
-    localStorage.setItem(API_KEY_STORAGE, key.trim());
     onSave(key.trim());
   };
 
@@ -79,7 +78,25 @@ export function ApiKeyForm({ autoFocus = true, onCancel, onSave }: ApiKeyFormPro
         3. 여기에는 답변 생성에 사용할 개인 키만 저장됩니다.
       </div>
 
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-900">
+        브라우저에 로컬 저장되며, 공유 PC에서는 사용 후 저장된 키를 삭제하는 것을 권장합니다.
+      </div>
+
       <div className="flex gap-2">
+        {hasStoredKey && onClear && (
+          <button
+            type="button"
+            onClick={() => {
+              setKey('');
+              setShowKey(false);
+              setError('');
+              onClear();
+            }}
+            className="rounded-xl border border-rose-200 px-4 py-3 text-sm font-medium text-rose-700 transition-colors hover:bg-rose-50"
+          >
+            저장된 키 삭제
+          </button>
+        )}
         {onCancel && (
           <button
             type="button"
@@ -104,7 +121,15 @@ export function ApiKeyForm({ autoFocus = true, onCancel, onSave }: ApiKeyFormPro
   );
 }
 
-export function ApiKeySetupScreen({ onSave }: { onSave: (key: string) => void }) {
+export function ApiKeySetupScreen({
+  hasStoredKey = false,
+  onClear,
+  onSave,
+}: {
+  hasStoredKey?: boolean;
+  onClear?: () => void;
+  onSave: (key: string) => void;
+}) {
   return (
     <div className="app-viewport overflow-y-auto bg-slate-50 px-4 py-6 sm:py-10">
       <div className="mx-auto flex min-h-full w-full max-w-md items-center justify-center">
@@ -125,14 +150,24 @@ export function ApiKeySetupScreen({ onSave }: { onSave: (key: string) => void })
             문서 검색과 인덱싱은 서버 임베딩 키로 동작합니다.
           </p>
 
-          <ApiKeyForm onSave={onSave} />
+          <ApiKeyForm hasStoredKey={hasStoredKey} onClear={onClear} onSave={onSave} />
         </div>
       </div>
     </div>
   );
 }
 
-export function ApiKeyModal({ onClose, onSave }: { onClose: () => void; onSave: (key: string) => void }) {
+export function ApiKeyModal({
+  hasStoredKey = false,
+  onClear,
+  onClose,
+  onSave,
+}: {
+  hasStoredKey?: boolean;
+  onClear?: () => void;
+  onClose: () => void;
+  onSave: (key: string) => void;
+}) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4">
       <div
@@ -154,7 +189,7 @@ export function ApiKeyModal({ onClose, onSave }: { onClose: () => void; onSave: 
           </button>
         </div>
 
-        <ApiKeyForm onSave={onSave} onCancel={onClose} />
+        <ApiKeyForm hasStoredKey={hasStoredKey} onClear={onClear} onSave={onSave} onCancel={onClose} />
       </div>
     </div>
   );

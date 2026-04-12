@@ -1,6 +1,8 @@
 import cors from 'cors';
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import fs from 'fs';
+import helmet from 'helmet';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import * as dotenv from 'dotenv';
@@ -12,6 +14,10 @@ dotenv.config();
 
 const PROJECT_ROOT = process.cwd();
 const PORT = Number(process.env.PORT || 3000);
+const RATE_LIMIT_WINDOW_MS = parsePositiveInteger(process.env.RAG_RATE_LIMIT_WINDOW_MS, 60_000);
+const CHAT_RATE_LIMIT_MAX = parsePositiveInteger(process.env.RAG_CHAT_RATE_LIMIT_MAX, 20);
+const INSPECT_RATE_LIMIT_MAX = parsePositiveInteger(process.env.RAG_INSPECT_RATE_LIMIT_MAX, 20);
+const API_KEY_RE = /AIza[0-9A-Za-z\-_]+/g;
 const ragService = new NodeRagService(PROJECT_ROOT);
 
 const requestQueue: Array<() => Promise<void>> = [];
@@ -46,11 +52,76 @@ async function drainQueue() {
   queueRunning = false;
 }
 
-function parseAllowedOrigins(): string[] {
-  return (process.env.RAG_FRONTEND_ORIGIN || '')
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseCommaSeparatedEnv(value: string | undefined): string[] {
+  return (value || '')
     .split(',')
-    .map((origin) => origin.trim())
+    .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function parseAllowedOrigins(): string[] {
+  return parseCommaSeparatedEnv(process.env.RAG_FRONTEND_ORIGIN);
+}
+
+function parseCspConnectSources(): string[] {
+  return parseCommaSeparatedEnv(process.env.RAG_CSP_CONNECT_SRC);
+}
+
+function sanitizeSensitiveText(value: string): string {
+  return value.replace(API_KEY_RE, 'AIza****');
+}
+
+function getSafeErrorMessage(error: unknown): string {
+  return sanitizeSensitiveText(error instanceof Error ? error.message : String(error));
+}
+
+function logServerError(context: string, error: unknown): void {
+  console.error(`[server] ${context}: ${getSafeErrorMessage(error)}`);
+}
+
+function createApiRateLimiter(max: number) {
+  return rateLimit({
+    windowMs: RATE_LIMIT_WINDOW_MS,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler(_req, res) {
+      res.setHeader('Retry-After', Math.ceil(RATE_LIMIT_WINDOW_MS / 1000).toString());
+      res.status(429).json({
+        error: '요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.',
+      });
+    },
+  });
+}
+
+function applySecurityHeaders(app: express.Express) {
+  const connectSources = Array.from(new Set(["'self'", ...parseCspConnectSources()]));
+
+  app.use(
+    helmet({
+      contentSecurityPolicy:
+        process.env.NODE_ENV === 'production'
+          ? {
+              directives: {
+                defaultSrc: ["'self'"],
+                baseUri: ["'self'"],
+                frameAncestors: ["'none'"],
+                objectSrc: ["'none'"],
+                scriptSrc: ["'self'"],
+                styleSrc: ["'self'", "'unsafe-inline'"],
+                imgSrc: ["'self'", 'data:', 'blob:'],
+                fontSrc: ["'self'", 'data:'],
+                connectSrc: connectSources,
+              },
+            }
+          : false,
+    }),
+  );
 }
 
 function applyCors(app: express.Express) {
@@ -87,9 +158,12 @@ function resolveKnowledgeFilePath(requestedPath: string): string | null {
 
 async function startServer() {
   const app = express();
+  const chatRateLimit = createApiRateLimiter(CHAT_RATE_LIMIT_MAX);
+  const inspectRateLimit = createApiRateLimiter(INSPECT_RATE_LIMIT_MAX);
 
+  applySecurityHeaders(app);
   applyCors(app);
-  app.use(express.json({ limit: '50mb' }));
+  app.use(express.json({ limit: '1mb' }));
 
   app.get('/api/health', async (_req, res) => {
     try {
@@ -104,9 +178,10 @@ async function startServer() {
         nextEmbeddingRetryAt: indexStatus.nextEmbeddingRetryAt,
       });
     } catch (error) {
+      logServerError('health check failed', error);
       res.status(500).json({
         ok: false,
-        error: error instanceof Error ? error.message : 'Failed to initialize RAG service.',
+        error: getSafeErrorMessage(error) || 'Failed to initialize RAG service.',
       });
     }
   });
@@ -119,9 +194,10 @@ async function startServer() {
     try {
       res.json(await ragService.getIndexStatus());
     } catch (error) {
+      logServerError('index status failed', error);
       res.status(500).json({
         error: 'Failed to inspect index status',
-        details: error instanceof Error ? error.message : String(error),
+        details: getSafeErrorMessage(error),
       });
     }
   });
@@ -130,9 +206,10 @@ async function startServer() {
     try {
       res.json(await ragService.getChatCapabilities());
     } catch (error) {
+      logServerError('chat capabilities failed', error);
       res.status(500).json({
         error: 'Failed to inspect chat capabilities',
-        details: error instanceof Error ? error.message : String(error),
+        details: getSafeErrorMessage(error),
       });
     }
   });
@@ -165,9 +242,10 @@ async function startServer() {
 
       res.json(diagnostics);
     } catch (error) {
+      logServerError('knowledge diagnostics failed', error);
       res.status(500).json({
         error: 'Failed to inspect document diagnostics',
-        details: error instanceof Error ? error.message : String(error),
+        details: getSafeErrorMessage(error),
       });
     }
   });
@@ -183,7 +261,7 @@ async function startServer() {
     res.sendFile(filePath);
   });
 
-  app.post('/api/retrieval/inspect', async (req, res) => {
+  app.post('/api/retrieval/inspect', inspectRateLimit, async (req, res) => {
     try {
       const {
         query,
@@ -205,14 +283,15 @@ async function startServer() {
       const inspection = await ragService.inspectRetrieval(hasMessages ? messages : (query as string), mode, apiKey);
       res.json(inspection);
     } catch (error) {
+      logServerError('retrieval inspect failed', error);
       res.status(500).json({
         error: 'Failed to inspect retrieval',
-        details: error instanceof Error ? error.message : String(error),
+        details: getSafeErrorMessage(error),
       });
     }
   });
 
-  app.post('/api/chat', async (req, res) => {
+  app.post('/api/chat', chatRateLimit, async (req, res) => {
     let requestedModel = 'gemini-3-flash-preview';
     try {
       const {
@@ -284,7 +363,9 @@ async function startServer() {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const safeMessage = sanitizeSensitiveText(message);
       const lowered = message.toLowerCase();
+      logServerError('chat request failed', error);
       if (
         lowered.includes('429') ||
         lowered.includes('resource_exhausted') ||
@@ -292,7 +373,6 @@ async function startServer() {
       ) {
         return res.status(429).json({
           error: '요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.',
-          details: message,
         });
       }
 
@@ -300,7 +380,7 @@ async function startServer() {
         return res.status(404).json({
           error: '요청한 모델 또는 API 리소스를 찾지 못했습니다.',
           model: requestedModel,
-          details: message,
+          details: safeMessage,
         });
       }
 
@@ -308,7 +388,7 @@ async function startServer() {
         return res.status(504).json({
           error: '선택한 모델이 제한 시간 안에 응답을 마치지 못했습니다.',
           model: requestedModel,
-          details: message,
+          details: safeMessage,
         });
       }
 
@@ -316,7 +396,7 @@ async function startServer() {
         return res.status(503).json({
           error: '선택한 모델 서비스가 일시적으로 과부하 상태입니다.',
           model: requestedModel,
-          details: message,
+          details: safeMessage,
         });
       }
 
@@ -324,7 +404,7 @@ async function startServer() {
         return res.status(502).json({
           error: '모델 호출 중 서버 측 오류가 발생했습니다.',
           model: requestedModel,
-          details: message,
+          details: safeMessage,
         });
       }
 
@@ -332,14 +412,14 @@ async function startServer() {
         return res.status(400).json({
           error: '개인 Gemini API 키가 필요합니다.',
           model: requestedModel,
-          details: message,
+          details: safeMessage,
         });
       }
 
       res.status(500).json({
         error: 'Failed to generate grounded response',
         model: requestedModel,
-        details: message,
+        details: safeMessage,
       });
     }
   });
@@ -363,8 +443,10 @@ async function startServer() {
   });
 
   void ragService.initialize().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
+    logServerError('initial RAG initialize failed', error);
   });
 }
 
-startServer();
+void startServer().catch((error) => {
+  logServerError('server start failed', error);
+});

@@ -6,24 +6,15 @@ import TopNav, {
   type ModelId,
   type TabId,
 } from './components/TopNav';
-import { ApiKeyModal, API_KEY_STORAGE } from './components/ApiKeySetup';
+import { ApiKeyModal } from './components/ApiKeySetup';
+import { clearStoredApiKey, readStoredApiKey, saveApiKey } from './lib/apiKeyStorage';
+import { getApiUrl } from './lib/apiUrl';
 import type { ChatCapabilities } from './lib/ragTypes';
 
 const ChatView = lazy(() => import('./components/ChatView'));
 const EvaluationWiki = lazy(() => import('./components/EvaluationWiki'));
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const KnowledgeBaseView = lazy(() => import('./components/KnowledgeBaseView'));
-
-const API_BASE_URL = (import.meta.env.VITE_RAG_API_BASE_URL || '').replace(/\/$/, '');
-
-function getApiUrl(route: string): string {
-  return API_BASE_URL ? `${API_BASE_URL}${route}` : route;
-}
-
-function readStoredApiKey() {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(API_KEY_STORAGE);
-}
 
 function readStoredModel(): ModelId {
   if (typeof window === 'undefined') return MODELS[0].id as ModelId;
@@ -96,7 +87,15 @@ export default function App() {
   };
 
   const handleApiKeySave = (newKey: string) => {
+    saveApiKey(newKey);
     setApiKey(newKey);
+    setShowKeyModal(false);
+    setShowMobileSettings(false);
+  };
+
+  const handleApiKeyClear = () => {
+    clearStoredApiKey();
+    setApiKey(null);
     setShowKeyModal(false);
     setShowMobileSettings(false);
   };
@@ -149,6 +148,7 @@ export default function App() {
           selectedModel={selectedModel}
           onModelChange={setSelectedModel}
           onApiKeySave={handleApiKeySave}
+          onApiKeyClear={handleApiKeyClear}
           onClose={() => setShowMobileSettings(false)}
         />
       )}
@@ -156,6 +156,8 @@ export default function App() {
       {showKeyModal && (
         <ApiKeyModal
           onSave={handleApiKeySave}
+          hasStoredKey={Boolean(apiKey)}
+          onClear={handleApiKeyClear}
           onClose={() => setShowKeyModal(false)}
         />
       )}

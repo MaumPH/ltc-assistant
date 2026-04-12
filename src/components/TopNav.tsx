@@ -38,6 +38,7 @@ interface MobileSettingsSheetProps {
   hasApiKey: boolean;
   selectedModel: ModelId;
   onModelChange: (model: ModelId) => void;
+  onApiKeyClear: () => void;
   onApiKeySave: (key: string) => void;
   onClose: () => void;
 }
@@ -81,6 +82,7 @@ function ModelOption({
 export function MobileSettingsSheet({
   hasApiKey,
   isOpen,
+  onApiKeyClear,
   onApiKeySave,
   onClose,
   onModelChange,
@@ -176,7 +178,16 @@ export function MobileSettingsSheet({
               {showApiEditor && (
                 <ApiKeyForm
                   autoFocus={!hasApiKey}
+                  hasStoredKey={hasApiKey}
                   onCancel={hasApiKey ? () => setShowApiEditor(false) : undefined}
+                  onClear={
+                    hasApiKey
+                      ? () => {
+                          onApiKeyClear();
+                          setShowApiEditor(false);
+                        }
+                      : undefined
+                  }
                   onSave={(key) => {
                     onApiKeySave(key);
                   }}

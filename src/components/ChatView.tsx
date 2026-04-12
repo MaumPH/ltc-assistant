@@ -3,10 +3,12 @@ import { Loader2, Scale, Send } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { MODELS, type ModelId } from './TopNav';
 import StructuredAnswerCard from './StructuredAnswerCard';
+import { getApiUrl } from '../lib/apiUrl';
 import type { ChatCapabilities } from '../lib/ragTypes';
 import { parseStructuredAnswer } from '../lib/structuredAnswer';
 
 export interface Message {
+  id: string;
   role: 'user' | 'model';
   text: string;
 }
@@ -29,7 +31,6 @@ interface ChatApiErrorResponse {
   model?: string;
 }
 
-const API_BASE_URL = (import.meta.env.VITE_RAG_API_BASE_URL || '').replace(/\/$/, '');
 const MAX_RATE_LIMIT_RETRIES = 2;
 const REQUEST_TIMEOUT_MS_BY_MODEL: Record<ModelId, number> = {
   'gemini-3-flash-preview': 120_000,
@@ -41,6 +42,7 @@ const INITIAL_MESSAGES: Record<ChatViewProps['mode'], string> = {
   integrated: '장기요양 통합채팅입니다.',
   evaluation: '평가채팅입니다.',
 };
+let messageSequence = 0;
 
 function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -51,8 +53,13 @@ function resizeTextarea(element: HTMLTextAreaElement) {
   element.style.height = `${element.scrollHeight}px`;
 }
 
-function getApiUrl(route: string): string {
-  return API_BASE_URL ? `${API_BASE_URL}${route}` : route;
+function createMessage(role: Message['role'], text: string): Message {
+  messageSequence += 1;
+  return {
+    id: `message-${Date.now()}-${messageSequence}`,
+    role,
+    text,
+  };
 }
 
 function getModelLabel(modelId: string): string {
@@ -87,12 +94,7 @@ function buildErrorMessage(title: string, detail?: string): string {
 }
 
 export default function ChatView({ mode, apiKey, capabilities, selectedModel }: ChatViewProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: 'model',
-      text: INITIAL_MESSAGES[mode],
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>(() => [createMessage('model', INITIAL_MESSAGES[mode])]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -101,12 +103,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
   const canSubmit = !isLoading && Boolean(input.trim()) && (!requiresUserKey || Boolean(apiKey));
 
   useEffect(() => {
-    setMessages([
-      {
-        role: 'model',
-        text: INITIAL_MESSAGES[mode],
-      },
-    ]);
+    setMessages([createMessage('model', INITIAL_MESSAGES[mode])]);
     setInput('');
   }, [mode]);
 
@@ -121,10 +118,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
     if (requiresUserKey && !apiKey) {
       setMessages((current) => [
         ...current,
-        {
-          role: 'model',
-          text: '개인 Gemini API 키가 있어야 답변 생성을 시작할 수 있습니다.\n\n상단의 `개인 키` 버튼에서 답변용 키를 등록해 주세요.',
-        },
+        createMessage('model', '개인 Gemini API 키가 있어야 답변 생성을 시작할 수 있습니다.\n\n상단의 `개인 키` 버튼에서 답변용 키를 등록해 주세요.'),
       ]);
       return;
     }
@@ -132,7 +126,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
     const requestModel = selectedModel;
     const requestModelLabel = getModelLabel(requestModel);
     const requestTimeoutMs = getRequestTimeoutMs(requestModel);
-    const userMessage: Message = { role: 'user', text: trimmed };
+    const userMessage = createMessage('user', trimmed);
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInput('');
@@ -159,10 +153,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
             for (let seconds = delay; seconds > 0; seconds -= 1) {
               setMessages([
                 ...newMessages,
-                {
-                  role: 'model',
-                  text: `요청이 너무 많습니다. **${seconds}초 후 자동 재시도합니다.** (${retryCount + 1}/${MAX_RATE_LIMIT_RETRIES})`,
-                },
+                createMessage('model', `요청이 너무 많습니다. **${seconds}초 후 자동 재시도합니다.** (${retryCount + 1}/${MAX_RATE_LIMIT_RETRIES})`),
               ]);
               await wait(1000);
             }
@@ -181,28 +172,28 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
 
           setMessages([
             ...newMessages,
-            {
-              role: 'model',
-              text: buildErrorMessage(
+            createMessage(
+              'model',
+              buildErrorMessage(
                 `모델 요청 중 오류가 발생했습니다. (${responseModelLabel})`,
                 `${errorText}${detailText ? `\n${detailText}` : ''}`,
               ),
-            },
+            ),
           ]);
           return;
         }
 
         const data = (await response.json()) as ChatApiResponse;
         const responseText = data.text?.trim() || '응답을 받지 못했습니다. 잠시 후 다시 시도해 주세요.';
-        setMessages([...newMessages, { role: 'model', text: responseText }]);
+        setMessages([...newMessages, createMessage('model', responseText)]);
       } catch (error) {
         const isTimeout = error instanceof Error && error.name === 'TimeoutError';
         const timeoutSeconds = Math.round(requestTimeoutMs / 1000);
         setMessages([
           ...newMessages,
-          {
-            role: 'model',
-            text: isTimeout
+          createMessage(
+            'model',
+            isTimeout
               ? buildErrorMessage(
                   `모델 응답 시간이 초과되었습니다. (${requestModelLabel})`,
                   `${timeoutSeconds}초 안에 응답을 받지 못했습니다. 복합 검색과 근거 검증이 함께 돌아갈 때 특히 오래 걸릴 수 있습니다.`,
@@ -211,7 +202,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
                   `오류가 발생했습니다. (${requestModelLabel})`,
                   error instanceof Error ? error.message : '알 수 없는 오류',
                 ),
-          },
+          ),
         ]);
       }
     };
@@ -253,8 +244,8 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
             </div>
           )}
 
-          {messages.map((message, index) => (
-            <div key={index} className={`flex gap-3 sm:gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          {messages.map((message) => (
+            <div key={message.id} className={`flex gap-3 sm:gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               {message.role === 'model' && (
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 shadow-sm">
                   <Scale className="h-4 w-4 text-white" />
@@ -309,6 +300,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
                 rows={1}
                 style={{ height: 'auto' }}
                 placeholder="질문을 입력해 주세요. (Shift+Enter: 줄바꿈)"
+                aria-label="질문 입력"
                 className="max-h-48 min-h-[52px] w-full resize-none bg-transparent px-4 py-3 text-base text-slate-800 placeholder:text-slate-400 focus:ring-0 sm:min-h-[56px] sm:text-[15px]"
                 onChange={(event) => {
                   setInput(event.target.value);

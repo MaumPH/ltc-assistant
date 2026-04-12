@@ -36,7 +36,6 @@ const KOREAN_PARTICLE_SUFFIXES = [
   '처럼',
   '보다',
   '마다',
-  '으로',
   '은',
   '는',
   '이',
