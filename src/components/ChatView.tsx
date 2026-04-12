@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Info, Loader2, Scale, Send, ShieldAlert } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import type { ModelId } from './TopNav';
+import { MODELS, type ModelId } from './TopNav';
 
 export interface Message {
   role: 'user' | 'model';
@@ -15,6 +15,7 @@ interface ChatViewProps {
 }
 
 interface ChatApiResponse {
+  model?: string;
   text?: string;
   citations?: Array<{
     id: string;
@@ -36,15 +37,25 @@ interface ChatApiResponse {
   };
 }
 
+interface ChatApiErrorResponse {
+  error?: string;
+  details?: string;
+  model?: string;
+}
+
 const API_BASE_URL = (import.meta.env.VITE_RAG_API_BASE_URL || '').replace(/\/$/, '');
 const MAX_RATE_LIMIT_RETRIES = 2;
-const REQUEST_TIMEOUT_MS = 90_000;
+const REQUEST_TIMEOUT_MS_BY_MODEL: Record<ModelId, number> = {
+  'gemini-3-flash-preview': 120_000,
+  'gemini-3.1-pro-preview': 240_000,
+  'gemini-3.1-flash-lite-preview': 150_000,
+};
 
 const INITIAL_MESSAGES: Record<ChatViewProps['mode'], string> = {
   integrated:
-    '안녕하세요. 장기요양기관 업무 보조 AI입니다.\n\n이제 모든 답변은 구조화된 근거 검색 백엔드에서만 조립되며, `[출처]`는 실제 evidence 청크 기준으로만 표시합니다.\n\n질문하실 내용을 입력해 주세요.',
+    "안녕하세요. 장기요양기관 실무 보조 AI입니다.\n\n이제 모든 답변은 구조화된 근거 검색 백엔드에서 조립되며, `[출처]`에는 실제 evidence 청크 기준만 제시합니다.\n\n질문하실 내용을 입력해 주세요.",
   evaluation:
-    '안녕하세요. 평가 전용 상담 모드입니다.\n\n평가 관련 질문은 평가 문서군을 우선 검색하고, 근거가 부족하면 보수적으로 `확인 불가`로 답합니다.\n\n평가 관련 질문을 입력해 주세요.',
+    "안녕하세요. 평가 전용 상담 모드입니다.\n\n평가 관련 질문은 평가 문서군을 우선 검색하고, 근거가 부족하면 보수적으로 `확인 불가`로 답합니다.\n\n평가 관련 질문을 입력해 주세요.",
 };
 
 function wait(ms: number) {
@@ -60,6 +71,14 @@ function getApiUrl(route: string): string {
   return API_BASE_URL ? `${API_BASE_URL}${route}` : route;
 }
 
+function getModelLabel(modelId: string): string {
+  return MODELS.find((model) => model.id === modelId)?.label ?? modelId;
+}
+
+function getRequestTimeoutMs(modelId: ModelId): number {
+  return REQUEST_TIMEOUT_MS_BY_MODEL[modelId] ?? 120_000;
+}
+
 function buildServerErrorMessage(status: number, fallback = '서버 오류'): string {
   if (status === 404) {
     return '채팅 백엔드 주소를 찾지 못했습니다. 별도 RAG 서버 배포 주소를 확인해 주세요.';
@@ -67,7 +86,20 @@ function buildServerErrorMessage(status: number, fallback = '서버 오류'): st
   if (status === 401 || status === 403) {
     return 'API 키가 유효하지 않거나 권한이 없습니다. 설정의 API 키를 다시 확인해 주세요.';
   }
+  if (status === 429) {
+    return '요청 한도 또는 모델 쿼터를 초과했습니다.';
+  }
+  if (status === 503) {
+    return '모델 서비스가 일시적으로 과부하 상태입니다.';
+  }
+  if (status === 504) {
+    return '모델 응답이 제한 시간 안에 끝나지 않았습니다.';
+  }
   return fallback;
+}
+
+function buildErrorMessage(title: string, detail?: string): string {
+  return detail ? `${title}\n\n> ${detail}` : title;
 }
 
 export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps) {
@@ -99,6 +131,9 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
     const trimmed = input.trim();
     if (!trimmed || isLoading) return;
 
+    const requestModel = selectedModel;
+    const requestModelLabel = getModelLabel(requestModel);
+    const requestTimeoutMs = getRequestTimeoutMs(requestModel);
     const userMessage: Message = { role: 'user', text: trimmed };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
@@ -113,11 +148,11 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
           body: JSON.stringify({
             messages: newMessages.slice(-4),
             mode,
-            model: selectedModel,
+            model: requestModel,
             promptVariant: 'v2',
             apiKey,
           }),
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          signal: AbortSignal.timeout(requestTimeoutMs),
         });
 
         if (response.status === 429) {
@@ -140,16 +175,17 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
         if (!response.ok) {
           const contentType = response.headers.get('content-type') ?? '';
           const parsed = contentType.includes('application/json')
-            ? await response.json().catch(() => ({}))
+            ? ((await response.json().catch(() => ({}))) as ChatApiErrorResponse)
             : {};
-          const errorText =
-            (parsed as { error?: string }).error ??
-            buildServerErrorMessage(response.status, response.statusText);
+          const errorText = parsed.error ?? buildServerErrorMessage(response.status, response.statusText);
+          const detailText = parsed.details?.trim();
+          const responseModelLabel = parsed.model ? getModelLabel(parsed.model) : requestModelLabel;
+
           setMessages([
             ...newMessages,
             {
               role: 'model',
-              text: `오류가 발생했습니다. 다시 시도해 주세요.\n\n> ${errorText}`,
+              text: buildErrorMessage(`모델 요청 오류가 발생했습니다. (${responseModelLabel})`, `${errorText}${detailText ? `\n${detailText}` : ''}`),
             },
           ]);
           return;
@@ -160,13 +196,20 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
         setMessages([...newMessages, { role: 'model', text: responseText }]);
       } catch (error) {
         const isTimeout = error instanceof Error && error.name === 'TimeoutError';
+        const timeoutSeconds = Math.round(requestTimeoutMs / 1000);
         setMessages([
           ...newMessages,
           {
             role: 'model',
             text: isTimeout
-              ? '백엔드 검색과 응답 조립이 너무 오래 걸려 요청을 종료했습니다. 잠시 후 다시 시도해 주세요.'
-              : `오류가 발생했습니다. 다시 시도해 주세요.\n\n> ${error instanceof Error ? error.message : '알 수 없는 오류'}`,
+              ? buildErrorMessage(
+                  `모델 요청 시간이 초과되었습니다. (${requestModelLabel})`,
+                  `${timeoutSeconds}초 안에 응답을 받지 못했습니다. 현재 구조는 RAG 검색, 구조화 JSON 응답, 근거 검증이 함께 돌아가서 느린 모델일수록 시간 초과가 나기 쉽습니다.`,
+                )
+              : buildErrorMessage(
+                  `오류가 발생했습니다. (${requestModelLabel})`,
+                  error instanceof Error ? error.message : '알 수 없는 오류',
+                ),
           },
         ]);
       }
@@ -184,7 +227,8 @@ export default function ChatView({ mode, apiKey, selectedModel }: ChatViewProps)
     await submitCurrentMessage();
   };
 
-  const sourceLabel = mode === 'evaluation' ? '평가 문서군 및 평가 근거 자료' : '구조화된 법령·고시·평가 문서 evidence';
+  const sourceLabel =
+    mode === 'evaluation' ? '평가 문서군 및 평가 근거 자료' : '구조화된 법령·고시·평가 문서 evidence';
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

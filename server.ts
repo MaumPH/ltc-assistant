@@ -199,6 +199,7 @@ async function startServer() {
   });
 
   app.post('/api/chat', async (req, res) => {
+    let requestedModel = 'gemini-3-flash-preview';
     try {
       const {
         messages,
@@ -213,6 +214,7 @@ async function startServer() {
         promptVariant?: PromptVariant;
         apiKey?: string;
       } = req.body;
+      requestedModel = model;
 
       if (!Array.isArray(messages) || messages.length === 0) {
         return res.status(400).json({ error: 'messages must be a non-empty array' });
@@ -228,6 +230,7 @@ async function startServer() {
         });
 
         res.json({
+          model: requestedModel,
           text: response.text,
           citations: response.citations.map((citation) => ({
             id: citation.id,
@@ -272,8 +275,41 @@ async function startServer() {
         });
       }
 
+      if (lowered.includes('404') || lowered.includes('not_found') || lowered.includes('not found')) {
+        return res.status(404).json({
+          error: '요청한 모델 또는 API 리소스를 찾지 못했습니다.',
+          model: requestedModel,
+          details: message,
+        });
+      }
+
+      if (lowered.includes('504') || lowered.includes('deadline_exceeded') || lowered.includes('deadline exceeded')) {
+        return res.status(504).json({
+          error: '선택한 모델이 제한 시간 안에 응답을 마치지 못했습니다.',
+          model: requestedModel,
+          details: message,
+        });
+      }
+
+      if (lowered.includes('503') || lowered.includes('unavailable') || lowered.includes('overloaded')) {
+        return res.status(503).json({
+          error: '선택한 모델 서비스가 일시적으로 과부하 상태입니다.',
+          model: requestedModel,
+          details: message,
+        });
+      }
+
+      if (lowered.includes('500') || lowered.includes('internal')) {
+        return res.status(502).json({
+          error: '모델 호출 중 서버 측 오류가 발생했습니다.',
+          model: requestedModel,
+          details: message,
+        });
+      }
+
       res.status(500).json({
         error: 'Failed to generate grounded response',
+        model: requestedModel,
         details: message,
       });
     }

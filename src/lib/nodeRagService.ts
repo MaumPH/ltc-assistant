@@ -1086,6 +1086,15 @@ function buildCompiledPageContext(pages: CompiledPage[]): string {
     .join('\n\n');
 }
 
+function isGemini3FamilyModel(model: string): boolean {
+  return /^gemini-3(?:\.1)?-/.test(model.trim());
+}
+
+function resolveGenerationTemperature(model: string): number {
+  // Google recommends keeping Gemini 3 family models at the default temperature.
+  return isGemini3FamilyModel(model) ? 1 : 0.1;
+}
+
 function constrainEvidence(search: SearchRun): SearchRun['evidence'] {
   let totalChars = 0;
   const constrained: SearchRun['evidence'] = [];
@@ -1117,7 +1126,7 @@ async function generateGroundedAnswer(params: {
       contents: params.contents,
       config: {
         systemInstruction: `${params.systemInstruction}${extraReminder}`,
-        temperature: 0.1,
+        temperature: resolveGenerationTemperature(params.model),
         responseMimeType: 'application/json',
         responseJsonSchema: buildGroundedAnswerSchema(),
       },
