@@ -9,6 +9,7 @@ import {
   isGenericQueryTerm,
   searchCorpus,
   type RagCorpusIndex,
+  type SearchOptions,
 } from './ragEngine';
 import {
   buildDocumentDiagnostics,
@@ -16,7 +17,16 @@ import {
   buildKnowledgeManifest,
   compareIndexStatus,
 } from './ragIndex';
-import { buildPreciseCitationLabel, compareIsoDateDesc, formatEvidenceStateLabel, sha1, toDocumentMetadata } from './ragMetadata';
+import {
+  buildPreciseCitationLabel,
+  compareIsoDateDesc,
+  extractLinkedDocumentTitles,
+  formatEvidenceStateLabel,
+  inferSourceRole,
+  normalizeDocumentTitle,
+  sha1,
+  toDocumentMetadata,
+} from './ragMetadata';
 import { loadKnowledgeCorporaFromDisk } from './nodeKnowledge';
 import { loadPromptSourceSet } from './nodePrompts';
 import { buildVariantSystemInstruction, type PromptVariant } from './promptAssembly';
@@ -42,7 +52,9 @@ import type {
   RetrievalDiagnostics,
   RetrievalReadiness,
   RecentRetrievalMatch,
+  SearchCandidate,
   SearchRun,
+  SourceRole,
   StructuredChunk,
 } from './ragTypes';
 import { CHAT_MODELS } from './chatModels';
@@ -56,6 +68,7 @@ interface StoredChunkRow {
   search_text: string;
   mode: PromptMode;
   source_type: StructuredChunk['sourceType'];
+  source_role?: StructuredChunk['sourceRole'] | null;
   document_group: string;
   doc_title: string;
   file_name: string;
@@ -72,6 +85,7 @@ interface StoredChunkRow {
   span_start?: number | string | null;
   span_end?: number | string | null;
   citation_group_id?: string | null;
+  linked_document_titles?: string[] | string | null;
   embedding?: number[] | string | null;
 }
 
@@ -81,6 +95,7 @@ interface StoredDocumentRow {
   file_name: string;
   path: string;
   mode: PromptMode;
+  source_role?: SourceRole | null;
   content_hash?: string | null;
   file_size?: number | string | null;
   source_mtime?: string | Date | null;
@@ -123,12 +138,21 @@ export interface RetrievalInspectionResponse {
   stageTrace: SearchRun['stageTrace'];
   neighborWindows: ChunkWindowRef[];
   rejectionReasons: RetrievalDiagnostics['rejectionReasons'];
+  routingDocuments: string[];
+  primaryExpansionDocuments: string[];
+  finalEvidenceDocuments: string[];
 }
 
 interface RagStore {
   initialize(ai: GoogleGenAI | null): Promise<void>;
   ensureEmbeddings(ai: GoogleGenAI): Promise<void>;
-  search(query: string, mode: PromptMode, queryEmbedding: number[] | null, queryAliases?: string[]): SearchRun;
+  search(
+    query: string,
+    mode: PromptMode,
+    queryEmbedding: number[] | null,
+    queryAliases?: string[],
+    options?: SearchOptions,
+  ): SearchRun;
   getCompiledPages(mode: PromptMode, documentIds: string[]): CompiledPage[];
   listKnowledgeFiles(): { name: string; size: number; updatedAt: Date }[];
   getStats(): { chunks: number; compiledPages: number; storageMode: string };
@@ -150,7 +174,6 @@ const EMBEDDING_MAX_CHUNKS_PER_PASS = parsePositiveInteger(process.env.RAG_EMBED
 const EMBEDDING_REFRESH_INTERVAL_MS = parsePositiveInteger(process.env.RAG_EMBEDDING_REFRESH_INTERVAL_MS, 15 * 60 * 1000);
 const EMBEDDING_QUOTA_COOLDOWN_MS = parsePositiveInteger(process.env.RAG_EMBEDDING_QUOTA_COOLDOWN_MS, 6 * 60 * 60 * 1000);
 const MAX_CONTEXT_CHARS = 20_000;
-const CURRENT_DATE = new Date().toISOString().slice(0, 10);
 const EMBEDDING_CACHE_FILE = 'embeddings.json';
 
 let embeddingQuotaBlockedUntil = 0;
@@ -269,6 +292,18 @@ function rowToChunk(row: StoredChunkRow): StructuredChunk {
   const sectionPath = parseStringArray(row.section_path);
   const parentSectionId = row.parent_section_id ?? sha1(`${row.document_id}:${sectionPath.join('>')}`);
   const parentSectionTitle = row.parent_section_title ?? row.title;
+  const sourceRole =
+    row.source_role ??
+    inferSourceRole({
+      path: row.path,
+      fileName: row.file_name,
+      mode: row.mode,
+      sourceType: row.source_type,
+    });
+  const linkedDocumentTitles =
+    parseStringArray(row.linked_document_titles).length > 0
+      ? parseStringArray(row.linked_document_titles)
+      : extractLinkedDocumentTitles(row.text);
   return {
     id: row.id,
     documentId: row.document_id,
@@ -279,6 +314,7 @@ function rowToChunk(row: StoredChunkRow): StructuredChunk {
     searchText: row.search_text,
     mode: row.mode,
     sourceType: row.source_type,
+    sourceRole,
     documentGroup: row.document_group,
     docTitle: row.doc_title,
     fileName: row.file_name,
@@ -295,6 +331,7 @@ function rowToChunk(row: StoredChunkRow): StructuredChunk {
     spanStart: parseNumberValue(row.span_start),
     spanEnd: parseNumberValue(row.span_end),
     citationGroupId: row.citation_group_id ?? sha1(`${row.document_id}:${parentSectionId}`),
+    linkedDocumentTitles,
     embedding: parseEmbedding(row.embedding),
   };
 }
@@ -465,6 +502,147 @@ function buildChunkWindowRef(
   };
 }
 
+interface RetrievalScopeContext {
+  routeOnlyDocumentIds: Set<string>;
+  primaryExpansionDocumentIds: Set<string>;
+  routingDocuments: string[];
+  primaryExpansionDocuments: string[];
+}
+
+interface SearchExecutionResult {
+  search: SearchRun;
+  scope: RetrievalScopeContext;
+}
+
+function uniqueDocumentPaths(chunks: Array<Pick<StructuredChunk, 'documentId' | 'path'>>): string[] {
+  const seen = new Set<string>();
+  const paths: string[] = [];
+  for (const chunk of chunks) {
+    if (seen.has(chunk.documentId)) continue;
+    seen.add(chunk.documentId);
+    paths.push(chunk.path);
+  }
+  return paths;
+}
+
+function documentPathsFromIds(documentIds: Iterable<string>, representatives: Map<string, StructuredChunk>): string[] {
+  const paths: string[] = [];
+  for (const documentId of documentIds) {
+    const chunk = representatives.get(documentId);
+    if (!chunk) continue;
+    paths.push(chunk.path);
+  }
+  return paths;
+}
+
+function uniqueNonEmptyLines(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function buildDocumentRepresentativeMap(chunks: StructuredChunk[]): Map<string, StructuredChunk> {
+  const representatives = new Map<string, StructuredChunk>();
+  for (const chunk of chunks) {
+    if (!representatives.has(chunk.documentId)) {
+      representatives.set(chunk.documentId, chunk);
+    }
+  }
+  return representatives;
+}
+
+function buildTitleToDocumentIdsMap(chunks: StructuredChunk[]): Map<string, Set<string>> {
+  const representatives = buildDocumentRepresentativeMap(chunks);
+  const lookup = new Map<string, Set<string>>();
+
+  const add = (title: string, documentId: string) => {
+    const key = normalizeDocumentTitle(title);
+    if (!key) return;
+    const ids = lookup.get(key) ?? new Set<string>();
+    ids.add(documentId);
+    lookup.set(key, ids);
+  };
+
+  for (const chunk of representatives.values()) {
+    add(chunk.docTitle, chunk.documentId);
+    add(chunk.fileName, chunk.documentId);
+    add(chunk.path, chunk.documentId);
+  }
+
+  return lookup;
+}
+
+function uniqueDocumentCandidates(candidates: SearchCandidate[], limit = 4): SearchCandidate[] {
+  const seen = new Set<string>();
+  const documents: SearchCandidate[] = [];
+
+  for (const candidate of candidates) {
+    if (seen.has(candidate.documentId)) continue;
+    seen.add(candidate.documentId);
+    documents.push(candidate);
+    if (documents.length >= limit) break;
+  }
+
+  return documents;
+}
+
+function resolveRoutingExpansionDocumentIds(
+  routingCandidates: SearchCandidate[],
+  allChunks: StructuredChunk[],
+): Set<string> {
+  const titleMap = buildTitleToDocumentIdsMap(allChunks);
+  const representatives = buildDocumentRepresentativeMap(allChunks);
+  const expandedIds = new Set<string>();
+
+  for (const candidate of routingCandidates) {
+    for (const linkedTitle of candidate.linkedDocumentTitles) {
+      const ids = titleMap.get(normalizeDocumentTitle(linkedTitle));
+      if (!ids) continue;
+
+      for (const documentId of ids) {
+        const doc = representatives.get(documentId);
+        if (!doc || doc.sourceRole === 'routing_summary') continue;
+        expandedIds.add(documentId);
+      }
+    }
+  }
+
+  return expandedIds;
+}
+
+function selectDirectSupportReferenceIds(search: SearchRun): Set<string> {
+  const selected = new Set<string>();
+  const focusTerms = search.focusTerms ?? deriveFocusTerms(search.query);
+
+  for (const candidate of search.fusedCandidates) {
+    if (candidate.sourceRole !== 'support_reference' || candidate.mode !== 'integrated') continue;
+
+    const focusMatches = getCandidateFocusMatches(candidate, focusTerms);
+    const hasConcreteSignal = focusMatches.length > 0 || candidate.exactScore >= 18 || candidate.lexicalScore > 0.12;
+    const strongEnough = candidate.rerankScore >= 22 || focusMatches.length > 0;
+    if (!hasConcreteSignal || !strongEnough) continue;
+
+    selected.add(candidate.documentId);
+    if (selected.size >= 4) break;
+  }
+
+  return selected;
+}
+
+function injectEvidenceCandidate(search: SearchRun, candidate: SearchCandidate | null): SearchRun {
+  if (!candidate || search.evidence.some((item) => item.documentId === candidate.documentId)) {
+    return search;
+  }
+
+  return applyGroundingGate({
+    ...search,
+    fusedCandidates: [candidate, ...search.fusedCandidates.filter((item) => item.id !== candidate.id)]
+      .sort((left, right) => right.rerankScore - left.rerankScore)
+      .slice(0, Math.max(search.fusedCandidates.length, 24)),
+    evidence: [candidate, ...search.evidence.filter((item) => item.id !== candidate.id)]
+      .sort((left, right) => right.rerankScore - left.rerankScore)
+      .slice(0, Math.max(search.evidence.length, 12)),
+  });
+}
+
 function collectNeighborWindows(allChunks: StructuredChunk[], evidence: StructuredChunk[]): ChunkWindowRef[] {
   const byParentSection = new Map<string, StructuredChunk[]>();
   for (const chunk of allChunks) {
@@ -506,6 +684,7 @@ function collectNeighborWindows(allChunks: StructuredChunk[], evidence: Structur
 function buildCandidateDiagnostics(
   search: SearchRun,
   neighborWindows: ChunkWindowRef[],
+  scope: RetrievalScopeContext,
 ): CandidateDiagnostic[] {
   const focusTerms = search.focusTerms ?? deriveFocusTerms(search.query);
   const evidenceIds = new Set(search.evidence.map((item) => item.id));
@@ -521,8 +700,14 @@ function buildCandidateDiagnostics(
       (concreteMatchedTerms.length === 0 || concreteMatchedTerms.every((term) => isGenericQueryTerm(term)));
     const rejectionReasons: string[] = [];
     const selectedAsEvidence = evidenceIds.has(candidate.id);
+    const routeOnly = scope.routeOnlyDocumentIds.has(candidate.documentId);
+    const expandedFromRouting = scope.primaryExpansionDocumentIds.has(candidate.documentId);
+    const primaryExpansionHit = expandedFromRouting && selectedAsEvidence;
 
     if (!selectedAsEvidence) {
+      if (routeOnly) {
+        rejectionReasons.push('route-only-document');
+      }
       if (matchedOnlyGenericTerms) {
         rejectionReasons.push('generic-only-match');
       }
@@ -544,10 +729,14 @@ function buildCandidateDiagnostics(
       id: candidate.id,
       path: candidate.path,
       docTitle: candidate.docTitle,
+      sourceRole: candidate.sourceRole,
       rerankScore: candidate.rerankScore,
       matchedTerms: candidate.matchedTerms,
       focusTermMatches,
       selectedAsEvidence,
+      routeOnly,
+      expandedFromRouting,
+      primaryExpansionHit,
       matchedOnlyGenericTerms,
       rejectionReasons,
       citationGroupId: candidate.citationGroupId,
@@ -620,7 +809,12 @@ function applyGroundingGate(search: SearchRun): SearchRun {
   };
 }
 
-function buildRetrievalStageTrace(search: SearchRun, normalizedQuery: string, querySources: string[]): SearchRun['stageTrace'] {
+function buildRetrievalStageTrace(
+  search: SearchRun,
+  normalizedQuery: string,
+  querySources: string[],
+  scope: RetrievalScopeContext,
+): SearchRun['stageTrace'] {
   return [
     {
       stage: 'query_normalization',
@@ -648,6 +842,8 @@ function buildRetrievalStageTrace(search: SearchRun, normalizedQuery: string, qu
         `exact=${search.exactCandidates.length}`,
         `lexical=${search.lexicalCandidates.length}`,
         `vector=${search.vectorCandidates.length}`,
+        ...(scope.routingDocuments.length > 0 ? [`routing=${scope.routingDocuments.length}`] : []),
+        ...(scope.primaryExpansionDocuments.length > 0 ? [`expanded=${scope.primaryExpansionDocuments.length}`] : []),
       ],
     },
     {
@@ -674,9 +870,10 @@ function buildRetrievalDiagnostics(
   querySources: string[],
   allChunks: StructuredChunk[],
   retrievalReadiness: RetrievalReadiness,
+  scope: RetrievalScopeContext,
 ): RetrievalDiagnostics {
   const neighborWindows = collectNeighborWindows(allChunks, search.evidence);
-  const candidateDiagnostics = buildCandidateDiagnostics(search, neighborWindows);
+  const candidateDiagnostics = buildCandidateDiagnostics(search, neighborWindows, scope);
   return {
     normalizedQuery,
     querySources,
@@ -685,7 +882,7 @@ function buildRetrievalDiagnostics(
     focusTerms: search.focusTerms ?? deriveFocusTerms(search.query),
     mismatchSignals: search.mismatchSignals ?? [],
     groundingGatePassed: search.groundingGatePassed ?? false,
-    stageTrace: buildRetrievalStageTrace(search, normalizedQuery, querySources),
+    stageTrace: buildRetrievalStageTrace(search, normalizedQuery, querySources, scope),
     retrievalReadiness,
     neighborWindows,
     rejectionReasons: candidateDiagnostics
@@ -694,6 +891,9 @@ function buildRetrievalDiagnostics(
         candidateId: candidate.id,
         reasons: candidate.rejectionReasons,
       })),
+    routingDocuments: scope.routingDocuments,
+    primaryExpansionDocuments: scope.primaryExpansionDocuments,
+    finalEvidenceDocuments: uniqueDocumentPaths(search.evidence),
   };
 }
 
@@ -770,7 +970,7 @@ function createAbstainAnswer(search: SearchRun): GroundedAnswer {
   return {
     evidenceState: search.confidence === 'low' ? 'not_enough' : 'partial',
     confidence: 'low',
-    keyIssueDate: leading.find((item) => item.effectiveDate)?.effectiveDate ?? CURRENT_DATE,
+    keyIssueDate: leading.find((item) => item.effectiveDate)?.effectiveDate,
     conclusion: '검색된 근거만으로 질문에 직접 대응하는 조문이나 문답을 확정할 수 없습니다.',
     directEvidence: leading.length > 0 ? leading.map((item) => `${item.docTitle}${item.articleNo ? ` ${item.articleNo}` : ''}에서 관련 단서를 확인했습니다.`) : [],
     practicalGuidance: ['질문의 기관 유형, 급여 유형, 적용 시점을 더 구체화한 뒤 다시 확인하는 편이 안전합니다.'],
@@ -881,6 +1081,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       file_name text not null,
       path text not null unique,
       mode text not null,
+      source_role text not null default 'general',
       source_type text not null,
       document_group text not null,
       effective_date date,
@@ -898,6 +1099,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'alter table documents add column if not exists source_mtime timestamptz',
   'alter table documents add column if not exists chunk_count integer not null default 0',
   'alter table documents add column if not exists embedding_count integer not null default 0',
+  'alter table documents add column if not exists source_role text not null default \'general\'',
   `
     create table if not exists document_versions (
       id text primary key,
@@ -930,6 +1132,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       search_text text not null,
       mode text not null,
       source_type text not null,
+      source_role text not null default 'general',
       document_group text not null,
       doc_title text not null,
       file_name text not null,
@@ -939,6 +1142,7 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       section_path jsonb not null,
       article_no text,
       matched_labels jsonb not null default '[]'::jsonb,
+      linked_document_titles jsonb not null default '[]'::jsonb,
       chunk_hash text not null,
       parent_section_id text not null,
       parent_section_title text not null,
@@ -959,6 +1163,8 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'alter table chunks add column if not exists span_start integer not null default 0',
   'alter table chunks add column if not exists span_end integer not null default 0',
   'alter table chunks add column if not exists citation_group_id text',
+  'alter table chunks add column if not exists source_role text not null default \'general\'',
+  'alter table chunks add column if not exists linked_document_titles jsonb not null default \'[]\'::jsonb',
   'create index if not exists chunks_effective_date_idx on chunks(effective_date desc)',
   'create index if not exists chunks_embedding_ivfflat_idx on chunks using ivfflat (embedding vector_cosine_ops) with (lists = 100)',
   `
@@ -1090,8 +1296,14 @@ class MemoryRagStore implements RagStore {
     this.indexGeneratedAt = new Date().toISOString();
   }
 
-  search(query: string, mode: PromptMode, queryEmbedding: number[] | null, queryAliases: string[] = []): SearchRun {
-    return searchCorpus({ index: this.index, query, mode, queryEmbedding, queryAliases });
+  search(
+    query: string,
+    mode: PromptMode,
+    queryEmbedding: number[] | null,
+    queryAliases: string[] = [],
+    options?: SearchOptions,
+  ): SearchRun {
+    return searchCorpus({ index: this.index, query, mode, queryEmbedding, queryAliases, options });
   }
 
   getCompiledPages(mode: PromptMode, documentIds: string[]): CompiledPage[] {
@@ -1220,6 +1432,7 @@ class PostgresRagStore implements RagStore {
         search_text,
         mode,
         source_type,
+        source_role,
         document_group,
         doc_title,
         file_name,
@@ -1229,6 +1442,7 @@ class PostgresRagStore implements RagStore {
         section_path,
         article_no,
         matched_labels,
+        linked_document_titles,
         chunk_hash,
         parent_section_id,
         parent_section_title,
@@ -1291,6 +1505,7 @@ class PostgresRagStore implements RagStore {
           file_name,
           path,
           mode,
+          source_role,
           content_hash,
           file_size,
           source_mtime,
@@ -1336,8 +1551,14 @@ class PostgresRagStore implements RagStore {
     }
   }
 
-  search(query: string, mode: PromptMode, queryEmbedding: number[] | null, queryAliases: string[] = []): SearchRun {
-    return searchCorpus({ index: this.index, query, mode, queryEmbedding, queryAliases });
+  search(
+    query: string,
+    mode: PromptMode,
+    queryEmbedding: number[] | null,
+    queryAliases: string[] = [],
+    options?: SearchOptions,
+  ): SearchRun {
+    return searchCorpus({ index: this.index, query, mode, queryEmbedding, queryAliases, options });
   }
 
   getCompiledPages(mode: PromptMode, documentIds: string[]): CompiledPage[] {
@@ -1683,6 +1904,118 @@ export class NodeRagService {
     return this.indexStatus.retrievalReadiness;
   }
 
+  private executeSearch(
+    mode: PromptMode,
+    normalizedQuery: string,
+    queryEmbedding: number[] | null,
+    aliases: string[],
+  ): SearchExecutionResult {
+    const emptyScope: RetrievalScopeContext = {
+      routeOnlyDocumentIds: new Set<string>(),
+      primaryExpansionDocumentIds: new Set<string>(),
+      routingDocuments: [],
+      primaryExpansionDocuments: [],
+    };
+
+    if (mode !== 'evaluation') {
+      return {
+        search: applyGroundingGate(this.store.search(normalizedQuery, mode, queryEmbedding, aliases)),
+        scope: emptyScope,
+      };
+    }
+
+    const allChunks = this.store.getChunks();
+    const representatives = buildDocumentRepresentativeMap(allChunks);
+    const evaluationDocumentIds = new Set(
+      allChunks.filter((chunk) => chunk.mode === 'evaluation').map((chunk) => chunk.documentId),
+    );
+    const routeOnlyDocumentIds = new Set(
+      allChunks
+        .filter((chunk) => chunk.sourceRole === 'routing_summary')
+        .map((chunk) => chunk.documentId),
+    );
+
+    const routingSearch = this.store.search(normalizedQuery, mode, queryEmbedding, aliases, {
+      allowedDocumentIds: evaluationDocumentIds,
+    });
+    const routingCandidates = uniqueDocumentCandidates(
+      routingSearch.fusedCandidates.filter((candidate) => candidate.sourceRole === 'routing_summary'),
+      4,
+    );
+    const primaryExpansionDocumentIds = resolveRoutingExpansionDocumentIds(routingCandidates, allChunks);
+
+    const integratedSupportDocumentIds = new Set(
+      allChunks
+        .filter((chunk) => chunk.mode === 'integrated' && chunk.sourceRole === 'support_reference')
+        .map((chunk) => chunk.documentId),
+    );
+    const directSupportDocumentIds =
+      integratedSupportDocumentIds.size > 0
+        ? selectDirectSupportReferenceIds(
+            this.store.search(normalizedQuery, mode, queryEmbedding, aliases, {
+              allowedDocumentIds: integratedSupportDocumentIds,
+            }),
+          )
+        : new Set<string>();
+
+    const allowedDocumentIds = new Set<string>([
+      ...evaluationDocumentIds,
+      ...primaryExpansionDocumentIds,
+      ...directSupportDocumentIds,
+    ]);
+    const documentScoreBoosts = new Map<string, number>();
+
+    for (const documentId of primaryExpansionDocumentIds) {
+      const sourceRole = representatives.get(documentId)?.sourceRole;
+      const boost = sourceRole === 'primary_evaluation' ? 48 : 22;
+      documentScoreBoosts.set(documentId, (documentScoreBoosts.get(documentId) ?? 0) + boost);
+    }
+
+    for (const documentId of directSupportDocumentIds) {
+      documentScoreBoosts.set(documentId, (documentScoreBoosts.get(documentId) ?? 0) + 6);
+    }
+
+    const expansionAliases = uniqueNonEmptyLines([
+      ...aliases,
+      ...routingCandidates.map((candidate) => candidate.docTitle),
+      ...routingCandidates.map((candidate) => candidate.parentSectionTitle),
+      ...routingCandidates.flatMap((candidate) => candidate.sectionPath.slice(-2)),
+    ]);
+    const expansionQuery = uniqueNonEmptyLines([
+      normalizedQuery,
+      ...routingCandidates.map((candidate) => candidate.docTitle),
+      ...routingCandidates.map((candidate) => candidate.parentSectionTitle),
+    ]).join('\n');
+
+    const baseSearch = applyGroundingGate(
+      this.store.search(normalizedQuery, mode, queryEmbedding, aliases, {
+        allowedDocumentIds,
+        documentScoreBoosts,
+        excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+      }),
+    );
+    const promotedPrimaryCandidate =
+      primaryExpansionDocumentIds.size > 0
+        ? this.store
+            .search(expansionQuery, mode, queryEmbedding, expansionAliases, {
+              allowedDocumentIds: primaryExpansionDocumentIds,
+              documentScoreBoosts,
+              excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+            })
+            .fusedCandidates.find((candidate) => candidate.sourceRole === 'primary_evaluation') ?? null
+        : null;
+
+    return {
+      search: injectEvidenceCandidate(baseSearch, promotedPrimaryCandidate),
+      scope: {
+        routeOnlyDocumentIds,
+        primaryExpansionDocumentIds,
+        routingDocuments: uniqueDocumentPaths(routingCandidates),
+        primaryExpansionDocuments: documentPathsFromIds(primaryExpansionDocumentIds, representatives),
+      },
+    };
+  }
+
   async getChatCapabilities(): Promise<ChatCapabilities> {
     await this.initialize();
     const status = this.refreshIndexStatus();
@@ -1767,7 +2100,7 @@ export class NodeRagService {
     const { normalizedQuery, querySources, aliases } = normalized;
     const embeddingQuery = [normalizedQuery, ...aliases].filter(Boolean).join('\n');
     const queryEmbedding = this.embeddingAi ? await embedQuery(this.embeddingAi, embeddingQuery) : null;
-    const search = applyGroundingGate(this.store.search(normalizedQuery, mode, queryEmbedding, aliases));
+    const { search, scope } = this.executeSearch(mode, normalizedQuery, queryEmbedding, aliases);
     const compiledPages = this.store.getCompiledPages(mode, search.evidence.map((item) => item.documentId));
     const indexStatus = this.refreshIndexStatus();
     const retrieval = buildRetrievalDiagnostics(
@@ -1776,6 +2109,7 @@ export class NodeRagService {
       querySources,
       this.store.getChunks(),
       indexStatus.retrievalReadiness,
+      scope,
     );
     this.rememberRetrieval(retrieval, query);
     return {
@@ -1791,6 +2125,9 @@ export class NodeRagService {
       stageTrace: retrieval.stageTrace,
       neighborWindows: retrieval.neighborWindows,
       rejectionReasons: retrieval.rejectionReasons,
+      routingDocuments: retrieval.routingDocuments,
+      primaryExpansionDocuments: retrieval.primaryExpansionDocuments,
+      finalEvidenceDocuments: retrieval.finalEvidenceDocuments,
     };
   }
 
@@ -1814,7 +2151,7 @@ export class NodeRagService {
     const { normalizedQuery, querySources, aliases } = buildNormalizedRetrievalQuery(recentMessages);
     const embeddingQuery = [normalizedQuery, ...aliases].filter(Boolean).join('\n');
     const queryEmbedding = this.embeddingAi ? await embedQuery(this.embeddingAi, embeddingQuery) : null;
-    const search = applyGroundingGate(this.store.search(normalizedQuery, request.mode, queryEmbedding, aliases));
+    const { search, scope } = this.executeSearch(request.mode, normalizedQuery, queryEmbedding, aliases);
     const evidence = constrainEvidence({
       ...search,
       evidence: expandEvidenceWithNeighbors(search.evidence, this.store.getChunks()),
@@ -1829,6 +2166,7 @@ export class NodeRagService {
       querySources,
       this.store.getChunks(),
       indexStatus.retrievalReadiness,
+      scope,
     );
     this.rememberRetrieval(retrieval, latestUserMessage || normalizedQuery);
 
@@ -1846,11 +2184,11 @@ export class NodeRagService {
       };
     }
 
-    const compiledPages = this.store.getCompiledPages(request.mode, evidence.map((item) => item.documentId));
-    const knowledgeContext = [
-      chunksToEvidenceContext(evidence),
-      buildCompiledPageContext(compiledPages),
-    ]
+    const compiledPages =
+      request.mode === 'evaluation'
+        ? []
+        : this.store.getCompiledPages(request.mode, evidence.map((item) => item.documentId));
+    const knowledgeContext = [chunksToEvidenceContext(evidence), buildCompiledPageContext(compiledPages)]
       .filter(Boolean)
       .join('\n\n---\n\n');
 
@@ -1862,6 +2200,12 @@ export class NodeRagService {
         sources: this.promptSources,
       }),
       '',
+      ...(request.mode === 'evaluation'
+        ? [
+            '평가채팅에서는 knowledge/evaluation 요약 문서를 최종 근거로 사용하지 말고, 평가매뉴얼 원문·법령·고시·사업안내 같은 1차 문서만 최종 근거와 출처로 사용하세요.',
+            '요약 문서는 1차 문서를 찾기 위한 라우팅 힌트로만 취급하고, [확정 근거], [출처], 실무 해석은 최종 evidence에 포함된 1차 문서에서만 작성하세요.',
+          ]
+        : []),
       '반드시 제공된 evidence id만 citationEvidenceIds에 넣고, evidence에 없는 문서명을 출처로 쓰지 마세요.',
       '답변 본문에는 Evidence 번호, evidence id, window 번호 같은 내부 추적 표기를 쓰지 말고 정확한 파일명과 조문·섹션명만 쓰세요.',
       '근거가 부족하면 evidenceState를 not_enough로 두고 followUpQuestion을 작성하세요.',
@@ -1913,6 +2257,7 @@ export function buildChunkRows(files: KnowledgeFile[]): Array<Record<string, unk
     search_text: chunk.searchText,
     mode: chunk.mode,
     source_type: chunk.sourceType,
+    source_role: chunk.sourceRole,
     document_group: chunk.documentGroup,
     doc_title: chunk.docTitle,
     file_name: chunk.fileName,
@@ -1922,6 +2267,7 @@ export function buildChunkRows(files: KnowledgeFile[]): Array<Record<string, unk
     section_path: chunk.sectionPath,
     article_no: chunk.articleNo ?? null,
     matched_labels: chunk.matchedLabels,
+    linked_document_titles: chunk.linkedDocumentTitles,
     chunk_hash: chunk.chunkHash,
     parent_section_id: chunk.parentSectionId,
     parent_section_title: chunk.parentSectionTitle,
@@ -2007,6 +2353,7 @@ export function buildDocumentRows(
       file_name: metadata.fileName,
       path: metadata.path,
       mode: metadata.mode,
+      source_role: metadata.sourceRole,
       source_type: metadata.sourceType,
       document_group: metadata.documentGroup,
       effective_date: metadata.effectiveDate ?? null,
@@ -2146,6 +2493,7 @@ export async function upsertRowsToPostgres(params: {
           file_name,
           path,
           mode,
+          source_role,
           source_type,
           document_group,
           effective_date,
@@ -2155,7 +2503,7 @@ export async function upsertRowsToPostgres(params: {
           source_mtime,
           chunk_count,
           embedding_count
-        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
         `,
         [
           pg(row.id),
@@ -2163,6 +2511,7 @@ export async function upsertRowsToPostgres(params: {
           pg(row.file_name),
           pg(row.path),
           pg(row.mode),
+          pg(row.source_role),
           pg(row.source_type),
           pg(row.document_group),
           row.effective_date,
@@ -2231,6 +2580,7 @@ export async function upsertRowsToPostgres(params: {
           search_text,
           mode,
           source_type,
+          source_role,
           document_group,
           doc_title,
           file_name,
@@ -2240,6 +2590,7 @@ export async function upsertRowsToPostgres(params: {
           section_path,
           article_no,
           matched_labels,
+          linked_document_titles,
           chunk_hash,
           parent_section_id,
           parent_section_title,
@@ -2249,7 +2600,7 @@ export async function upsertRowsToPostgres(params: {
           citation_group_id,
           embedding
         ) values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27
         )
         `,
         [
@@ -2261,6 +2612,7 @@ export async function upsertRowsToPostgres(params: {
           pg(row.search_text),
           pg(row.mode),
           pg(row.source_type),
+          pg(row.source_role),
           pg(row.document_group),
           pg(row.doc_title),
           pg(row.file_name),
@@ -2270,6 +2622,7 @@ export async function upsertRowsToPostgres(params: {
           JSON.stringify(pg(row.section_path)),
           pg(row.article_no),
           JSON.stringify(pg(row.matched_labels)),
+          JSON.stringify(pg(row.linked_document_titles)),
           pg(row.chunk_hash),
           pg(row.parent_section_id),
           pg(row.parent_section_title),

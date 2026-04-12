@@ -388,6 +388,7 @@ export function buildStructuredChunks(files: KnowledgeFile[]): StructuredChunk[]
           ),
           mode: metadata.mode,
           sourceType: metadata.sourceType,
+          sourceRole: metadata.sourceRole,
           documentGroup: metadata.documentGroup,
           docTitle: metadata.title,
           fileName: metadata.fileName,
@@ -404,6 +405,7 @@ export function buildStructuredChunks(files: KnowledgeFile[]): StructuredChunk[]
           spanStart: window.spanStart,
           spanEnd: window.spanEnd,
           citationGroupId: sha1(`${metadata.documentId}:${section.id}`),
+          linkedDocumentTitles: metadata.linkedDocumentTitles,
         });
         chunkIndex += 1;
       }

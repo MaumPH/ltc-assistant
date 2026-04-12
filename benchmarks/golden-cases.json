@@ -146,5 +146,24 @@
     "expectedSection": "",
     "acceptableAbstain": true,
     "notes": "관련 근거가 없으면 회피 허용"
+  },
+  {
+    "id": "evaluation-employee-rights-primary-evidence",
+    "mode": "evaluation",
+    "question": "직원인권침해교육은 어떻게 해야해",
+    "expectedDoc": "2026년 주야간보호 평가매뉴얼(26년꺼만)",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "expectedEvidenceDocs": [
+      "2026년 주야간보호 평가매뉴얼(26년꺼만)"
+    ],
+    "forbiddenEvidenceDocs": [
+      "01-06-직원교육",
+      "01-07-직원인권보호"
+    ],
+    "requiredCitationDocs": [
+      "2026년 주야간보호 평가매뉴얼(26년꺼만)"
+    ],
+    "notes": "평가 요약 문서가 아니라 1차 평가매뉴얼 원문이 최종 evidence에 들어오는지 확인"
   }
 ]

@@ -6,6 +6,7 @@ import type {
   RetrievalStageTrace,
   SearchCandidate,
   SearchRun,
+  SourceRole,
   StructuredChunk,
 } from './ragTypes';
 
@@ -13,6 +14,12 @@ export interface RagCorpusIndex {
   chunks: StructuredChunk[];
   tokenMap: Map<string, string[]>;
   dfMap: Map<string, number>;
+}
+
+export interface SearchOptions {
+  allowedDocumentIds?: Set<string>;
+  documentScoreBoosts?: Map<string, number>;
+  excludedEvidenceRoles?: Set<SourceRole>;
 }
 
 const VECTOR_TOP_K = 36;
@@ -93,6 +100,14 @@ function createCandidate(chunk: StructuredChunk): SearchCandidate {
     rerankScore: 0,
     matchedTerms: [],
   };
+}
+
+function isChunkInScope(chunk: StructuredChunk, mode: PromptMode, options?: SearchOptions): boolean {
+  if (options?.allowedDocumentIds) {
+    return options.allowedDocumentIds.has(chunk.documentId);
+  }
+
+  return mode !== 'evaluation' || chunk.mode === 'evaluation';
 }
 
 function boostCandidate(base: SearchCandidate, patch: Partial<SearchCandidate>): SearchCandidate {
@@ -216,7 +231,7 @@ function scoreExact(
   });
 }
 
-function scoreLexical(index: RagCorpusIndex, query: string, mode: PromptMode): SearchCandidate[] {
+function scoreLexical(index: RagCorpusIndex, query: string, mode: PromptMode, options?: SearchOptions): SearchCandidate[] {
   const tokens = queryTokens(query);
   if (tokens.length === 0) return [];
 
@@ -224,7 +239,7 @@ function scoreLexical(index: RagCorpusIndex, query: string, mode: PromptMode): S
   const scored: SearchCandidate[] = [];
 
   for (const chunk of index.chunks) {
-    if (mode === 'evaluation' && chunk.mode !== 'evaluation') continue;
+    if (!isChunkInScope(chunk, mode, options)) continue;
     const candidate = createCandidate(chunk);
     const chunkTokens = index.tokenMap.get(chunk.id) ?? [];
     const total = chunkTokens.length || 1;
@@ -257,12 +272,17 @@ function scoreLexical(index: RagCorpusIndex, query: string, mode: PromptMode): S
   return scored.sort((left, right) => right.lexicalScore - left.lexicalScore);
 }
 
-function scoreVector(index: RagCorpusIndex, queryEmbedding: number[] | null, mode: PromptMode): SearchCandidate[] {
+function scoreVector(
+  index: RagCorpusIndex,
+  queryEmbedding: number[] | null,
+  mode: PromptMode,
+  options?: SearchOptions,
+): SearchCandidate[] {
   if (!queryEmbedding) return [];
 
   const scored: SearchCandidate[] = [];
   for (const chunk of index.chunks) {
-    if (mode === 'evaluation' && chunk.mode !== 'evaluation') continue;
+    if (!isChunkInScope(chunk, mode, options)) continue;
     if (!chunk.embedding || chunk.embedding.length === 0) continue;
     const candidate = createCandidate(chunk);
     const vectorScore = cosineSimilarity(queryEmbedding, chunk.embedding);
@@ -296,7 +316,12 @@ function reciprocalRankFuse(lists: SearchCandidate[][]): SearchCandidate[] {
   return Array.from(merged.values()).sort((left, right) => right.fusedScore - left.fusedScore);
 }
 
-function rerankCandidate(candidate: SearchCandidate, intent: QueryIntent, mode: PromptMode): SearchCandidate {
+function rerankCandidate(
+  candidate: SearchCandidate,
+  intent: QueryIntent,
+  mode: PromptMode,
+  options?: SearchOptions,
+): SearchCandidate {
   let score = candidate.fusedScore * 100;
   score += candidate.exactScore * 1.8;
   score += candidate.lexicalScore * 15;
@@ -308,6 +333,14 @@ function rerankCandidate(candidate: SearchCandidate, intent: QueryIntent, mode: 
   if (intent === 'manual-qna' && ['manual', 'guide', 'wiki'].includes(candidate.sourceType)) score += 5;
   if (intent === 'synthesis' && candidate.sourceType === 'comparison') score += 6;
   if (mode === 'evaluation' && candidate.mode === 'evaluation') score += 6;
+
+  if (mode === 'evaluation') {
+    if (candidate.sourceRole === 'primary_evaluation') score += 10;
+    if (candidate.sourceRole === 'support_reference') score += 6;
+    if (candidate.sourceRole === 'routing_summary') score -= 14;
+  }
+
+  score += options?.documentScoreBoosts?.get(candidate.documentId) ?? 0;
 
   return {
     ...candidate,
@@ -323,13 +356,14 @@ function isAdjacentWindow(left: SearchCandidate, right: SearchCandidate): boolea
   );
 }
 
-function selectEvidence(candidates: SearchCandidate[]): SearchCandidate[] {
+function selectEvidence(candidates: SearchCandidate[], options?: SearchOptions): SearchCandidate[] {
   const selected: SearchCandidate[] = [];
   const documentClusters = new Map<string, Set<string>>();
   const clusterWindowCounts = new Map<string, number>();
 
   for (const candidate of candidates) {
     if (selected.length >= EVIDENCE_TOP_K) break;
+    if (options?.excludedEvidenceRoles?.has(candidate.sourceRole)) continue;
 
     const clusterKey = `${candidate.documentId}:${candidate.parentSectionId}`;
     const activeClusters = documentClusters.get(candidate.documentId) ?? new Set<string>();
@@ -452,11 +486,12 @@ export function searchCorpus(params: {
   mode: PromptMode;
   queryEmbedding?: number[] | null;
   queryAliases?: string[];
+  options?: SearchOptions;
 }): SearchRun {
-  const { index, query, mode, queryEmbedding = null, queryAliases = [] } = params;
+  const { index, query, mode, queryEmbedding = null, queryAliases = [], options } = params;
   const intent = detectIntent(mode, query);
   const exactCandidates = index.chunks
-    .filter((chunk) => mode !== 'evaluation' || chunk.mode === 'evaluation')
+    .filter((chunk) => isChunkInScope(chunk, mode, options))
     .map((chunk) => scoreExact(chunk, query, intent, mode, queryAliases))
     .filter((candidate) => candidate.exactScore > 0)
     .sort((left, right) => {
@@ -465,14 +500,14 @@ export function searchCorpus(params: {
     })
     .slice(0, FUSED_TOP_K);
 
-  const lexicalCandidates = scoreLexical(index, query, mode).slice(0, FUSED_TOP_K);
-  const vectorCandidates = scoreVector(index, queryEmbedding, mode);
+  const lexicalCandidates = scoreLexical(index, query, mode, options).slice(0, FUSED_TOP_K);
+  const vectorCandidates = scoreVector(index, queryEmbedding, mode, options);
   const fusedCandidates = reciprocalRankFuse([exactCandidates, lexicalCandidates, vectorCandidates])
-    .map((candidate) => rerankCandidate(candidate, intent, mode))
+    .map((candidate) => rerankCandidate(candidate, intent, mode, options))
     .sort((left, right) => right.rerankScore - left.rerankScore)
     .slice(0, FUSED_TOP_K);
 
-  const evidence = selectEvidence(fusedCandidates);
+  const evidence = selectEvidence(fusedCandidates, options);
   const { focusTerms, mismatchSignals } = detectTopicMismatch(query, fusedCandidates);
   const confidence = inferConfidence(intent, evidence, mismatchSignals);
 

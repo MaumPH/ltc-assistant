@@ -14,6 +14,8 @@ export type SourceType =
   | 'comparison'
   | 'other';
 
+export type SourceRole = 'routing_summary' | 'primary_evaluation' | 'support_reference' | 'general';
+
 export type EvidenceState = 'confirmed' | 'partial' | 'conflict' | 'not_enough';
 
 export type ConfidenceLevel = 'high' | 'medium' | 'low';
@@ -38,10 +40,12 @@ export interface DocumentMetadata {
   path: string;
   mode: PromptMode;
   sourceType: SourceType;
+  sourceRole: SourceRole;
   effectiveDate?: string;
   publishedDate?: string;
   documentGroup: string;
   articleHint?: string;
+  linkedDocumentTitles: string[];
 }
 
 export interface StructuredSection {
@@ -66,6 +70,7 @@ export interface StructuredChunk {
   searchText: string;
   mode: PromptMode;
   sourceType: SourceType;
+  sourceRole: SourceRole;
   documentGroup: string;
   docTitle: string;
   fileName: string;
@@ -82,6 +87,7 @@ export interface StructuredChunk {
   spanStart: number;
   spanEnd: number;
   citationGroupId: string;
+  linkedDocumentTitles: string[];
   embedding?: number[];
 }
 
@@ -144,6 +150,9 @@ export interface BenchmarkCase {
   acceptableAbstain: boolean;
   notes?: string;
   messages?: ChatMessage[];
+  expectedEvidenceDocs?: string[];
+  forbiddenEvidenceDocs?: string[];
+  requiredCitationDocs?: string[];
 }
 
 export interface GroundedAnswer {
@@ -234,10 +243,14 @@ export interface CandidateDiagnostic {
   id: string;
   path: string;
   docTitle: string;
+  sourceRole: SourceRole;
   rerankScore: number;
   matchedTerms: string[];
   focusTermMatches: string[];
   selectedAsEvidence: boolean;
+  routeOnly: boolean;
+  expandedFromRouting: boolean;
+  primaryExpansionHit: boolean;
   matchedOnlyGenericTerms: boolean;
   rejectionReasons: string[];
   citationGroupId: string;
@@ -257,6 +270,9 @@ export interface RetrievalDiagnostics {
   retrievalReadiness: RetrievalReadiness;
   neighborWindows: ChunkWindowRef[];
   rejectionReasons: Array<{ candidateId: string; reasons: string[] }>;
+  routingDocuments: string[];
+  primaryExpansionDocuments: string[];
+  finalEvidenceDocuments: string[];
 }
 
 export interface RecentRetrievalMatch {

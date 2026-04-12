@@ -266,6 +266,9 @@ async function startServer() {
             stageTrace: response.retrieval.stageTrace,
             neighborWindows: response.retrieval.neighborWindows,
             rejectionReasons: response.retrieval.rejectionReasons,
+            routingDocuments: response.retrieval.routingDocuments,
+            primaryExpansionDocuments: response.retrieval.primaryExpansionDocuments,
+            finalEvidenceDocuments: response.retrieval.finalEvidenceDocuments,
             evidence: response.search.evidence.map((item) => ({
               id: item.id,
               docTitle: item.docTitle,

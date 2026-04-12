@@ -4,6 +4,7 @@ import type {
   KnowledgeFile,
   PromptMode,
   QueryIntent,
+  SourceRole,
   SourceType,
   StructuredChunk,
 } from './ragTypes';
@@ -11,6 +12,7 @@ import type {
 const DATE_TOKEN_RE = /\((20\d{2})(\d{2})(\d{2})\)/;
 const YEAR_MONTH_RE = /\((20\d{2})\.(\d{1,2})\.?\)/;
 const ARTICLE_RE = /(제\s*\d+\s*조(?:의\s*\d+)*)/;
+const LINKED_DOCUMENT_RE = /`([^`\n]+\.(?:md|txt))`/gi;
 const HASH_SEEDS = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35, 0x27d4eb2f];
 const KOREAN_PARTICLE_SUFFIXES = [
   '으로부터',
@@ -110,6 +112,14 @@ export function stripExtension(fileName: string): string {
   return fileName.replace(/\.(md|txt)$/i, '');
 }
 
+function extractBaseName(filePath: string): string {
+  return filePath.replace(/\\/g, '/').split('/').pop() ?? filePath;
+}
+
+export function normalizeDocumentTitle(value: string): string {
+  return stripExtension(extractBaseName(value)).replace(/\s+/g, '').toLowerCase();
+}
+
 function stripKoreanParticle(token: string): string {
   for (const suffix of KOREAN_PARTICLE_SUFFIXES) {
     if (token.length - suffix.length < 2) continue;
@@ -203,6 +213,16 @@ export function detectSourceType(fileName: string): SourceType {
   return 'other';
 }
 
+export function extractLinkedDocumentTitles(content: string): string[] {
+  const matches = new Set<string>();
+  for (const match of content.matchAll(LINKED_DOCUMENT_RE)) {
+    const rawTitle = match[1]?.trim();
+    if (!rawTitle) continue;
+    matches.add(stripExtension(extractBaseName(rawTitle)));
+  }
+  return Array.from(matches).sort((left, right) => left.localeCompare(right, 'ko'));
+}
+
 export function toPosixPath(filePath: string): string {
   return filePath.replace(/\\/g, '/');
 }
@@ -227,21 +247,69 @@ export function inferDocumentGroup(fileName: string, sourceType: SourceType): st
   return 'general';
 }
 
+export function inferSourceRole(params: {
+  path: string;
+  fileName: string;
+  mode: PromptMode;
+  sourceType: SourceType;
+}): SourceRole {
+  const normalizedPath = toPosixPath(params.path);
+  const title = stripExtension(params.fileName);
+
+  if (normalizedPath.includes('/knowledge/evaluation/')) {
+    return 'routing_summary';
+  }
+
+  if (normalizedPath.includes('/knowledge/eval/')) {
+    if (params.sourceType === 'manual' && /평가매뉴얼/.test(title)) {
+      return 'primary_evaluation';
+    }
+
+    if (params.sourceType === 'manual' && /업무의 이해/.test(title)) {
+      return 'support_reference';
+    }
+
+    if (['qa', 'guide', 'comparison'].includes(params.sourceType)) {
+      return 'support_reference';
+    }
+
+    return 'primary_evaluation';
+  }
+
+  if (['law', 'ordinance', 'rule', 'notice', 'manual', 'guide', 'qa', 'comparison'].includes(params.sourceType)) {
+    return 'support_reference';
+  }
+
+  if (params.mode === 'evaluation') {
+    return 'primary_evaluation';
+  }
+
+  return 'general';
+}
+
 export function toDocumentMetadata(file: KnowledgeFile): DocumentMetadata {
   const normalizedPath = toPosixPath(file.path);
   const title = stripExtension(file.name);
   const sourceType = detectSourceType(file.name);
+  const mode = detectModeFromPath(normalizedPath);
   return {
     documentId: sha1(`${normalizedPath}:${title}`),
     title,
     fileName: file.name,
     path: normalizedPath,
-    mode: detectModeFromPath(normalizedPath),
+    mode,
     sourceType,
+    sourceRole: inferSourceRole({
+      path: normalizedPath,
+      fileName: file.name,
+      mode,
+      sourceType,
+    }),
     effectiveDate: extractDateFromFileName(file.name),
     publishedDate: extractDateFromFileName(file.name),
     documentGroup: inferDocumentGroup(file.name, sourceType),
     articleHint: extractArticleNo(title),
+    linkedDocumentTitles: extractLinkedDocumentTitles(file.content),
   };
 }
 
