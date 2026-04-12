@@ -419,6 +419,21 @@ function buildRetrievalAliases(query: string): string[] {
   const employeeRights = compact.includes('직원') && compact.includes('인권');
   const employeeAbuse = compact.includes('직원') && compact.includes('침해');
   const employeeRightsAbuse = employeeRights && employeeAbuse;
+  const recipientContext = compact.includes('수급자') || compact.includes('보호자');
+  const onboardingContext =
+    compact.includes('입소') ||
+    compact.includes('신규') ||
+    compact.includes('초기') ||
+    compact.includes('계약초기') ||
+    compact.includes('시작일');
+  const recipientEducation =
+    recipientContext &&
+    onboardingContext &&
+    (compact.includes('교육') || compact.includes('설명') || compact.includes('안내'));
+  const recipientChecklist =
+    recipientContext &&
+    onboardingContext &&
+    (compact.includes('해야할') || compact.includes('할일') || compact.includes('무엇') || compact.includes('뭐'));
 
   const add = (...items: string[]) => {
     for (const item of items) {
@@ -447,6 +462,25 @@ function buildRetrievalAliases(query: string): string[] {
 
   if (compact.includes('지표') || compact.includes('판단기준') || compact.includes('확인방법') || compact.includes('충족')) {
     add('평가 지표', '판단 기준', '확인 방법', '충족 미충족 기준');
+  }
+
+  if (recipientEducation || recipientChecklist) {
+    add(
+      '신규수급자',
+      '급여제공 시작일부터 14일 이내',
+      '수급자(보호자) 8가지 지침 설명',
+      '모든 수급자(보호자)에게 8가지 지침',
+      '욕창예방 낙상예방 탈수예방 배변도움 관절구축예방 치매예방 감염예방 노인인권보호',
+    );
+  }
+
+  if (recipientChecklist) {
+    add(
+      '기피식품 파악',
+      '급여제공 시작일까지 기피식품 파악',
+      '급여제공계획 설명 확인서명 공단통보',
+      '신규 급여제공계획 설명 확인서명 공단통보',
+    );
   }
 
   return aliases;
@@ -540,6 +574,16 @@ function uniqueNonEmptyLines(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
+function mergeDocumentScoreBoostMaps(...maps: Array<Map<string, number>>): Map<string, number> {
+  const merged = new Map<string, number>();
+  for (const map of maps) {
+    for (const [documentId, score] of map.entries()) {
+      merged.set(documentId, (merged.get(documentId) ?? 0) + score);
+    }
+  }
+  return merged;
+}
+
 function buildDocumentRepresentativeMap(chunks: StructuredChunk[]): Map<string, StructuredChunk> {
   const representatives = new Map<string, StructuredChunk>();
   for (const chunk of chunks) {
@@ -585,6 +629,88 @@ function uniqueDocumentCandidates(candidates: SearchCandidate[], limit = 4): Sea
   return documents;
 }
 
+function isRecipientOnboardingQuery(query: string): boolean {
+  const compact = query.replace(/\s+/g, '');
+  const recipientContext = compact.includes('수급자') || compact.includes('보호자');
+  const onboardingContext =
+    compact.includes('입소') ||
+    compact.includes('신규') ||
+    compact.includes('초기') ||
+    compact.includes('계약초기') ||
+    compact.includes('시작일');
+  const checklistContext =
+    compact.includes('해야할') ||
+    compact.includes('할일') ||
+    compact.includes('무엇') ||
+    compact.includes('뭐') ||
+    compact.includes('교육') ||
+    compact.includes('설명') ||
+    compact.includes('안내');
+
+  return recipientContext && onboardingContext && checklistContext;
+}
+
+function buildOperationalDocumentBoosts(chunks: StructuredChunk[], query: string): Map<string, number> {
+  if (!isRecipientOnboardingQuery(query)) {
+    return new Map<string, number>();
+  }
+
+  const signals: Array<{ term: string; weight: number }> = [
+    { term: '신규수급자', weight: 18 },
+    { term: '급여제공시작일부터14일이내', weight: 18 },
+    { term: '8가지지침', weight: 18 },
+    { term: '욕창예방', weight: 6 },
+    { term: '낙상예방', weight: 6 },
+    { term: '탈수예방', weight: 6 },
+    { term: '배변도움', weight: 6 },
+    { term: '관절구축예방', weight: 6 },
+    { term: '치매예방', weight: 6 },
+    { term: '감염예방', weight: 6 },
+    { term: '노인인권보호', weight: 6 },
+    { term: '기피식품', weight: 8 },
+    { term: '급여제공계획', weight: 8 },
+    { term: '공단통보', weight: 8 },
+  ];
+  const scoreByDocument = new Map<string, number>();
+  const matchedSignalsByDocument = new Map<string, Set<string>>();
+
+  for (const chunk of chunks) {
+    if (chunk.sourceRole === 'routing_summary') continue;
+
+    const compactSearchText = chunk.searchText.replace(/\s+/g, '');
+    const compactTitle = chunk.docTitle.replace(/\s+/g, '');
+    const titleBonus =
+      compactTitle.includes('평가매뉴얼') || compactTitle.includes('업무의이해')
+        ? 8
+        : 0;
+    const matchedSignals = matchedSignalsByDocument.get(chunk.documentId) ?? new Set<string>();
+
+    for (const signal of signals) {
+      if (compactSearchText.includes(signal.term) || compactTitle.includes(signal.term)) {
+        matchedSignals.add(signal.term);
+      }
+    }
+
+    matchedSignalsByDocument.set(chunk.documentId, matchedSignals);
+    if (titleBonus > 0) {
+      scoreByDocument.set(chunk.documentId, Math.max(scoreByDocument.get(chunk.documentId) ?? 0, titleBonus));
+    }
+  }
+
+  const rankedDocuments = Array.from(matchedSignalsByDocument.entries())
+    .map(([documentId, matchedSignals]) => ({
+      documentId,
+      score:
+        (scoreByDocument.get(documentId) ?? 0) +
+        Array.from(matchedSignals).reduce((sum, signal) => sum + (signals.find((item) => item.term === signal)?.weight ?? 0), 0),
+    }))
+    .filter((entry) => entry.score >= 18)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 6);
+
+  return new Map(rankedDocuments.map((entry) => [entry.documentId, entry.score]));
+}
+
 function resolveRoutingExpansionDocumentIds(
   routingCandidates: SearchCandidate[],
   allChunks: StructuredChunk[],
@@ -609,14 +735,42 @@ function resolveRoutingExpansionDocumentIds(
   return expandedIds;
 }
 
+const RECIPIENT_ONBOARDING_SUPPORT_ANCHORS = [
+  '신규수급자',
+  '8가지',
+  '욕창예방',
+  '낙상예방',
+  '탈수예방',
+  '배변도움',
+  '관절구축예방',
+  '치매예방',
+  '감염예방',
+  '노인인권보호',
+  '기피식품',
+  '급여제공계획',
+  '확인서명',
+  '공단통보',
+] as const;
+
+function hasRecipientOnboardingSupportAnchor(candidate: SearchCandidate): boolean {
+  const compactText = [candidate.docTitle, candidate.parentSectionTitle, candidate.searchText]
+    .filter(Boolean)
+    .join('\n')
+    .replace(/\s+/g, '');
+  return RECIPIENT_ONBOARDING_SUPPORT_ANCHORS.some((anchor) => compactText.includes(anchor));
+}
+
 function selectDirectSupportReferenceIds(search: SearchRun): Set<string> {
   const selected = new Set<string>();
   const focusTerms = search.focusTerms ?? deriveFocusTerms(search.query);
+  const recipientOnboardingQuery = isRecipientOnboardingQuery(search.query);
 
   for (const candidate of search.fusedCandidates) {
     if (candidate.sourceRole !== 'support_reference' || candidate.mode !== 'integrated') continue;
 
     const focusMatches = getCandidateFocusMatches(candidate, focusTerms);
+    if (recipientOnboardingQuery && !hasRecipientOnboardingSupportAnchor(candidate)) continue;
+
     const hasConcreteSignal = focusMatches.length > 0 || candidate.exactScore >= 18 || candidate.lexicalScore > 0.12;
     const strongEnough = candidate.rerankScore >= 22 || focusMatches.length > 0;
     if (!hasConcreteSignal || !strongEnough) continue;
@@ -632,6 +786,7 @@ function pruneIrrelevantSupportEvidence(search: SearchRun): SearchRun {
   const focusTerms = search.focusTerms ?? deriveFocusTerms(search.query);
   if (focusTerms.length === 0) return search;
   const queryRequestsEvaluationReference = /(q\s*&\s*a|q&a|qa|질문|답변|문의|사례|비교|후기)/i.test(search.query);
+  const recipientOnboardingQuery = isRecipientOnboardingQuery(search.query);
 
   const hasPriorityEvidence = search.evidence.some(
     (candidate) =>
@@ -645,6 +800,10 @@ function pruneIrrelevantSupportEvidence(search: SearchRun): SearchRun {
     if (candidate.mode === 'evaluation' && !queryRequestsEvaluationReference) return false;
 
     const focusMatches = getCandidateFocusMatches(candidate, focusTerms);
+    if (recipientOnboardingQuery && !hasRecipientOnboardingSupportAnchor(candidate)) {
+      return false;
+    }
+
     const hasNonGenericFocusMatch = focusMatches.some((term) => !isGenericQueryTerm(term));
     return hasNonGenericFocusMatch;
   });
@@ -2044,6 +2203,7 @@ export class NodeRagService {
     queryEmbedding: number[] | null,
     aliases: string[],
   ): SearchExecutionResult {
+    const searchQuery = uniqueNonEmptyLines([normalizedQuery, ...aliases]).join('\n');
     const emptyScope: RetrievalScopeContext = {
       routeOnlyDocumentIds: new Set<string>(),
       primaryExpansionDocumentIds: new Set<string>(),
@@ -2054,7 +2214,14 @@ export class NodeRagService {
     if (mode !== 'evaluation') {
       const allChunks = this.store.getChunks();
       const representatives = buildDocumentRepresentativeMap(allChunks);
-      const initialSearch = this.store.search(normalizedQuery, mode, queryEmbedding, aliases);
+      const heuristicDocumentScoreBoosts = buildOperationalDocumentBoosts(allChunks, normalizedQuery);
+      const initialSearch = this.store.search(
+        searchQuery,
+        mode,
+        queryEmbedding,
+        aliases,
+        heuristicDocumentScoreBoosts.size > 0 ? { documentScoreBoosts: heuristicDocumentScoreBoosts } : undefined,
+      );
       const routingCandidates = uniqueDocumentCandidates(
         initialSearch.fusedCandidates.filter((candidate) => candidate.sourceRole === 'routing_summary'),
         4,
@@ -2069,11 +2236,11 @@ export class NodeRagService {
       }
 
       const routeOnlyDocumentIds = new Set(routingCandidates.map((candidate) => candidate.documentId));
-      const documentScoreBoosts = new Map<string, number>();
+      const documentScoreBoosts = mergeDocumentScoreBoostMaps(heuristicDocumentScoreBoosts);
       for (const documentId of primaryExpansionDocumentIds) {
         const sourceRole = representatives.get(documentId)?.sourceRole;
         const boost = sourceRole === 'primary_evaluation' ? 32 : 16;
-        documentScoreBoosts.set(documentId, boost);
+        documentScoreBoosts.set(documentId, (documentScoreBoosts.get(documentId) ?? 0) + boost);
       }
 
       const expansionAliases = uniqueNonEmptyLines([
@@ -2083,13 +2250,13 @@ export class NodeRagService {
         ...routingCandidates.flatMap((candidate) => candidate.sectionPath.slice(-2)),
       ]);
       const expansionQuery = uniqueNonEmptyLines([
-        normalizedQuery,
+        searchQuery,
         ...routingCandidates.map((candidate) => candidate.docTitle),
         ...routingCandidates.map((candidate) => candidate.parentSectionTitle),
       ]).join('\n');
 
       const rerankedSearch = applyGroundingGate(
-        this.store.search(normalizedQuery, mode, queryEmbedding, aliases, {
+        this.store.search(searchQuery, mode, queryEmbedding, aliases, {
           documentScoreBoosts,
           excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
         }),
@@ -2115,6 +2282,7 @@ export class NodeRagService {
 
     const allChunks = this.store.getChunks();
     const representatives = buildDocumentRepresentativeMap(allChunks);
+    const heuristicDocumentScoreBoosts = buildOperationalDocumentBoosts(allChunks, normalizedQuery);
     const evaluationDocumentIds = new Set(
       allChunks.filter((chunk) => chunk.mode === 'evaluation').map((chunk) => chunk.documentId),
     );
@@ -2124,7 +2292,7 @@ export class NodeRagService {
         .map((chunk) => chunk.documentId),
     );
 
-    const routingSearch = this.store.search(normalizedQuery, mode, queryEmbedding, aliases, {
+    const routingSearch = this.store.search(searchQuery, mode, queryEmbedding, aliases, {
       allowedDocumentIds: evaluationDocumentIds,
     });
     const routingCandidates = uniqueDocumentCandidates(
@@ -2141,7 +2309,7 @@ export class NodeRagService {
     const directSupportDocumentIds =
       integratedSupportDocumentIds.size > 0
         ? selectDirectSupportReferenceIds(
-            this.store.search(normalizedQuery, mode, queryEmbedding, aliases, {
+            this.store.search(searchQuery, mode, queryEmbedding, aliases, {
               allowedDocumentIds: integratedSupportDocumentIds,
             }),
           )
@@ -2152,7 +2320,7 @@ export class NodeRagService {
       ...primaryExpansionDocumentIds,
       ...directSupportDocumentIds,
     ]);
-    const documentScoreBoosts = new Map<string, number>();
+    const documentScoreBoosts = mergeDocumentScoreBoostMaps(heuristicDocumentScoreBoosts);
 
     for (const documentId of primaryExpansionDocumentIds) {
       const sourceRole = representatives.get(documentId)?.sourceRole;
@@ -2171,13 +2339,13 @@ export class NodeRagService {
       ...routingCandidates.flatMap((candidate) => candidate.sectionPath.slice(-2)),
     ]);
     const expansionQuery = uniqueNonEmptyLines([
-      normalizedQuery,
+      searchQuery,
       ...routingCandidates.map((candidate) => candidate.docTitle),
       ...routingCandidates.map((candidate) => candidate.parentSectionTitle),
     ]).join('\n');
 
     const baseSearch = applyGroundingGate(
-      this.store.search(normalizedQuery, mode, queryEmbedding, aliases, {
+      this.store.search(searchQuery, mode, queryEmbedding, aliases, {
         allowedDocumentIds,
         documentScoreBoosts,
         excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),

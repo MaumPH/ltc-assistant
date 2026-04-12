@@ -111,5 +111,67 @@
     ],
     "requires_clarification": false,
     "notes": "법정 의무 여부, 평가 기준상 교육, 별개 성희롱 예방 교육을 구분하고 기준 시점을 사람 읽기 좋은 형태로 유지해야 한다."
+  },
+  {
+    "id": "integrated-new-recipient-education-checklist",
+    "mode": "integrated",
+    "question": "신규 수급자(보호자)에게 해야 할 교육은 무엇인가요?",
+    "expected_state": "확정",
+    "must_include": [
+      "[답변 가능 상태]",
+      "14일 이내",
+      "연 1회 이상",
+      "8가지",
+      "욕창예방",
+      "노인인권보호"
+    ],
+    "must_not_include": [
+      "실시할 수 있으며",
+      "신고 요령 및 절차",
+      "인권교육만"
+    ],
+    "requires_clarification": false,
+    "notes": "수급자 입소 초기 교육 질문은 인권교육 한 가지가 아니라 8가지 지침 설명과 신규 수급자 14일 이내 기준을 우선 답해야 한다."
+  },
+  {
+    "id": "integrated-new-recipient-onboarding-tasks",
+    "mode": "integrated",
+    "question": "수급자 입소후 해야할 일은?",
+    "expected_state": "확정",
+    "must_include": [
+      "[답변 가능 상태]",
+      "8가지 지침",
+      "기피식품",
+      "급여제공계획",
+      "14일 이내"
+    ],
+    "must_not_include": [
+      "기피식품만",
+      "식사만족도 조사만",
+      "인권교육만"
+    ],
+    "requires_clarification": false,
+    "notes": "입소 초기 해야 할 일 질문은 단일 세부 지표로 축소하지 말고 신규 수급자 초기 체크리스트를 함께 보여줘야 한다."
+  },
+  {
+    "id": "integrated-recipient-onboarding-education-direct",
+    "mode": "integrated",
+    "question": "수급자 입소후 해야할 교육은?",
+    "expected_state": "확정",
+    "must_include": [
+      "[답변 가능 상태]",
+      "8가지",
+      "연 1회 이상",
+      "14일 이내",
+      "욕창예방",
+      "노인인권보호"
+    ],
+    "must_not_include": [
+      "실시할 수 있으며",
+      "신고 요령 및 절차",
+      "인권교육만"
+    ],
+    "requires_clarification": false,
+    "notes": "입소 초기 교육 질문은 수급자 대상 인권교육 한 항목으로 축소하지 말고 8가지 지침 설명 의무를 우선 답해야 한다."
   }
 ]

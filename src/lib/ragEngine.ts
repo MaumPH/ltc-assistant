@@ -25,7 +25,9 @@ export interface SearchOptions {
 const VECTOR_TOP_K = 36;
 const FUSED_TOP_K = 24;
 const EVIDENCE_TOP_K = 12;
+const CHECKLIST_EVIDENCE_TOP_K = 14;
 const MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT = 2;
+const CHECKLIST_MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT = 3;
 const MAX_WINDOWS_PER_CLUSTER = 2;
 const RRF_K = 50;
 const CANDIDATE_METADATA_TERMS = new Set([
@@ -356,13 +358,42 @@ function isAdjacentWindow(left: SearchCandidate, right: SearchCandidate): boolea
   );
 }
 
-function selectEvidence(candidates: SearchCandidate[], options?: SearchOptions): SearchCandidate[] {
+function shouldExpandChecklistEvidence(query: string): boolean {
+  const compact = query.replace(/\s+/g, '');
+  const broadChecklistCue =
+    compact.includes('해야할') ||
+    compact.includes('할일') ||
+    compact.includes('체크리스트') ||
+    compact.includes('무엇') ||
+    compact.includes('뭐') ||
+    compact.includes('안내') ||
+    compact.includes('설명') ||
+    compact.includes('교육');
+  const onboardingOrOperationalCue =
+    compact.includes('입소') ||
+    compact.includes('신규') ||
+    compact.includes('초기') ||
+    compact.includes('준비') ||
+    compact.includes('수급자') ||
+    compact.includes('보호자') ||
+    compact.includes('직원') ||
+    compact.includes('평가');
+
+  return broadChecklistCue && onboardingOrOperationalCue;
+}
+
+function selectEvidence(candidates: SearchCandidate[], query: string, options?: SearchOptions): SearchCandidate[] {
   const selected: SearchCandidate[] = [];
   const documentClusters = new Map<string, Set<string>>();
   const clusterWindowCounts = new Map<string, number>();
+  const useChecklistExpansion = shouldExpandChecklistEvidence(query);
+  const evidenceTopK = useChecklistExpansion ? CHECKLIST_EVIDENCE_TOP_K : EVIDENCE_TOP_K;
+  const maxEvidenceClustersPerDocument = useChecklistExpansion
+    ? CHECKLIST_MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT
+    : MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT;
 
   for (const candidate of candidates) {
-    if (selected.length >= EVIDENCE_TOP_K) break;
+    if (selected.length >= evidenceTopK) break;
     if (options?.excludedEvidenceRoles?.has(candidate.sourceRole)) continue;
 
     const clusterKey = `${candidate.documentId}:${candidate.parentSectionId}`;
@@ -371,7 +402,7 @@ function selectEvidence(candidates: SearchCandidate[], options?: SearchOptions):
     const existingClusterWindows = selected.filter((item) => `${item.documentId}:${item.parentSectionId}` === clusterKey);
     const clusterAlreadySelected = activeClusters.has(clusterKey);
 
-    if (!clusterAlreadySelected && activeClusters.size >= MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT) continue;
+    if (!clusterAlreadySelected && activeClusters.size >= maxEvidenceClustersPerDocument) continue;
     if (clusterCount >= MAX_WINDOWS_PER_CLUSTER) continue;
     if (
       clusterAlreadySelected &&
@@ -507,7 +538,7 @@ export function searchCorpus(params: {
     .sort((left, right) => right.rerankScore - left.rerankScore)
     .slice(0, FUSED_TOP_K);
 
-  const evidence = selectEvidence(fusedCandidates, options);
+  const evidence = selectEvidence(fusedCandidates, query, options);
   const { focusTerms, mismatchSignals } = detectTopicMismatch(query, fusedCandidates);
   const confidence = inferConfidence(intent, evidence, mismatchSignals);
 
