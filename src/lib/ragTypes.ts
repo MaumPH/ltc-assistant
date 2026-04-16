@@ -503,3 +503,14 @@ export interface ChatCapabilities {
     label: string;
   }>;
 }
+
+export interface HomeOverviewResponse {
+  knowledgeDocumentCount: number;
+  chunkCount: number;
+  compiledPageCount: number;
+  retrievalReadiness: RetrievalReadiness;
+  pendingEmbeddingChunks: number;
+  storageMode: string;
+  indexGeneratedAt?: string;
+  latestKnowledgeUpdatedAt?: string;
+}

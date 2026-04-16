@@ -3,9 +3,10 @@ import { Bot, ChevronDown, Key, Scale, Settings2, X } from 'lucide-react';
 import { ApiKeyForm } from './ApiKeySetup';
 import { CHAT_MODELS, MODEL_STORAGE, type ChatModelId } from '../lib/chatModels';
 
-export type TabId = 'integrated' | 'evaluation' | 'wiki' | 'dashboard' | 'knowledge';
+export type TabId = 'home' | 'integrated' | 'evaluation' | 'wiki' | 'dashboard' | 'knowledge';
 
 export const TABS: { id: TabId; label: string; shortLabel: string }[] = [
+  { id: 'home', label: '메인페이지', shortLabel: '홈' },
   { id: 'integrated', label: '통합채팅', shortLabel: '통합' },
   { id: 'evaluation', label: '평가채팅', shortLabel: '평가' },
   { id: 'wiki', label: '평가 지침 정리', shortLabel: '지침' },
@@ -216,7 +217,7 @@ export default function TopNav({
       <div className="flex h-14 items-center gap-3 px-3 sm:gap-4 sm:px-4">
         <div className="flex shrink-0 items-center gap-2">
           <Scale className="h-5 w-5 text-blue-400" />
-          <span className="hidden whitespace-nowrap text-sm font-semibold sm:block">장기요양 업무 보조</span>
+          <span className="hidden whitespace-nowrap text-sm font-semibold sm:block font-brand">장기요양 물어보세요</span>
         </div>
 
         <div className="hidden h-6 w-px shrink-0 bg-slate-700 sm:block" />

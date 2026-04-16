@@ -21,13 +21,13 @@ function getStateStyles(state: ExpertAnswerEnvelope['evidenceState']): string {
 function getStateLabel(state: ExpertAnswerEnvelope['evidenceState']): string {
   switch (state) {
     case 'confirmed':
-      return '확정';
+      return '적용됨';
     case 'partial':
-      return '부분확정';
+      return '부분 확인';
     case 'conflict':
-      return '충돌';
+      return '근거 충돌';
     case 'not_enough':
-      return '확인 불가';
+      return '근거 부족';
   }
 }
 
@@ -48,188 +48,240 @@ function getAnswerTypeLabel(answerType: ExpertAnswerEnvelope['answerType']): str
   }
 }
 
-function BasisSection({
+function getBlockTypeLabel(blockType: ExpertAnswerBlock['type']): string {
+  switch (blockType) {
+    case 'checklist':
+      return '체크리스트';
+    case 'steps':
+      return '절차';
+    case 'comparison':
+      return '비교';
+    case 'bullets':
+      return '핵심 정리';
+    case 'warning':
+      return '주의';
+    case 'definition':
+      return '정의';
+    case 'followup':
+      return '추가 점검';
+  }
+}
+
+function SectionShell({
+  children,
   title,
-  entries,
-  tone,
 }: {
+  children: React.ReactNode;
   title: string;
-  entries: ExpertAnswerEnvelope['basis'][keyof ExpertAnswerEnvelope['basis']];
-  tone: string;
 }) {
   return (
-    <section className={`rounded-3xl border p-4 shadow-sm sm:p-5 ${tone}`}>
-      <div className="mb-3 flex items-center gap-2">
-        <span className="h-2 w-2 rounded-full bg-current opacity-70" />
-        <h3 className="text-sm font-semibold sm:text-base">{title}</h3>
+    <section className="rounded-[28px] border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5 sm:py-5">
+      <div className="mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
+        <span className="h-2.5 w-2.5 rounded-full bg-[#b79358]" />
+        <h3 className="text-base font-semibold text-slate-900">{title}</h3>
       </div>
-      <div className="space-y-3">
-        {entries.length > 0 ? (
-          entries.map((entry) => (
-            <div key={`${title}-${entry.label}`} className="rounded-2xl bg-white/70 px-3 py-3">
-              <p className="text-sm font-semibold text-slate-900">{entry.label}</p>
-              <p className="mt-1 text-sm leading-6 text-slate-700">{entry.summary}</p>
-            </div>
-          ))
-        ) : (
-          <p className="text-sm leading-6 text-slate-600">직접 연결된 근거가 충분하지 않습니다.</p>
-        )}
-      </div>
+      {children}
     </section>
   );
 }
 
 function BlockCard({ block }: { block: ExpertAnswerBlock }) {
   const isComparison = block.type === 'comparison';
-  const isDefinition = block.type === 'definition';
+  const isCompact = block.type === 'warning' || block.type === 'followup' || block.type === 'definition';
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="h-2 w-2 rounded-full bg-blue-500" />
-        <h3 className="text-sm font-semibold text-slate-900 sm:text-base">{block.title}</h3>
+    <article className="rounded-3xl border border-slate-200 bg-[#fcfcfb] px-4 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-semibold text-slate-900 sm:text-base">{block.title}</h4>
+          {block.intro && <p className="mt-2 text-sm leading-6 text-slate-600">{block.intro}</p>}
+        </div>
+        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">
+          {getBlockTypeLabel(block.type)}
+        </span>
       </div>
-      {block.intro && <p className="mb-3 text-sm leading-6 text-slate-600">{block.intro}</p>}
-      <div className={`grid gap-3 ${isComparison ? 'md:grid-cols-3' : ''}`}>
+
+      <div className={`mt-4 grid gap-3 ${isComparison ? 'lg:grid-cols-2' : 'grid-cols-1'}`}>
         {block.items.map((item, index) => (
-          <div key={`${block.title}-${index}`} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+          <div
+            key={`${block.title}-${item.label}-${index}`}
+            className={`rounded-2xl border border-slate-100 bg-white px-3 py-3 ${
+              isCompact ? '' : 'shadow-[0_8px_24px_-22px_rgba(15,23,42,0.3)]'
+            }`}
+          >
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm font-semibold text-slate-900">{item.label}</p>
               {item.basis && (
-                <span className="rounded-full bg-white px-2 py-1 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
+                <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-500">
                   {item.basis}
                 </span>
               )}
             </div>
-            <p className="mt-2 text-sm leading-6 text-slate-700">{item.detail}</p>
-            {(item.actor || item.timeWindow || item.artifact || (isDefinition && item.term)) && (
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-700">{item.detail}</p>
+
+            {(item.actor || item.timeWindow || item.artifact || item.term) && (
               <div className="mt-3 flex flex-wrap gap-2">
-                {item.actor && <span className="rounded-full bg-white px-2.5 py-1 text-xs text-slate-600">누가: {item.actor}</span>}
-                {item.timeWindow && <span className="rounded-full bg-white px-2.5 py-1 text-xs text-slate-600">언제: {item.timeWindow}</span>}
-                {item.artifact && <span className="rounded-full bg-white px-2.5 py-1 text-xs text-slate-600">자료: {item.artifact}</span>}
-                {isDefinition && item.term && <span className="rounded-full bg-white px-2.5 py-1 text-xs text-slate-600">용어: {item.term}</span>}
+                {item.actor && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">담당 {item.actor}</span>}
+                {item.timeWindow && (
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">시점 {item.timeWindow}</span>
+                )}
+                {item.artifact && (
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">자료 {item.artifact}</span>
+                )}
+                {item.term && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">용어 {item.term}</span>}
               </div>
             )}
           </div>
         ))}
       </div>
-    </section>
+    </article>
   );
 }
 
-function VerdictAnswerCard({ answer }: ExpertAnswerCardProps) {
+function BasisColumn({
+  entries,
+  emptyLabel,
+  title,
+  tone,
+}: {
+  emptyLabel: string;
+  entries: ExpertAnswerEnvelope['basis'][keyof ExpertAnswerEnvelope['basis']];
+  title: string;
+  tone: string;
+}) {
   return (
-    <section className="rounded-3xl border border-blue-200 bg-blue-50/80 p-4 sm:p-5">
+    <div className={`rounded-3xl border px-4 py-4 ${tone}`}>
       <div className="mb-3 flex items-center gap-2">
-        <span className="h-2 w-2 rounded-full bg-blue-500" />
-        <h2 className="text-sm font-semibold text-slate-900 sm:text-base">전문가 판단</h2>
+        <span className="h-2 w-2 rounded-full bg-current opacity-70" />
+        <h4 className="text-sm font-semibold">{title}</h4>
       </div>
-      <p className="text-[15px] leading-7 text-slate-800">{answer.summary}</p>
-    </section>
+
+      <div className="space-y-3">
+        {entries.length > 0 ? (
+          entries.map((entry) => (
+            <div key={`${title}-${entry.label}`} className="rounded-2xl bg-white/75 px-3 py-3">
+              <p className="text-sm font-semibold text-slate-900">{entry.label}</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm leading-7 text-slate-700">{entry.summary}</p>
+            </div>
+          ))
+        ) : (
+          <p className="rounded-2xl bg-white/75 px-3 py-3 text-sm leading-6 text-slate-600">{emptyLabel}</p>
+        )}
+      </div>
+    </div>
   );
 }
 
-function ChecklistAnswerCard({ answer }: ExpertAnswerCardProps) {
-  return <>{answer.blocks.map((block) => <BlockCard key={block.title} block={block} />)}</>;
-}
-
-function ProcedureAnswerCard({ answer }: ExpertAnswerCardProps) {
-  return <>{answer.blocks.map((block) => <BlockCard key={block.title} block={block} />)}</>;
-}
-
-function ComparisonAnswerCard({ answer }: ExpertAnswerCardProps) {
-  return <>{answer.blocks.map((block) => <BlockCard key={block.title} block={block} />)}</>;
-}
-
-function DefinitionAnswerCard({ answer }: ExpertAnswerCardProps) {
-  return <>{answer.blocks.map((block) => <BlockCard key={block.title} block={block} />)}</>;
-}
-
-function MixedAnswerCard({ answer }: ExpertAnswerCardProps) {
-  return <>{answer.blocks.map((block) => <BlockCard key={block.title} block={block} />)}</>;
-}
-
-function AnswerBody({ answer }: ExpertAnswerCardProps) {
-  switch (answer.answerType) {
-    case 'verdict':
-      return <VerdictAnswerCard answer={answer} />;
-    case 'checklist':
-      return <ChecklistAnswerCard answer={answer} />;
-    case 'procedure':
-      return <ProcedureAnswerCard answer={answer} />;
-    case 'comparison':
-      return <ComparisonAnswerCard answer={answer} />;
-    case 'definition':
-      return <DefinitionAnswerCard answer={answer} />;
-    case 'mixed':
-      return <MixedAnswerCard answer={answer} />;
+function CitationMeta({ answer }: { answer: ExpertAnswerEnvelope }) {
+  if (answer.citations.length === 0) {
+    return <p className="text-sm leading-6 text-slate-500">표시할 참조 근거가 없습니다.</p>;
   }
+
+  return (
+    <div className="space-y-3">
+      {answer.citations.map((citation) => {
+        const meta = [citation.docTitle, citation.articleNo, citation.sectionPath.join(' / '), citation.effectiveDate]
+          .filter(Boolean)
+          .join(' · ');
+
+        return (
+          <article key={citation.evidenceId} className="rounded-3xl border border-slate-100 bg-[#fafaf9] px-4 py-4">
+            <p className="text-sm font-semibold leading-6 text-slate-900">{citation.label}</p>
+            {citation.whyItMatters && <p className="mt-2 text-sm leading-7 text-slate-700">{citation.whyItMatters}</p>}
+            {meta && <p className="mt-2 break-words text-xs leading-6 text-slate-500">{meta}</p>}
+          </article>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function ExpertAnswerCard({ answer }: ExpertAnswerCardProps) {
   return (
-    <article className="w-full overflow-hidden rounded-[28px] border border-slate-200 bg-slate-50 shadow-sm">
-      <div className="border-b border-slate-200 bg-[linear-gradient(135deg,rgba(248,250,252,1),rgba(236,253,245,0.9),rgba(239,246,255,0.9))] px-4 py-4 sm:px-5 sm:py-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Expert Answer</p>
-        <h2 className="mt-3 text-lg font-semibold text-slate-900 sm:text-xl">{answer.headline}</h2>
-        <p className="mt-3 text-sm leading-6 text-slate-700 sm:text-[15px]">{answer.summary}</p>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${getStateStyles(answer.evidenceState)}`}>
+    <article className="w-full overflow-hidden rounded-[30px] border border-[#ddd6c9] bg-[#f7f5f1] shadow-[0_20px_60px_-42px_rgba(15,23,42,0.42)]">
+      <div className="border-b border-[#e7e1d7] bg-[linear-gradient(180deg,rgba(255,252,245,1),rgba(248,250,252,0.92))] px-4 py-5 sm:px-6 sm:py-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full border border-[#ddc58f]/70 bg-[#f8edd1] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7b5c28]">
+            Expert Answer
+          </span>
+          <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStateStyles(answer.evidenceState)}`}>
             {getStateLabel(answer.evidenceState)}
           </span>
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
             {getAnswerTypeLabel(answer.answerType)}
           </span>
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
             신뢰도 {answer.confidence}
           </span>
           {answer.keyIssueDate && (
-            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+            <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
               {answer.keyIssueDate}
             </span>
           )}
         </div>
-        {answer.scope && <p className="mt-3 text-xs leading-6 text-slate-500">적용 범위: {answer.scope}</p>}
+
+        <h2 className="mt-4 text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">{answer.headline}</h2>
+        <p className="mt-3 whitespace-pre-wrap text-[15px] leading-8 text-slate-700">{answer.summary}</p>
       </div>
 
-      <div className="space-y-4 p-4 sm:p-5">
-        <AnswerBody answer={answer} />
-
-        <div className="grid gap-4 lg:grid-cols-3">
-          <BasisSection title="법적 근거" entries={answer.basis.legal} tone="border-emerald-200 bg-emerald-50 text-emerald-900" />
-          <BasisSection title="평가 근거" entries={answer.basis.evaluation} tone="border-amber-200 bg-amber-50 text-amber-900" />
-          <BasisSection title="실무 근거" entries={answer.basis.practical} tone="border-sky-200 bg-sky-50 text-sky-900" />
-        </div>
-
-        <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-          <div className="mb-3 flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-slate-500" />
-            <h3 className="text-sm font-semibold text-slate-900 sm:text-base">출처</h3>
+      <div className="space-y-4 px-4 py-4 sm:px-5 sm:py-5">
+        <SectionShell title="결론">
+          <div className="rounded-3xl border border-blue-100 bg-[linear-gradient(180deg,rgba(239,246,255,0.85),rgba(255,255,255,0.95))] px-4 py-4">
+            <p className="text-base font-semibold leading-8 text-slate-900">{answer.summary}</p>
+            {answer.scope && <p className="mt-3 text-sm leading-7 text-slate-600">적용 범위: {answer.scope}</p>}
           </div>
-          <div className="space-y-3">
-            {answer.citations.map((citation) => (
-              <div key={citation.evidenceId} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
-                <p className="text-sm font-semibold text-slate-900">{citation.label}</p>
-                {citation.whyItMatters && <p className="mt-1 text-sm leading-6 text-slate-700">{citation.whyItMatters}</p>}
-              </div>
-            ))}
-          </div>
-        </section>
+        </SectionShell>
 
-        {answer.followUps.length > 0 && (
-          <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-slate-500" />
-              <h3 className="text-sm font-semibold text-slate-900 sm:text-base">추가 확인</h3>
-            </div>
-            <div className="space-y-2">
-              {answer.followUps.map((followUp) => (
-                <p key={followUp} className="rounded-2xl bg-slate-50 px-3 py-3 text-sm leading-6 text-slate-700">
-                  {followUp}
-                </p>
+        {answer.blocks.length > 0 && (
+          <SectionShell title="핵심 내용">
+            <div className="space-y-3">
+              {answer.blocks.map((block) => (
+                <BlockCard key={`${block.type}-${block.title}`} block={block} />
               ))}
             </div>
-          </section>
+          </SectionShell>
+        )}
+
+        <SectionShell title="근거">
+          <div className="space-y-4">
+            <BasisColumn
+              title="법적 근거"
+              entries={answer.basis.legal}
+              emptyLabel="직접 연결된 법적 근거가 아직 충분하지 않습니다."
+              tone="border-emerald-200 bg-emerald-50 text-emerald-900"
+            />
+            <BasisColumn
+              title="평가 근거"
+              entries={answer.basis.evaluation}
+              emptyLabel="직접 연결된 평가 근거가 아직 충분하지 않습니다."
+              tone="border-amber-200 bg-amber-50 text-amber-900"
+            />
+            <BasisColumn
+              title="실무 근거"
+              entries={answer.basis.practical}
+              emptyLabel="직접 연결된 실무 근거가 아직 충분하지 않습니다."
+              tone="border-sky-200 bg-sky-50 text-sky-900"
+            />
+          </div>
+        </SectionShell>
+
+        <SectionShell title="참조 근거">
+          <CitationMeta answer={answer} />
+        </SectionShell>
+
+        {answer.followUps.length > 0 && (
+          <SectionShell title="추가 확인">
+            <div className="space-y-3">
+              {answer.followUps.map((followUp) => (
+                <div
+                  key={followUp}
+                  className="rounded-3xl border border-amber-200 bg-amber-50/70 px-4 py-4 text-sm leading-7 text-slate-700"
+                >
+                  {followUp}
+                </div>
+              ))}
+            </div>
+          </SectionShell>
         )}
       </div>
     </article>

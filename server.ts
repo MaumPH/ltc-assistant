@@ -186,6 +186,37 @@ async function startServer() {
     }
   });
 
+  app.get('/api/home/overview', async (_req, res) => {
+    try {
+      await ragService.initialize();
+      const stats = ragService.getStats();
+      const indexStatus = await ragService.getIndexStatus();
+      const knowledgeFiles = ragService.listKnowledgeFiles();
+      const latestKnowledgeUpdatedAt = knowledgeFiles
+        .map((file) => file.updatedAt)
+        .filter((value): value is Date => value instanceof Date && !Number.isNaN(value.getTime()))
+        .sort((left, right) => right.getTime() - left.getTime())[0]
+        ?.toISOString();
+
+      res.json({
+        knowledgeDocumentCount: knowledgeFiles.length,
+        chunkCount: stats.chunks,
+        compiledPageCount: stats.compiledPages,
+        retrievalReadiness: indexStatus.retrievalReadiness,
+        pendingEmbeddingChunks: indexStatus.pendingEmbeddingChunks,
+        storageMode: stats.storageMode,
+        indexGeneratedAt: indexStatus.generatedAt,
+        latestKnowledgeUpdatedAt,
+      });
+    } catch (error) {
+      logServerError('home overview failed', error);
+      res.status(500).json({
+        error: 'Failed to load home overview',
+        details: getSafeErrorMessage(error),
+      });
+    }
+  });
+
   app.get('/api/knowledge', (_req, res) => {
     res.json(ragService.listKnowledgeFiles());
   });

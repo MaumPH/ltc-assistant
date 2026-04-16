@@ -3,8 +3,9 @@ import { Loader2, Scale, Send } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { MODELS, type ModelId } from './TopNav';
 import ExpertAnswerCard from './ExpertAnswerCard';
+import RetrievalTracePanel from './RetrievalTracePanel';
 import { getApiUrl } from '../lib/apiUrl';
-import type { ChatCapabilities, ExpertAnswerEnvelope } from '../lib/ragTypes';
+import type { ChatCapabilities, ExpertAnswerEnvelope, RetrievalDiagnostics } from '../lib/ragTypes';
 
 export interface Message {
   id: string;
@@ -19,7 +20,7 @@ export interface Message {
     sectionPath: string[];
     effectiveDate?: string;
   }>;
-  retrieval?: Record<string, unknown>;
+  retrieval?: RetrievalDiagnostics;
 }
 
 interface ChatViewProps {
@@ -34,7 +35,7 @@ interface ChatApiResponse {
   answer?: ExpertAnswerEnvelope;
   text?: string;
   citations?: Message['citations'];
-  retrieval?: Message['retrieval'];
+  retrieval?: RetrievalDiagnostics;
 }
 
 interface ChatApiErrorResponse {
@@ -240,15 +241,21 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
   };
 
   const renderModelMessage = (message: Message) => {
-    if (message.answer) {
-      return <ExpertAnswerCard answer={message.answer} />;
-    }
-
     return (
-      <div className="rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-3 text-slate-800 shadow-sm sm:px-5 sm:py-4">
-        <div className="prose prose-sm max-w-none break-words prose-headings:font-semibold prose-p:leading-relaxed prose-a:text-blue-600 md:prose-base">
-          <ReactMarkdown>{message.text}</ReactMarkdown>
-        </div>
+      <div className="w-full">
+        {message.answer ? (
+          <ExpertAnswerCard answer={message.answer} />
+        ) : (
+          <div className="rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-3 text-slate-800 shadow-sm sm:px-5 sm:py-4">
+            <div className="prose prose-sm max-w-none break-words prose-headings:font-semibold prose-p:leading-relaxed prose-a:text-blue-600 md:prose-base">
+              <ReactMarkdown>{message.text}</ReactMarkdown>
+            </div>
+          </div>
+        )}
+
+        {message.retrieval && (
+          <RetrievalTracePanel confidence={message.answer?.confidence} retrieval={message.retrieval} />
+        )}
       </div>
     );
   };

@@ -1,8 +1,26 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+@font-face {
+  font-family: "MaruBuri";
+  src: local("MaruBuri"), local("MaruBuriOTF");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SUIT";
+  src: local("SUIT"), local("SUIT Variable"), local("SUIT-Regular");
+  font-display: swap;
+}
+
 :root {
   color-scheme: light;
+  --ltc-font-brand: "MaruBuri", "Nanum Myeongjo", "AppleMyungjo", "Iowan Old Style", serif;
+  --ltc-font-ui: "SUIT", "Pretendard Variable", "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ltc-ink: #0f172a;
+  --ltc-muted: #475569;
+  --ltc-sand: #f7f3ea;
+  --ltc-gold: #b79358;
 }
 
 html,
@@ -15,6 +33,12 @@ body {
   margin: 0;
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
+  font-family: var(--ltc-font-ui);
+  color: var(--ltc-ink);
+  background-color: var(--ltc-sand);
+  background-image:
+    radial-gradient(circle at top, rgba(202, 174, 117, 0.12), transparent 28%),
+    linear-gradient(180deg, #f7f3ea 0%, #f8fafc 58%, #f8fafc 100%);
 }
 
 .app-shell,
@@ -72,6 +96,14 @@ body {
   display: block;
   width: max-content;
   min-width: 100%;
+}
+
+.font-brand {
+  font-family: var(--ltc-font-brand);
+}
+
+.font-ui {
+  font-family: var(--ltc-font-ui);
 }
 
 @media (max-width: 640px) {
