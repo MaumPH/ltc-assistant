@@ -12,6 +12,7 @@ import { getApiUrl } from './lib/apiUrl';
 import type { ChatCapabilities } from './lib/ragTypes';
 
 const ChatView = lazy(() => import('./components/ChatView'));
+const HomeView = lazy(() => import('./components/HomeView'));
 const EvaluationWiki = lazy(() => import('./components/EvaluationWiki'));
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const KnowledgeBaseView = lazy(() => import('./components/KnowledgeBaseView'));
@@ -42,7 +43,7 @@ function ScreenLoader() {
 
 export default function App() {
   const [apiKey, setApiKey] = useState<string | null>(readStoredApiKey);
-  const [activeTab, setActiveTab] = useState<TabId>('integrated');
+  const [activeTab, setActiveTab] = useState<TabId>('home');
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [showMobileSettings, setShowMobileSettings] = useState(false);
   const [selectedModel, setSelectedModel] = useState<ModelId>(readStoredModel);
@@ -100,6 +101,14 @@ export default function App() {
     setShowMobileSettings(false);
   };
 
+  const handleSettingsOpen = () => {
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches) {
+      setShowMobileSettings(true);
+      return;
+    }
+    setShowKeyModal(true);
+  };
+
   return (
     <div className="app-shell flex flex-col overflow-hidden bg-slate-50 font-sans text-slate-900">
       <TopNav
@@ -107,7 +116,7 @@ export default function App() {
         onTabChange={handleTabChange}
         selectedModel={selectedModel}
         onModelChange={setSelectedModel}
-        onApiKeyClick={() => setShowKeyModal(true)}
+        onApiKeyClick={handleSettingsOpen}
         onMobileSettingsClick={() => setShowMobileSettings(true)}
       />
 
@@ -119,6 +128,15 @@ export default function App() {
 
       <div className="flex min-h-0 flex-1 flex-col">
         <Suspense fallback={<ScreenLoader />}>
+          {activeTab === 'home' && (
+            <HomeView
+              capabilities={capabilities}
+              hasApiKey={Boolean(apiKey)}
+              onOpenSettings={handleSettingsOpen}
+              onTabChange={handleTabChange}
+              selectedModel={selectedModel}
+            />
+          )}
           {activeTab === 'integrated' && (
             <ChatView
               mode="integrated"
