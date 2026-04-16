@@ -20,6 +20,17 @@ export type EvidenceState = 'confirmed' | 'partial' | 'conflict' | 'not_enough';
 
 export type ConfidenceLevel = 'high' | 'medium' | 'low';
 
+export type NaturalLanguageQueryType =
+  | 'definition'
+  | 'procedure'
+  | 'checklist'
+  | 'comparison'
+  | 'requirement'
+  | 'scope'
+  | 'consequence'
+  | 'exemption'
+  | 'application';
+
 export type RetrievalReadiness = 'lexical_only' | 'hybrid_partial' | 'hybrid_ready';
 
 export type GenerationMode = 'user' | 'server';
@@ -29,6 +40,89 @@ export type RetrievalMode = 'local' | 'workflow-global' | 'drift-refine';
 export type ExpertAnswerType = 'verdict' | 'checklist' | 'procedure' | 'comparison' | 'definition' | 'mixed';
 
 export type BasisBucketKey = 'legal' | 'evaluation' | 'practical';
+
+export interface QueryNormalizationTraceEntry {
+  step: string;
+  detail: string;
+}
+
+export interface LawAliasResolution {
+  canonical: string;
+  alias: string;
+  matchedAlias?: string;
+  alternatives: string[];
+}
+
+export interface ParsedLawReference {
+  raw: string;
+  canonicalLawName: string;
+  article?: string;
+  jo?: string;
+  clause?: string;
+  item?: string;
+  subItem?: string;
+  matchedAlias?: string;
+}
+
+export interface NaturalLanguageQueryProfile {
+  originalQuery: string;
+  normalizedQuery: string;
+  queryType: NaturalLanguageQueryType;
+  aliasResolutions: LawAliasResolution[];
+  parsedLawRefs: ParsedLawReference[];
+  synonymExpansions: string[];
+  searchVariants: string[];
+  normalizationTrace: QueryNormalizationTraceEntry[];
+}
+
+export interface OntologyEntity {
+  id: string;
+  entityType: string;
+  label: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface OntologyAlias {
+  id: string;
+  entityId: string;
+  alias: string;
+  aliasType: string;
+  weight: number;
+}
+
+export interface OntologyEdge {
+  id: string;
+  fromEntityId: string;
+  toEntityId: string;
+  relation: string;
+  weight: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface OntologyHit {
+  entityId: string;
+  label: string;
+  entityType: string;
+  matchedAlias?: string;
+  score: number;
+  documentIds: string[];
+  depth: number;
+}
+
+export interface GraphExpansionTrace {
+  anchorEntityIds: string[];
+  expandedEntityIds: string[];
+  boostedDocumentPaths: string[];
+  depth: number;
+}
+
+export interface LawFallbackSource {
+  source: string;
+  title: string;
+  query: string;
+  cached: boolean;
+  url?: string;
+}
 
 export interface KnowledgeFile {
   path: string;
@@ -103,6 +197,7 @@ export interface SearchCandidate extends StructuredChunk {
   vectorScore: number;
   fusedScore: number;
   rerankScore: number;
+  ontologyScore: number;
   matchedTerms: string[];
 }
 
@@ -365,6 +460,13 @@ export interface RetrievalDiagnostics {
   subquestions: string[];
   basisCoverage: Record<BasisBucketKey, number>;
   plannerTrace: PlannerTraceEntry[];
+  normalizationTrace: QueryNormalizationTraceEntry[];
+  aliasResolutions: LawAliasResolution[];
+  parsedLawRefs: ParsedLawReference[];
+  ontologyHits: OntologyHit[];
+  graphExpansionTrace: GraphExpansionTrace[];
+  fallbackTriggered: boolean;
+  fallbackSources: LawFallbackSource[];
 }
 
 export interface RecentRetrievalMatch {

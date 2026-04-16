@@ -165,5 +165,44 @@
       "2026년 주야간보호 평가매뉴얼(26년꺼만)"
     ],
     "notes": "평가 요약 문서가 아니라 1차 평가매뉴얼 원문이 최종 evidence에 들어오는지 확인"
+  },
+  {
+    "id": "integrated-law-alias-article-variant",
+    "mode": "integrated",
+    "question": "장기요양보험법 38조 2항 어디 보면 돼?",
+    "expectedDoc": "노인장기요양보험법",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "notes": "약칭과 조문 띄어쓰기 변형이 canonical law reference로 정규화되는지 확인"
+  },
+  {
+    "id": "integrated-payroll-spacing-variant",
+    "mode": "integrated",
+    "question": "인건비 지출 비율 다빈도 질의 응답 문서 뭐 봐야 해?",
+    "expectedDoc": "2026년_인건비지출비율_다빈도_질의응답",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "notes": "띄어쓰기 변형과 구어체 질문에서도 동일 knowledge 문서가 유지되는지 확인"
+  },
+  {
+    "id": "integrated-long-service-colloquial",
+    "mode": "integrated",
+    "question": "장기근속장려금 청구하려는데 전산으로 뭘 봐야 해?",
+    "expectedDoc": "장기근속장려금 청구 전산 문의사항",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "notes": "구어체 실무 질문이 전산 FAQ 문서로 연결되는지 확인"
+  },
+  {
+    "id": "evaluation-rights-required-colloquial",
+    "mode": "evaluation",
+    "question": "직원 인권교육 이거 필수냐?",
+    "expectedDoc": "2026년 주야간보호 평가매뉴얼(26년꺼만)",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "expectedEvidenceDocs": [
+      "2026년 주야간보호 평가매뉴얼(26년꺼만)"
+    ],
+    "notes": "구어체 의무 여부 질문이 평가 1차 근거 문서로 연결되는지 확인"
   }
 ]

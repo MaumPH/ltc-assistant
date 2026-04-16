@@ -1,6 +1,8 @@
 import { compareIsoDateDesc, detectIntent, extractArticleNo, tokenize } from './ragMetadata';
 import type {
   ConfidenceLevel,
+  NaturalLanguageQueryType,
+  ParsedLawReference,
   PromptMode,
   QueryIntent,
   RetrievalStageTrace,
@@ -20,6 +22,8 @@ export interface SearchOptions {
   allowedDocumentIds?: Set<string>;
   documentScoreBoosts?: Map<string, number>;
   excludedEvidenceRoles?: Set<SourceRole>;
+  lawRefs?: ParsedLawReference[];
+  queryType?: NaturalLanguageQueryType;
 }
 
 const VECTOR_TOP_K = 36;
@@ -100,6 +104,7 @@ function createCandidate(chunk: StructuredChunk): SearchCandidate {
     vectorScore: 0,
     fusedScore: 0,
     rerankScore: 0,
+    ontologyScore: 0,
     matchedTerms: [],
   };
 }
@@ -154,12 +159,56 @@ function scoreAliasMetadata(alias: string, titleCompact: string, sectionCompact:
   return 0;
 }
 
+function compact(value: string): string {
+  return value.replace(/\s+/g, '').toLowerCase();
+}
+
+function scoreLawReference(
+  chunk: StructuredChunk,
+  lawRef: ParsedLawReference,
+  titleCompact: string,
+  sectionCompact: string,
+  matchedTerms: Set<string>,
+): number {
+  let score = 0;
+  const lawCompact = compact(lawRef.canonicalLawName);
+
+  if (lawCompact && titleCompact.includes(lawCompact)) {
+    score += 38;
+    matchedTerms.add(lawRef.canonicalLawName);
+  } else if (lawCompact && sectionCompact.includes(lawCompact)) {
+    score += 20;
+    matchedTerms.add(lawRef.canonicalLawName);
+  }
+
+  if (lawRef.article && chunk.articleNo === lawRef.article) {
+    score += 52;
+    matchedTerms.add(lawRef.article);
+  } else if (lawRef.article && chunk.searchText.includes(lawRef.article)) {
+    score += 22;
+    matchedTerms.add(lawRef.article);
+  }
+
+  if (lawRef.clause && chunk.text.includes(`제${lawRef.clause}항`)) {
+    score += 8;
+    matchedTerms.add(`제${lawRef.clause}항`);
+  }
+
+  if (lawRef.item && chunk.text.includes(`제${lawRef.item}호`)) {
+    score += 6;
+    matchedTerms.add(`제${lawRef.item}호`);
+  }
+
+  return score;
+}
+
 function scoreExact(
   chunk: StructuredChunk,
   query: string,
   intent: QueryIntent,
   mode: PromptMode,
   queryAliases: string[] = [],
+  options?: SearchOptions,
 ): SearchCandidate {
   const candidate = createCandidate(chunk);
   const compactQuery = query.replace(/\s+/g, '').toLowerCase();
@@ -195,6 +244,10 @@ function scoreExact(
 
   for (const alias of queryAliases) {
     score += scoreAliasMetadata(alias, titleCompact, sectionCompact, matchedTerms);
+  }
+
+  for (const lawRef of options?.lawRefs ?? []) {
+    score += scoreLawReference(chunk, lawRef, titleCompact, sectionCompact, matchedTerms);
   }
 
   if (intent === 'legal-exact' && ['law', 'ordinance', 'rule', 'notice'].includes(chunk.sourceType)) {
@@ -324,10 +377,12 @@ function rerankCandidate(
   mode: PromptMode,
   options?: SearchOptions,
 ): SearchCandidate {
+  const ontologyScore = options?.documentScoreBoosts?.get(candidate.documentId) ?? 0;
   let score = candidate.fusedScore * 100;
   score += candidate.exactScore * 1.8;
   score += candidate.lexicalScore * 15;
   score += candidate.vectorScore * 30;
+  score += ontologyScore;
 
   if (intent === 'legal-exact' && candidate.articleNo) score += 10;
   if (intent === 'legal-exact' && ['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType)) score += 8;
@@ -342,11 +397,22 @@ function rerankCandidate(
     if (candidate.sourceRole === 'routing_summary') score -= 14;
   }
 
-  score += options?.documentScoreBoosts?.get(candidate.documentId) ?? 0;
+  if ((options?.lawRefs?.length ?? 0) > 0 && ['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType)) {
+    score += 12;
+  }
+
+  if (options?.queryType === 'checklist' && ['manual', 'guide', 'wiki', 'qa'].includes(candidate.sourceType)) {
+    score += 6;
+  }
+
+  if (options?.queryType === 'procedure' && ['manual', 'guide', 'notice'].includes(candidate.sourceType)) {
+    score += 6;
+  }
 
   return {
     ...candidate,
     rerankScore: score,
+    ontologyScore,
   };
 }
 
@@ -511,7 +577,7 @@ export function searchCorpus(params: {
   const intent = detectIntent(mode, query);
   const exactCandidates = index.chunks
     .filter((chunk) => isChunkInScope(chunk, mode, options))
-    .map((chunk) => scoreExact(chunk, query, intent, mode, queryAliases))
+    .map((chunk) => scoreExact(chunk, query, intent, mode, queryAliases, options))
     .filter((candidate) => candidate.exactScore > 0)
     .sort((left, right) => {
       const scoreDiff = right.exactScore - left.exactScore;

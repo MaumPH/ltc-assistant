@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "dev:law-sidecar": "node scripts/dev-with-law-sidecar.mjs",
     "prompt:harness": "tsx scripts/prompt-harness.ts",
     "rag:index": "tsx scripts/rag-index.ts",
     "rag:doctor": "tsx scripts/rag-doctor.ts",

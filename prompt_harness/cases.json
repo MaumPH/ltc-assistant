@@ -41,7 +41,7 @@
     "mode": "integrated",
     "question": "욕구사정과 급여제공계획 차이가 뭐예요?",
     "expected_answer_type": "comparison",
-    "expected_retrieval_mode": "local",
+    "expected_retrieval_mode": "workflow-global",
     "required_basis": ["legal", "practical"],
     "expected_workflow_events": ["욕구사정 및 급여제공계획"],
     "required_terms": ["욕구사정", "급여제공계획"],
@@ -58,5 +58,41 @@
     "required_terms": ["법적", "평가", "실무"],
     "forbidden_terms": ["출처", "[", "]"],
     "notes": "혼합 정리 질문은 basis 세 버킷이 모두 살아 있어야 한다."
+  },
+  {
+    "id": "new-recipient-onboarding-colloquial",
+    "mode": "integrated",
+    "question": "새 수급자 받으면 뭐부터 해야 해?",
+    "expected_answer_type": "checklist",
+    "expected_retrieval_mode": "workflow-global",
+    "required_basis": ["legal", "evaluation", "practical"],
+    "expected_workflow_events": ["신규 수급자 입소 초기"],
+    "required_terms": ["급여제공계획", "상담"],
+    "minimum_block_items": 3,
+    "notes": "구어체 신규 수급자 질문도 체크리스트와 basis 분리 구조를 유지해야 한다."
+  },
+  {
+    "id": "employee-rights-education-colloquial",
+    "mode": "integrated",
+    "question": "직원 인권교육 이거 필수냐?",
+    "expected_answer_type": "verdict",
+    "expected_retrieval_mode": "local",
+    "required_basis": ["legal", "evaluation"],
+    "expected_workflow_events": ["직원 교육 운영"],
+    "required_terms": ["평가"],
+    "forbidden_terms": ["chunk", "window"],
+    "notes": "구어체 의무 여부 질문에서도 법적 근거와 평가 근거를 분리해 답해야 한다."
+  },
+  {
+    "id": "evaluation-initial-check-colloquial",
+    "mode": "evaluation",
+    "question": "이번 평가 전에 뭐부터 봐야 해?",
+    "expected_answer_type": "checklist",
+    "expected_retrieval_mode": "workflow-global",
+    "required_basis": ["evaluation", "practical"],
+    "expected_workflow_events": ["평가 준비"],
+    "required_terms": ["평가"],
+    "minimum_block_items": 2,
+    "notes": "짧은 구어체 질문도 평가 준비 워크플로우로 연결돼야 한다."
   }
 ]

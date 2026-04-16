@@ -11,6 +11,7 @@ import {
   type RagCorpusIndex,
   type SearchOptions,
 } from './ragEngine';
+import { LawMcpClient, type LawMcpFallbackResult } from './lawMcpClient';
 import {
   buildDocumentDiagnostics,
   buildKnowledgeDoctorIssues,
@@ -49,7 +50,15 @@ import {
   sha1,
   toDocumentMetadata,
 } from './ragMetadata';
+import { buildNaturalLanguageQueryProfile as buildNaturalQueryProfile } from './ragNaturalQuery';
 import { loadKnowledgeCorporaFromDisk } from './nodeKnowledge';
+import {
+  buildOntologyGraph,
+  buildOntologyRows,
+  expandDocumentsWithOntology,
+  type OntologyGraph,
+  type OntologySearchResult,
+} from './ragOntology';
 import { loadPromptSourceSet } from './nodePrompts';
 import type { PromptVariant } from './promptAssembly';
 import { resolveEmbeddingApiKey, resolveGenerationMode, resolveServerGenerationApiKey } from './ragRuntime';
@@ -65,11 +74,16 @@ import type {
   ConfidenceLevel,
   DocumentDiagnostics,
   GenerationMode,
+  GraphExpansionTrace,
   GroundedAnswer,
   IndexManifestEntry,
   IndexStatus,
   KnowledgeFile,
   KnowledgeDoctorIssue,
+  LawAliasResolution,
+  LawFallbackSource,
+  NaturalLanguageQueryProfile,
+  OntologyHit,
   PromptMode,
   QueryIntent,
   RetrievalMode,
@@ -134,6 +148,19 @@ interface StoredIndexMetadataRow {
   manifest_hash: string;
 }
 
+interface StoredLawFallbackRow {
+  id: string;
+  cache_key: string;
+  title: string;
+  query: string;
+  text: string;
+  source: string;
+  path: string;
+  article_no?: string | null;
+  created_at?: string | Date | null;
+  updated_at?: string | Date | null;
+}
+
 interface GroundedChatRequest {
   messages: ChatMessage[];
   mode: PromptMode;
@@ -171,6 +198,13 @@ export interface RetrievalInspectionResponse {
   subquestions: RetrievalDiagnostics['subquestions'];
   basisCoverage: RetrievalDiagnostics['basisCoverage'];
   plannerTrace: RetrievalDiagnostics['plannerTrace'];
+  normalizationTrace: RetrievalDiagnostics['normalizationTrace'];
+  aliasResolutions: RetrievalDiagnostics['aliasResolutions'];
+  parsedLawRefs: RetrievalDiagnostics['parsedLawRefs'];
+  ontologyHits: RetrievalDiagnostics['ontologyHits'];
+  graphExpansionTrace: RetrievalDiagnostics['graphExpansionTrace'];
+  fallbackTriggered: RetrievalDiagnostics['fallbackTriggered'];
+  fallbackSources: RetrievalDiagnostics['fallbackSources'];
 }
 
 interface RagStore {
@@ -203,6 +237,10 @@ const EMBEDDING_BATCH_SIZE = parsePositiveInteger(process.env.RAG_EMBEDDING_BATC
 const EMBEDDING_MAX_CHUNKS_PER_PASS = parsePositiveInteger(process.env.RAG_EMBEDDING_MAX_CHUNKS_PER_PASS, 400);
 const EMBEDDING_REFRESH_INTERVAL_MS = parsePositiveInteger(process.env.RAG_EMBEDDING_REFRESH_INTERVAL_MS, 15 * 60 * 1000);
 const EMBEDDING_QUOTA_COOLDOWN_MS = parsePositiveInteger(process.env.RAG_EMBEDDING_QUOTA_COOLDOWN_MS, 6 * 60 * 60 * 1000);
+const LAW_FALLBACK_CONFIDENCE_THRESHOLD = (process.env.LAW_FALLBACK_CONFIDENCE_THRESHOLD || 'low').toLowerCase();
+const LAW_MCP_ENABLED = (process.env.LAW_MCP_ENABLED || 'true').toLowerCase() !== 'false';
+const LAW_MCP_BASE_URL = process.env.LAW_MCP_BASE_URL || '';
+const ONTOLOGY_GRAPH_DEPTH = Math.max(1, parsePositiveInteger(process.env.ONTOLOGY_GRAPH_DEPTH, 1));
 const MAX_CONTEXT_CHARS_BY_MODE: Record<PromptMode, number> = {
   integrated: 16_000,
   evaluation: 12_000,
@@ -369,6 +407,75 @@ function rowToChunk(row: StoredChunkRow): StructuredChunk {
   };
 }
 
+function buildLawFallbackPath(cacheKey: string): string {
+  return `/external/korean-law-mcp/${sha1(cacheKey).slice(0, 16)}.md`;
+}
+
+function fallbackRowToChunk(row: StoredLawFallbackRow): StructuredChunk {
+  const path = row.path || buildLawFallbackPath(row.cache_key);
+  const title = row.title || 'Korean Law MCP fallback';
+  const parentSectionId = sha1(`${row.cache_key}:${title}`);
+  return {
+    id: row.id,
+    documentId: `fallback:${row.cache_key}`,
+    chunkIndex: 0,
+    title,
+    text: row.text,
+    textPreview: row.text.slice(0, 220),
+    searchText: `${title}\n${row.query}\n${row.text}`,
+    mode: 'integrated',
+    sourceType: 'law',
+    sourceRole: 'support_reference',
+    documentGroup: 'legal',
+    docTitle: title,
+    fileName: `${title}.md`,
+    path,
+    sectionPath: [title],
+    articleNo: row.article_no ?? undefined,
+    matchedLabels: [row.source],
+    chunkHash: sha1(`${row.cache_key}:${row.text}`),
+    parentSectionId,
+    parentSectionTitle: title,
+    windowIndex: 0,
+    spanStart: 0,
+    spanEnd: row.text.length,
+    citationGroupId: sha1(`${row.cache_key}:${title}`),
+    linkedDocumentTitles: [],
+  };
+}
+
+function fallbackResultToChunk(result: LawMcpFallbackResult, mode: PromptMode, articleNo?: string): StructuredChunk {
+  const chunk = fallbackRowToChunk({
+    id: sha1(result.cacheKey),
+    cache_key: result.cacheKey,
+    title: result.title,
+    query: result.query,
+    text: result.text,
+    source: result.source,
+    path: buildLawFallbackPath(result.cacheKey),
+    article_no: articleNo ?? null,
+  });
+  return {
+    ...chunk,
+    mode,
+  };
+}
+
+function compareConfidence(left: ConfidenceLevel, right: ConfidenceLevel): number {
+  const rank: Record<ConfidenceLevel, number> = { low: 0, medium: 1, high: 2 };
+  return rank[left] - rank[right];
+}
+
+function shouldTriggerFallbackForConfidence(confidence: ConfidenceLevel): boolean {
+  const normalizedThreshold =
+    LAW_FALLBACK_CONFIDENCE_THRESHOLD === 'high' ||
+    LAW_FALLBACK_CONFIDENCE_THRESHOLD === 'medium' ||
+    LAW_FALLBACK_CONFIDENCE_THRESHOLD === 'low'
+      ? (LAW_FALLBACK_CONFIDENCE_THRESHOLD as ConfidenceLevel)
+      : 'low';
+  return compareConfidence(confidence, normalizedThreshold) <= 0;
+}
+
 function rowToManifestEntry(row: StoredDocumentRow): IndexManifestEntry {
   return {
     documentId: row.id,
@@ -520,6 +627,7 @@ function buildNormalizedRetrievalQuery(messages: ChatMessage[]): {
   normalizedQuery: string;
   querySources: string[];
   aliases: string[];
+  queryProfile: NaturalLanguageQueryProfile;
 } {
   const userMessages = messages
     .filter((message) => message.role === 'user')
@@ -527,21 +635,29 @@ function buildNormalizedRetrievalQuery(messages: ChatMessage[]): {
     .filter(Boolean);
   const latest = userMessages[userMessages.length - 1] ?? '';
   const previous = userMessages[userMessages.length - 2];
+  const combinedQuery = previous && isFollowUpQuery(latest) ? `${previous}\n후속질문: ${latest}` : latest;
+  const queryProfile = buildNaturalQueryProfile(combinedQuery);
+  const aliases = uniqueNonEmptyLines([
+    ...buildRetrievalAliases(combinedQuery),
+    ...queryProfile.searchVariants.filter((variant) => variant !== queryProfile.normalizedQuery),
+    ...queryProfile.aliasResolutions.flatMap((item) => [item.canonical, ...item.alternatives]),
+    ...queryProfile.parsedLawRefs.flatMap((item) => [
+      item.canonicalLawName,
+      item.article ? `${item.canonicalLawName} ${item.article}` : '',
+    ]),
+  ]);
+  const querySources = latest
+    ? uniqueNonEmptyLines([
+        ...(previous && isFollowUpQuery(latest) ? [previous, latest] : [latest]),
+        ...queryProfile.searchVariants,
+      ])
+    : [];
 
-  if (previous && isFollowUpQuery(latest)) {
-    const aliases = buildRetrievalAliases(`${previous}\n${latest}`);
-    return {
-      normalizedQuery: `${previous}\n후속질문: ${latest}`,
-      querySources: [previous, latest, ...aliases],
-      aliases,
-    };
-  }
-
-  const aliases = buildRetrievalAliases(latest);
   return {
-    normalizedQuery: latest,
-    querySources: latest ? [latest, ...aliases] : [],
+    normalizedQuery: queryProfile.normalizedQuery,
+    querySources,
     aliases,
+    queryProfile,
   };
 }
 
@@ -577,17 +693,21 @@ interface RetrievalScopeContext {
 interface SearchExecutionResult {
   search: SearchRun;
   scope: RetrievalScopeContext;
+  ontologyHits: OntologyHit[];
+  graphExpansionTrace: GraphExpansionTrace[];
 }
 
 interface SearchPlanningOptions {
   additionalDocumentScoreBoosts?: Map<string, number>;
   extraAliases?: string[];
+  queryProfile?: NaturalLanguageQueryProfile;
 }
 
 interface RetrievalPlanResult {
   normalizedQuery: string;
   querySources: string[];
   aliases: string[];
+  queryProfile: NaturalLanguageQueryProfile;
   questionArchetype: string;
   recommendedAnswerType: ExpertAnswerEnvelope['answerType'];
   selectedRetrievalMode: RetrievalMode;
@@ -601,6 +721,10 @@ interface RetrievalPlanResult {
   workflowBriefs: WorkflowBrief[];
   knowledgeContext: string;
   basisCoverage: Record<'legal' | 'evaluation' | 'practical', number>;
+  ontologyHits: OntologyHit[];
+  graphExpansionTrace: GraphExpansionTrace[];
+  fallbackTriggered: boolean;
+  fallbackSources: LawFallbackSource[];
 }
 
 function uniqueDocumentPaths(chunks: Array<Pick<StructuredChunk, 'documentId' | 'path'>>): string[] {
@@ -1092,6 +1216,63 @@ function buildRetrievalStageTrace(
   ];
 }
 
+function mergeSearchCandidateLists(
+  left: SearchCandidate[],
+  right: SearchCandidate[],
+  sortBy: 'exactScore' | 'lexicalScore' | 'vectorScore' | 'rerankScore',
+  limit = 24,
+): SearchCandidate[] {
+  const merged = new Map<string, SearchCandidate>();
+  for (const candidate of [...left, ...right]) {
+    const current = merged.get(candidate.id);
+    if (!current || current[sortBy] < candidate[sortBy]) {
+      merged.set(candidate.id, candidate);
+    }
+  }
+  return Array.from(merged.values())
+    .sort((a, b) => b[sortBy] - a[sortBy])
+    .slice(0, limit);
+}
+
+function mergeSearchRuns(base: SearchRun, extra: SearchRun): SearchRun {
+  const evidence = mergeSearchCandidateLists(base.evidence, extra.evidence, 'rerankScore', 12);
+  const confidence =
+    base.confidence === 'low' && extra.evidence.length > 0
+      ? 'medium'
+      : extra.confidence === 'high' && base.confidence !== 'high'
+        ? 'high'
+        : base.confidence;
+  const mismatchSignals =
+    extra.evidence.length > 0
+      ? (base.mismatchSignals ?? []).filter((signal) => signal !== 'no-focus-terms-in-top-candidates' && signal !== 'generic-only-match')
+      : base.mismatchSignals ?? [];
+
+  return {
+    ...base,
+    confidence,
+    exactCandidates: mergeSearchCandidateLists(base.exactCandidates, extra.exactCandidates, 'exactScore'),
+    lexicalCandidates: mergeSearchCandidateLists(base.lexicalCandidates, extra.lexicalCandidates, 'lexicalScore'),
+    vectorCandidates: mergeSearchCandidateLists(base.vectorCandidates, extra.vectorCandidates, 'vectorScore', 36),
+    fusedCandidates: mergeSearchCandidateLists(base.fusedCandidates, extra.fusedCandidates, 'rerankScore'),
+    evidence,
+    focusTerms: uniqueNonEmptyLines([...(base.focusTerms ?? []), ...(extra.focusTerms ?? [])]),
+    mismatchSignals,
+    groundingGatePassed: confidence !== 'low',
+    stageTrace: base.stageTrace,
+  };
+}
+
+function mergeOntologyHits(left: OntologyHit[], right: OntologyHit[]): OntologyHit[] {
+  const merged = new Map<string, OntologyHit>();
+  for (const hit of [...left, ...right]) {
+    const current = merged.get(hit.entityId);
+    if (!current || current.score < hit.score) {
+      merged.set(hit.entityId, hit);
+    }
+  }
+  return Array.from(merged.values()).sort((a, b) => b.score - a.score).slice(0, 12);
+}
+
 function buildRetrievalDiagnostics(
   search: SearchRun,
   normalizedQuery: string,
@@ -1105,6 +1286,13 @@ function buildRetrievalDiagnostics(
     subquestions?: string[];
     basisCoverage?: Record<'legal' | 'evaluation' | 'practical', number>;
     plannerTrace?: Array<{ step: string; detail: string }>;
+    normalizationTrace?: RetrievalDiagnostics['normalizationTrace'];
+    aliasResolutions?: LawAliasResolution[];
+    parsedLawRefs?: RetrievalDiagnostics['parsedLawRefs'];
+    ontologyHits?: OntologyHit[];
+    graphExpansionTrace?: GraphExpansionTrace[];
+    fallbackTriggered?: boolean;
+    fallbackSources?: LawFallbackSource[];
   },
 ): RetrievalDiagnostics {
   const neighborWindows = collectNeighborWindows(allChunks, search.evidence);
@@ -1134,6 +1322,13 @@ function buildRetrievalDiagnostics(
     subquestions: extras?.subquestions ?? [],
     basisCoverage: extras?.basisCoverage ?? { legal: 0, evaluation: 0, practical: 0 },
     plannerTrace: extras?.plannerTrace ?? [],
+    normalizationTrace: extras?.normalizationTrace ?? [],
+    aliasResolutions: extras?.aliasResolutions ?? [],
+    parsedLawRefs: extras?.parsedLawRefs ?? [],
+    ontologyHits: extras?.ontologyHits ?? [],
+    graphExpansionTrace: extras?.graphExpansionTrace ?? [],
+    fallbackTriggered: extras?.fallbackTriggered ?? false,
+    fallbackSources: extras?.fallbackSources ?? [],
   };
 }
 
@@ -1516,6 +1711,55 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       mode_counts jsonb not null default '{}'::jsonb
     )
   `,
+  `
+    create table if not exists ontology_entities (
+      id text primary key,
+      entity_type text not null,
+      label text not null,
+      metadata jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now()
+    )
+  `,
+  `
+    create table if not exists ontology_aliases (
+      id text primary key,
+      entity_id text not null references ontology_entities(id) on delete cascade,
+      alias text not null,
+      alias_type text not null,
+      weight double precision not null default 1,
+      created_at timestamptz not null default now()
+    )
+  `,
+  'create index if not exists ontology_aliases_entity_id_idx on ontology_aliases(entity_id)',
+  'create index if not exists ontology_aliases_alias_idx on ontology_aliases(alias)',
+  `
+    create table if not exists ontology_edges (
+      id text primary key,
+      from_entity_id text not null references ontology_entities(id) on delete cascade,
+      to_entity_id text not null references ontology_entities(id) on delete cascade,
+      relation text not null,
+      weight double precision not null default 1,
+      metadata jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now()
+    )
+  `,
+  'create index if not exists ontology_edges_from_idx on ontology_edges(from_entity_id)',
+  'create index if not exists ontology_edges_to_idx on ontology_edges(to_entity_id)',
+  `
+    create table if not exists law_fallback_cache (
+      id text primary key,
+      cache_key text not null unique,
+      title text not null,
+      query text not null,
+      text text not null,
+      source text not null,
+      path text not null,
+      article_no text,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `,
+  'create index if not exists law_fallback_cache_key_idx on law_fallback_cache(cache_key)',
 ];
 
 async function ensurePostgresSchema(client: PoolClient): Promise<void> {
@@ -2056,6 +2300,7 @@ function expandEvidenceWithNeighbors(evidence: SearchRun['evidence'], allChunks:
         vectorScore: candidate.vectorScore,
         fusedScore: candidate.fusedScore,
         rerankScore: candidate.rerankScore - 0.5,
+        ontologyScore: candidate.ontologyScore,
         matchedTerms: candidate.matchedTerms,
       });
     }
@@ -2127,6 +2372,7 @@ async function generateGroundedAnswer(params: {
       vectorScore: 0,
       fusedScore: 0,
       rerankScore: 0,
+      ontologyScore: 0,
       matchedTerms: [],
     })),
   });
@@ -2136,9 +2382,13 @@ export class NodeRagService {
   private readonly projectRoot: string;
   private readonly promptSources;
   private readonly brain: DomainBrain;
+  private readonly metadataPool: Pool | null;
+  private readonly lawMcpClient: LawMcpClient;
   private store: RagStore;
   private readonly embeddingAi: GoogleGenAI | null;
   private readonly generationMode: GenerationMode;
+  private ontologyGraph: OntologyGraph | null = null;
+  private fallbackChunks: StructuredChunk[] = [];
   private workflowBriefs: WorkflowBrief[] = [];
   private diskFiles: KnowledgeFile[] = [];
   private diskManifestEntries: IndexManifestEntry[] = [];
@@ -2161,6 +2411,7 @@ export class NodeRagService {
 
     const storageMode = process.env.RAG_STORAGE_MODE?.toLowerCase() ?? 'memory';
     const databaseUrl = process.env.DATABASE_URL;
+    this.metadataPool = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
     if (storageMode === 'postgres' && databaseUrl) {
       this.store = new PostgresRagStore(databaseUrl);
     } else {
@@ -2169,6 +2420,7 @@ export class NodeRagService {
 
     const embeddingApiKey = resolveEmbeddingApiKey();
     this.embeddingAi = embeddingApiKey ? new GoogleGenAI({ apiKey: embeddingApiKey }) : null;
+    this.lawMcpClient = new LawMcpClient(LAW_MCP_BASE_URL, LAW_MCP_ENABLED);
   }
 
   private loadDiskKnowledgeState(): { files: KnowledgeFile[]; manifestEntries: IndexManifestEntry[]; issues: KnowledgeDoctorIssue[] } {
@@ -2180,6 +2432,93 @@ export class NodeRagService {
       manifestEntries: buildKnowledgeManifest(files, chunks),
       issues: buildKnowledgeDoctorIssues(files, chunks),
     };
+  }
+
+  private getAllSearchChunks(): StructuredChunk[] {
+    return [...this.store.getChunks(), ...this.fallbackChunks];
+  }
+
+  private rebuildOntologyGraph(): void {
+    this.ontologyGraph = buildOntologyGraph(this.brain, this.getAllSearchChunks());
+  }
+
+  private async loadFallbackChunks(): Promise<void> {
+    if (!this.metadataPool) {
+      this.fallbackChunks = [];
+      return;
+    }
+
+    const client = await this.metadataPool.connect();
+    try {
+      await ensurePostgresSchema(client);
+      const result = await client.query<StoredLawFallbackRow>(`
+        select
+          id,
+          cache_key,
+          title,
+          query,
+          text,
+          source,
+          path,
+          article_no,
+          created_at,
+          updated_at
+        from law_fallback_cache
+        order by updated_at desc
+      `);
+      this.fallbackChunks = result.rows.map((row) => fallbackRowToChunk(row));
+    } catch (error) {
+      console.warn(`[law-fallback] failed to load cache: ${describeError(error)}`);
+      this.fallbackChunks = [];
+    } finally {
+      client.release();
+    }
+  }
+
+  private async persistFallbackChunk(chunk: StructuredChunk, result: LawMcpFallbackResult): Promise<void> {
+    if (!this.metadataPool) return;
+
+    const client = await this.metadataPool.connect();
+    try {
+      await ensurePostgresSchema(client);
+      await client.query(
+        `
+          insert into law_fallback_cache (
+            id,
+            cache_key,
+            title,
+            query,
+            text,
+            source,
+            path,
+            article_no,
+            updated_at
+          ) values ($1,$2,$3,$4,$5,$6,$7,$8,now())
+          on conflict (cache_key) do update set
+            title = excluded.title,
+            query = excluded.query,
+            text = excluded.text,
+            source = excluded.source,
+            path = excluded.path,
+            article_no = excluded.article_no,
+            updated_at = now()
+        `,
+        [
+          chunk.id,
+          result.cacheKey,
+          chunk.docTitle,
+          result.query,
+          result.text,
+          result.source,
+          chunk.path,
+          chunk.articleNo ?? null,
+        ],
+      );
+    } catch (error) {
+      console.warn(`[law-fallback] failed to persist cache: ${describeError(error)}`);
+    } finally {
+      client.release();
+    }
   }
 
   private refreshIndexStatus(): IndexStatus {
@@ -2211,6 +2550,88 @@ export class NodeRagService {
       });
     });
     this.lastRetrievalByPath = matches;
+  }
+
+  private hasMissingLawReferenceEvidence(search: SearchRun, queryProfile: NaturalLanguageQueryProfile): boolean {
+    if (queryProfile.parsedLawRefs.length === 0) return false;
+
+    return queryProfile.parsedLawRefs.some((lawRef) => {
+      const lawKey = normalizeDocumentTitle(lawRef.canonicalLawName);
+      return !search.evidence.some((candidate) => {
+        const titleKey = normalizeDocumentTitle(candidate.docTitle);
+        const lawMatches = titleKey.includes(lawKey) || lawKey.includes(titleKey);
+        const articleMatches = !lawRef.article || candidate.articleNo === lawRef.article || candidate.text.includes(lawRef.article);
+        return lawMatches && articleMatches;
+      });
+    });
+  }
+
+  private async fetchLawFallbackSearch(
+    mode: PromptMode,
+    queryProfile: NaturalLanguageQueryProfile,
+    queryEmbedding: number[] | null,
+    aliases: string[],
+  ): Promise<{ search: SearchRun | null; sources: LawFallbackSource[]; triggered: boolean }> {
+    const cacheKeys = uniqueNonEmptyLines([
+      queryProfile.normalizedQuery,
+      ...queryProfile.parsedLawRefs.map((lawRef) => `${lawRef.canonicalLawName}:${lawRef.jo ?? lawRef.article ?? queryProfile.normalizedQuery}`),
+    ]);
+    const cachedChunk = this.fallbackChunks.find((chunk) =>
+      cacheKeys.some((key) => chunk.id === sha1(key) || chunk.documentId === `fallback:${key}`),
+    );
+
+    let chunk: StructuredChunk | null = null;
+    const sources: LawFallbackSource[] = [];
+
+    if (cachedChunk) {
+      chunk = { ...cachedChunk, mode };
+      sources.push({
+        source: cachedChunk.matchedLabels[0] ?? 'korean-law-mcp:cache',
+        title: cachedChunk.docTitle,
+        query: queryProfile.normalizedQuery,
+        cached: true,
+        url: cachedChunk.path,
+      });
+    } else {
+      const fallback = await this.lawMcpClient.fetchFallback(queryProfile.normalizedQuery, queryProfile.parsedLawRefs);
+      if (!fallback) {
+        return { search: null, sources, triggered: true };
+      }
+
+      chunk = fallbackResultToChunk(fallback, mode, queryProfile.parsedLawRefs[0]?.article);
+      this.fallbackChunks = [chunk, ...this.fallbackChunks.filter((item) => item.id !== chunk.id)].slice(0, 32);
+      await this.persistFallbackChunk(chunk, fallback);
+      this.rebuildOntologyGraph();
+      sources.push({
+        source: fallback.source,
+        title: fallback.title,
+        query: fallback.query,
+        cached: false,
+        url: fallback.url,
+      });
+    }
+
+    if (!chunk) {
+      return { search: null, sources, triggered: true };
+    }
+
+    const fallbackSearch = searchCorpus({
+      index: buildRagCorpusIndex([chunk]),
+      query: queryProfile.normalizedQuery,
+      mode,
+      queryEmbedding,
+      queryAliases: aliases,
+      options: {
+        lawRefs: queryProfile.parsedLawRefs,
+        queryType: queryProfile.queryType,
+      },
+    });
+
+    return {
+      search: fallbackSearch.evidence.length > 0 ? fallbackSearch : null,
+      sources,
+      triggered: true,
+    };
   }
 
   private async getQueryEmbedding(query: string): Promise<number[] | null> {
@@ -2277,11 +2698,16 @@ export class NodeRagService {
       routingDocuments: [],
       primaryExpansionDocuments: [],
     };
+    const emptyOntologyResult: OntologySearchResult = {
+      documentScoreBoosts: new Map<string, number>(),
+      hits: [],
+      trace: [],
+    };
 
     if (mode !== 'evaluation') {
-      const allChunks = this.store.getChunks();
+      const allChunks = this.getAllSearchChunks();
       const representatives = buildDocumentRepresentativeMap(allChunks);
-      const heuristicDocumentScoreBoosts = mergeDocumentScoreBoostMaps(
+      const baseDocumentScoreBoosts = mergeDocumentScoreBoostMaps(
         buildOperationalDocumentBoosts(allChunks, normalizedQuery),
         options?.additionalDocumentScoreBoosts ?? new Map<string, number>(),
       );
@@ -2290,7 +2716,24 @@ export class NodeRagService {
         mode,
         queryEmbedding,
         combinedAliases,
-        heuristicDocumentScoreBoosts.size > 0 ? { documentScoreBoosts: heuristicDocumentScoreBoosts } : undefined,
+        {
+          documentScoreBoosts: baseDocumentScoreBoosts,
+          lawRefs: options?.queryProfile?.parsedLawRefs,
+          queryType: options?.queryProfile?.queryType,
+        },
+      );
+      const ontologyResult =
+        this.ontologyGraph && options?.queryProfile
+          ? expandDocumentsWithOntology(
+              this.ontologyGraph,
+              options.queryProfile,
+              uniqueDocumentCandidates(initialSearch.fusedCandidates, 4).map((candidate) => candidate.documentId),
+              ONTOLOGY_GRAPH_DEPTH,
+            )
+          : emptyOntologyResult;
+      const heuristicDocumentScoreBoosts = mergeDocumentScoreBoostMaps(
+        baseDocumentScoreBoosts,
+        ontologyResult.documentScoreBoosts,
       );
       const routingCandidates = uniqueDocumentCandidates(
         initialSearch.fusedCandidates.filter((candidate) => candidate.sourceRole === 'routing_summary'),
@@ -2302,6 +2745,8 @@ export class NodeRagService {
         return {
           search: pruneIrrelevantSupportEvidence(applyGroundingGate(initialSearch)),
           scope: emptyScope,
+          ontologyHits: ontologyResult.hits,
+          graphExpansionTrace: ontologyResult.trace,
         };
       }
 
@@ -2329,6 +2774,8 @@ export class NodeRagService {
         this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
           documentScoreBoosts,
           excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+          lawRefs: options?.queryProfile?.parsedLawRefs,
+          queryType: options?.queryProfile?.queryType,
         }),
       );
       const promotedPrimaryCandidate = this.store
@@ -2336,6 +2783,8 @@ export class NodeRagService {
           allowedDocumentIds: primaryExpansionDocumentIds,
           documentScoreBoosts,
           excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+          lawRefs: options?.queryProfile?.parsedLawRefs,
+          queryType: options?.queryProfile?.queryType,
         })
         .fusedCandidates.find((candidate) => candidate.sourceRole !== 'routing_summary') ?? null;
 
@@ -2347,12 +2796,14 @@ export class NodeRagService {
           routingDocuments: uniqueDocumentPaths(routingCandidates),
           primaryExpansionDocuments: documentPathsFromIds(primaryExpansionDocumentIds, representatives),
         },
+        ontologyHits: ontologyResult.hits,
+        graphExpansionTrace: ontologyResult.trace,
       };
     }
 
-    const allChunks = this.store.getChunks();
+    const allChunks = this.getAllSearchChunks();
     const representatives = buildDocumentRepresentativeMap(allChunks);
-    const heuristicDocumentScoreBoosts = mergeDocumentScoreBoostMaps(
+    const baseDocumentScoreBoosts = mergeDocumentScoreBoostMaps(
       buildOperationalDocumentBoosts(allChunks, normalizedQuery),
       options?.additionalDocumentScoreBoosts ?? new Map<string, number>(),
     );
@@ -2367,7 +2818,19 @@ export class NodeRagService {
 
     const routingSearch = this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
       allowedDocumentIds: evaluationDocumentIds,
+      documentScoreBoosts: baseDocumentScoreBoosts,
+      lawRefs: options?.queryProfile?.parsedLawRefs,
+      queryType: options?.queryProfile?.queryType,
     });
+    const ontologyResult =
+      this.ontologyGraph && options?.queryProfile
+        ? expandDocumentsWithOntology(
+            this.ontologyGraph,
+            options.queryProfile,
+            uniqueDocumentCandidates(routingSearch.fusedCandidates, 4).map((candidate) => candidate.documentId),
+            ONTOLOGY_GRAPH_DEPTH,
+          )
+        : emptyOntologyResult;
     const routingCandidates = uniqueDocumentCandidates(
       routingSearch.fusedCandidates.filter((candidate) => candidate.sourceRole === 'routing_summary'),
       4,
@@ -2384,6 +2847,9 @@ export class NodeRagService {
         ? selectDirectSupportReferenceIds(
             this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
               allowedDocumentIds: integratedSupportDocumentIds,
+              documentScoreBoosts: baseDocumentScoreBoosts,
+              lawRefs: options?.queryProfile?.parsedLawRefs,
+              queryType: options?.queryProfile?.queryType,
             }),
           )
         : new Set<string>();
@@ -2393,7 +2859,10 @@ export class NodeRagService {
       ...primaryExpansionDocumentIds,
       ...directSupportDocumentIds,
     ]);
-    const documentScoreBoosts = mergeDocumentScoreBoostMaps(heuristicDocumentScoreBoosts);
+    const documentScoreBoosts = mergeDocumentScoreBoostMaps(
+      baseDocumentScoreBoosts,
+      ontologyResult.documentScoreBoosts,
+    );
 
     for (const documentId of primaryExpansionDocumentIds) {
       const sourceRole = representatives.get(documentId)?.sourceRole;
@@ -2422,6 +2891,8 @@ export class NodeRagService {
         allowedDocumentIds,
         documentScoreBoosts,
         excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+        lawRefs: options?.queryProfile?.parsedLawRefs,
+        queryType: options?.queryProfile?.queryType,
       }),
     );
     const promotedPrimaryCandidate =
@@ -2431,6 +2902,8 @@ export class NodeRagService {
               allowedDocumentIds: primaryExpansionDocumentIds,
               documentScoreBoosts,
               excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+              lawRefs: options?.queryProfile?.parsedLawRefs,
+              queryType: options?.queryProfile?.queryType,
             })
             .fusedCandidates.find((candidate) => candidate.sourceRole === 'primary_evaluation') ?? null
         : null;
@@ -2443,6 +2916,8 @@ export class NodeRagService {
         routingDocuments: uniqueDocumentPaths(routingCandidates),
         primaryExpansionDocuments: documentPathsFromIds(primaryExpansionDocumentIds, representatives),
       },
+      ontologyHits: ontologyResult.hits,
+      graphExpansionTrace: ontologyResult.trace,
     };
   }
 
@@ -2477,7 +2952,9 @@ export class NodeRagService {
     if (this.embeddingAi) {
       await this.store.ensureEmbeddings(this.embeddingAi);
     }
+    await this.loadFallbackChunks();
     this.refreshIndexStatus();
+    this.rebuildOntologyGraph();
     this.workflowBriefs = this.buildWorkflowBriefIndex();
     this.startBackgroundEmbeddingRefresh();
     this.initialized = true;
@@ -2523,8 +3000,20 @@ export class NodeRagService {
     const normalized = buildNormalizedRetrievalQuery(
       recentMessages.length > 0 ? recentMessages : query.trim() ? [{ role: 'user', text: query.trim() }] : [],
     );
-    const profile = buildBrainQueryProfile(this.brain, normalized.normalizedQuery, mode);
+    const queryProfile = normalized.queryProfile;
+    const brainProfileQuery = uniqueNonEmptyLines([
+      normalized.normalizedQuery,
+      ...normalized.aliases,
+      ...queryProfile.searchVariants,
+      ...queryProfile.aliasResolutions.flatMap((item) => [item.canonical, ...item.alternatives]),
+      ...queryProfile.parsedLawRefs.flatMap((item) => [
+        item.canonicalLawName,
+        item.article ? `${item.canonicalLawName} ${item.article}` : '',
+      ]),
+    ]).join('\n');
+    const profile = buildBrainQueryProfile(this.brain, brainProfileQuery, mode);
     const plannerTrace: Array<{ step: string; detail: string }> = [
+      { step: 'query-type', detail: queryProfile.queryType },
       { step: 'question-archetype', detail: profile.questionArchetype },
       { step: 'preferred-answer-type', detail: profile.recommendedAnswerType },
       { step: 'initial-retrieval-mode', detail: profile.preferredRetrievalMode },
@@ -2539,17 +3028,20 @@ export class NodeRagService {
     const queryEmbedding = await this.getQueryEmbedding(embeddingQuery);
     const workflowBoosts = buildBrainDocumentBoosts(
       this.brain,
-      this.store.getChunks(),
+      this.getAllSearchChunks(),
       profile.workflowEvents,
       normalized.normalizedQuery,
     );
     const workflowAliasHints = workflowBriefs.flatMap((brief) => [brief.label, brief.summary]);
     let selectedRetrievalMode: RetrievalMode = profile.preferredRetrievalMode;
-    let { search, scope } = this.executeSearch(mode, normalized.normalizedQuery, queryEmbedding, aliases, {
+    let { search, scope, ontologyHits, graphExpansionTrace } = this.executeSearch(mode, normalized.normalizedQuery, queryEmbedding, aliases, {
       additionalDocumentScoreBoosts: workflowBoosts,
       extraAliases: selectedRetrievalMode === 'workflow-global' ? workflowAliasHints : [],
+      queryProfile,
     });
     const subquestions: string[] = [];
+    let fallbackTriggered = false;
+    let fallbackSources: LawFallbackSource[] = [];
 
     if (
       profile.preferredRetrievalMode !== 'local' &&
@@ -2568,6 +3060,7 @@ export class NodeRagService {
         const refinedSearch = this.executeSearch(mode, subquestion, refinedEmbedding, refinedAliases, {
           additionalDocumentScoreBoosts: workflowBoosts,
           extraAliases: workflowAliasHints,
+          queryProfile: buildNaturalQueryProfile(subquestion),
         });
 
         refinedSearch.search.evidence.forEach((item) => {
@@ -2580,6 +3073,8 @@ export class NodeRagService {
             mergedCandidates.set(item.id, item);
           }
         });
+        ontologyHits = mergeOntologyHits(ontologyHits, refinedSearch.ontologyHits);
+        graphExpansionTrace = [...graphExpansionTrace, ...refinedSearch.graphExpansionTrace];
       }
 
       search = {
@@ -2595,9 +3090,33 @@ export class NodeRagService {
       selectedRetrievalMode = refined.length > 0 ? 'drift-refine' : selectedRetrievalMode;
     }
 
+    const shouldAttemptFallback =
+      this.lawMcpClient.isEnabled() &&
+      (shouldTriggerFallbackForConfidence(search.confidence) ||
+        search.evidence.length < 2 ||
+        this.hasMissingLawReferenceEvidence(search, queryProfile));
+
+    if (shouldAttemptFallback) {
+      const fallback = await this.fetchLawFallbackSearch(mode, queryProfile, queryEmbedding, aliases);
+      fallbackTriggered = fallback.triggered;
+      fallbackSources = fallback.sources;
+      if (fallback.search) {
+        search = mergeSearchRuns(search, fallback.search);
+        plannerTrace.push({
+          step: 'law-fallback',
+          detail: fallback.sources.map((source) => `${source.title}${source.cached ? ' (cache)' : ''}`).join(', '),
+        });
+      } else if (fallback.triggered) {
+        plannerTrace.push({
+          step: 'law-fallback',
+          detail: 'triggered-but-no-fallback-result',
+        });
+      }
+    }
+
     const evidence = constrainEvidence({
       ...search,
-      evidence: expandEvidenceWithNeighbors(search.evidence, this.store.getChunks()),
+      evidence: expandEvidenceWithNeighbors(search.evidence, this.getAllSearchChunks()),
     });
     const basisCoverage = buildBasisCoverage(evidence);
     const knowledgeContext = buildExpertKnowledgeContext({
@@ -2617,6 +3136,7 @@ export class NodeRagService {
       normalizedQuery: normalized.normalizedQuery,
       querySources: normalized.querySources,
       aliases,
+      queryProfile,
       questionArchetype: profile.questionArchetype,
       recommendedAnswerType: profile.recommendedAnswerType,
       selectedRetrievalMode,
@@ -2630,6 +3150,10 @@ export class NodeRagService {
       workflowBriefs,
       knowledgeContext,
       basisCoverage,
+      ontologyHits,
+      graphExpansionTrace,
+      fallbackTriggered,
+      fallbackSources,
     };
   }
 
@@ -2652,7 +3176,7 @@ export class NodeRagService {
       },
       planned.normalizedQuery,
       planned.querySources,
-      this.store.getChunks(),
+      this.getAllSearchChunks(),
       indexStatus.retrievalReadiness,
       planned.scope,
       {
@@ -2661,6 +3185,13 @@ export class NodeRagService {
         subquestions: planned.subquestions,
         basisCoverage: planned.basisCoverage,
         plannerTrace: planned.plannerTrace,
+        normalizationTrace: planned.queryProfile.normalizationTrace,
+        aliasResolutions: planned.queryProfile.aliasResolutions,
+        parsedLawRefs: planned.queryProfile.parsedLawRefs,
+        ontologyHits: planned.ontologyHits,
+        graphExpansionTrace: planned.graphExpansionTrace,
+        fallbackTriggered: planned.fallbackTriggered,
+        fallbackSources: planned.fallbackSources,
       },
     );
     this.rememberRetrieval(retrieval, query);
@@ -2688,6 +3219,13 @@ export class NodeRagService {
       subquestions: retrieval.subquestions,
       basisCoverage: retrieval.basisCoverage,
       plannerTrace: retrieval.plannerTrace,
+      normalizationTrace: retrieval.normalizationTrace,
+      aliasResolutions: retrieval.aliasResolutions,
+      parsedLawRefs: retrieval.parsedLawRefs,
+      ontologyHits: retrieval.ontologyHits,
+      graphExpansionTrace: retrieval.graphExpansionTrace,
+      fallbackTriggered: retrieval.fallbackTriggered,
+      fallbackSources: retrieval.fallbackSources,
     };
   }
 
@@ -2717,7 +3255,7 @@ export class NodeRagService {
       },
       planned.normalizedQuery,
       planned.querySources,
-      this.store.getChunks(),
+      this.getAllSearchChunks(),
       indexStatus.retrievalReadiness,
       planned.scope,
       {
@@ -2726,6 +3264,13 @@ export class NodeRagService {
         subquestions: planned.subquestions,
         basisCoverage: planned.basisCoverage,
         plannerTrace: planned.plannerTrace,
+        normalizationTrace: planned.queryProfile.normalizationTrace,
+        aliasResolutions: planned.queryProfile.aliasResolutions,
+        parsedLawRefs: planned.queryProfile.parsedLawRefs,
+        ontologyHits: planned.ontologyHits,
+        graphExpansionTrace: planned.graphExpansionTrace,
+        fallbackTriggered: planned.fallbackTriggered,
+        fallbackSources: planned.fallbackSources,
       },
     );
     this.rememberRetrieval(retrieval, latestUserMessage || planned.normalizedQuery);
@@ -3041,6 +3586,9 @@ export async function upsertRowsToPostgres(params: {
   sectionRows: Array<Record<string, unknown>>;
   chunkRows: Array<Record<string, unknown>>;
   compiledRows: Array<Record<string, unknown>>;
+  ontologyEntityRows?: Array<Record<string, unknown>>;
+  ontologyAliasRows?: Array<Record<string, unknown>>;
+  ontologyEdgeRows?: Array<Record<string, unknown>>;
   indexMetadataRow: Record<string, unknown>;
 }): Promise<void> {
   const pool = new Pool({ connectionString: params.connectionString });
@@ -3055,6 +3603,9 @@ export async function upsertRowsToPostgres(params: {
     await client.query('delete from document_versions');
     await client.query('delete from chunks');
     await client.query('delete from compiled_pages');
+    await client.query('delete from ontology_aliases');
+    await client.query('delete from ontology_edges');
+    await client.query('delete from ontology_entities');
     await client.query('delete from documents');
 
     for (const row of params.documentRows) {
@@ -3235,6 +3786,58 @@ export async function upsertRowsToPostgres(params: {
           pg(row.summary),
           pg(row.body),
           JSON.stringify(pg(row.tags)),
+        ],
+      );
+    }
+
+    for (const row of params.ontologyEntityRows ?? []) {
+      await client.query(
+        `
+        insert into ontology_entities (
+          id,
+          entity_type,
+          label,
+          metadata
+        ) values ($1,$2,$3,$4)
+        `,
+        [pg(row.id), pg(row.entity_type), pg(row.label), JSON.stringify(pg(row.metadata ?? {}))],
+      );
+    }
+
+    for (const row of params.ontologyAliasRows ?? []) {
+      await client.query(
+        `
+        insert into ontology_aliases (
+          id,
+          entity_id,
+          alias,
+          alias_type,
+          weight
+        ) values ($1,$2,$3,$4,$5)
+        `,
+        [pg(row.id), pg(row.entity_id), pg(row.alias), pg(row.alias_type), row.weight],
+      );
+    }
+
+    for (const row of params.ontologyEdgeRows ?? []) {
+      await client.query(
+        `
+        insert into ontology_edges (
+          id,
+          from_entity_id,
+          to_entity_id,
+          relation,
+          weight,
+          metadata
+        ) values ($1,$2,$3,$4,$5,$6)
+        `,
+        [
+          pg(row.id),
+          pg(row.from_entity_id),
+          pg(row.to_entity_id),
+          pg(row.relation),
+          row.weight,
+          JSON.stringify(pg(row.metadata ?? {})),
         ],
       );
     }

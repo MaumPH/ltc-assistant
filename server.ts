@@ -355,6 +355,13 @@ async function startServer() {
             subquestions: response.retrieval.subquestions,
             basisCoverage: response.retrieval.basisCoverage,
             plannerTrace: response.retrieval.plannerTrace,
+            normalizationTrace: response.retrieval.normalizationTrace,
+            aliasResolutions: response.retrieval.aliasResolutions,
+            parsedLawRefs: response.retrieval.parsedLawRefs,
+            ontologyHits: response.retrieval.ontologyHits,
+            graphExpansionTrace: response.retrieval.graphExpansionTrace,
+            fallbackTriggered: response.retrieval.fallbackTriggered,
+            fallbackSources: response.retrieval.fallbackSources,
             evidence: response.search.evidence.map((item) => ({
               evidenceId: item.id,
               docTitle: item.docTitle,

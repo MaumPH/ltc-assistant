@@ -2,7 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import * as dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
+import { loadDomainBrain } from '../src/lib/brain';
 import { buildKnowledgeDoctorIssues } from '../src/lib/ragIndex';
+import { buildOntologyGraph, buildOntologyRows } from '../src/lib/ragOntology';
 import { buildStructuredChunks } from '../src/lib/ragStructured';
 import {
   buildChunkRows,
@@ -67,6 +69,10 @@ async function main() {
   const projectRoot = process.cwd();
   const databaseUrl = process.env.DATABASE_URL;
   const files = await loadKnowledgeFilesForIndex(projectRoot);
+  const structuredChunks = buildStructuredChunks(files);
+  const brain = loadDomainBrain(projectRoot);
+  const ontologyGraph = buildOntologyGraph(brain, structuredChunks);
+  const ontologyRows = buildOntologyRows(ontologyGraph);
   const documentVersionRows = buildDocumentVersionRows(files);
   const sectionRows = buildSectionRows(files);
   const chunkRows = buildChunkRows(files);
@@ -86,7 +92,7 @@ async function main() {
   const documentRows = buildDocumentRows(files, manifestEntries);
   const compiledRows = buildCompiledRows(files);
   const indexMetadataRow = buildIndexMetadataRow(manifestEntries, databaseUrl ? 'postgres' : 'local-cache');
-  const doctorIssues = buildKnowledgeDoctorIssues(files, buildStructuredChunks(files));
+  const doctorIssues = buildKnowledgeDoctorIssues(files, structuredChunks);
 
   const cacheDir = path.join(projectRoot, '.rag-cache');
   fs.mkdirSync(cacheDir, { recursive: true });
@@ -103,6 +109,7 @@ async function main() {
         sections: sectionRows,
         chunks: chunkRows,
         compiledPages: compiledRows,
+        ontology: ontologyRows,
       },
       null,
       2,
@@ -121,6 +128,9 @@ async function main() {
       sectionRows,
       chunkRows,
       compiledRows,
+      ontologyEntityRows: ontologyRows.entityRows,
+      ontologyAliasRows: ontologyRows.aliasRows,
+      ontologyEdgeRows: ontologyRows.edgeRows,
       indexMetadataRow,
     });
     console.log(`Indexed ${chunkRows.length} chunks into Postgres.`);
