@@ -77,7 +77,7 @@ function SectionShell({
   return (
     <section className="rounded-[28px] border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5 sm:py-5">
       <div className="mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
-        <span className="h-2.5 w-2.5 rounded-full bg-[#b79358]" />
+        <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
         <h3 className="text-base font-semibold text-slate-900">{title}</h3>
       </div>
       {children}
@@ -90,7 +90,7 @@ function BlockCard({ block }: { block: ExpertAnswerBlock }) {
   const isCompact = block.type === 'warning' || block.type === 'followup' || block.type === 'definition';
 
   return (
-    <article className="rounded-3xl border border-slate-200 bg-[#fcfcfb] px-4 py-4">
+    <article className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h4 className="text-sm font-semibold text-slate-900 sm:text-base">{block.title}</h4>
@@ -185,7 +185,7 @@ function CitationMeta({ answer }: { answer: ExpertAnswerEnvelope }) {
           .join(' · ');
 
         return (
-          <article key={citation.evidenceId} className="rounded-3xl border border-slate-100 bg-[#fafaf9] px-4 py-4">
+          <article key={citation.evidenceId} className="rounded-3xl border border-slate-100 bg-slate-50 px-4 py-4">
             <p className="text-sm font-semibold leading-6 text-slate-900">{citation.label}</p>
             {citation.whyItMatters && <p className="mt-2 text-sm leading-7 text-slate-700">{citation.whyItMatters}</p>}
             {meta && <p className="mt-2 break-words text-xs leading-6 text-slate-500">{meta}</p>}
@@ -198,10 +198,10 @@ function CitationMeta({ answer }: { answer: ExpertAnswerEnvelope }) {
 
 export default function ExpertAnswerCard({ answer }: ExpertAnswerCardProps) {
   return (
-    <article className="w-full overflow-hidden rounded-[30px] border border-[#ddd6c9] bg-[#f7f5f1] shadow-[0_20px_60px_-42px_rgba(15,23,42,0.42)]">
-      <div className="border-b border-[#e7e1d7] bg-[linear-gradient(180deg,rgba(255,252,245,1),rgba(248,250,252,0.92))] px-4 py-5 sm:px-6 sm:py-6">
+    <article className="w-full overflow-hidden rounded-[30px] border border-slate-200 bg-slate-50 shadow-[0_20px_60px_-42px_rgba(15,23,42,0.28)]">
+      <div className="border-b border-slate-200 bg-[linear-gradient(180deg,rgba(248,251,255,0.98),rgba(255,255,255,0.94))] px-4 py-5 sm:px-6 sm:py-6">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full border border-[#ddc58f]/70 bg-[#f8edd1] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7b5c28]">
+          <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">
             Expert Answer
           </span>
           <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStateStyles(answer.evidenceState)}`}>

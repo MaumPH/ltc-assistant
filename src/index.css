@@ -19,8 +19,10 @@
   --ltc-font-ui: "SUIT", "Pretendard Variable", "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --ltc-ink: #0f172a;
   --ltc-muted: #475569;
-  --ltc-sand: #f7f3ea;
-  --ltc-gold: #b79358;
+  --ltc-shell: #f8fbff;
+  --ltc-line: #cbd5e1;
+  --ltc-accent: #2563eb;
+  --ltc-accent-soft: #dbeafe;
 }
 
 html,
@@ -35,10 +37,11 @@ body {
   -webkit-tap-highlight-color: transparent;
   font-family: var(--ltc-font-ui);
   color: var(--ltc-ink);
-  background-color: var(--ltc-sand);
+  background-color: var(--ltc-shell);
   background-image:
-    radial-gradient(circle at top, rgba(202, 174, 117, 0.12), transparent 28%),
-    linear-gradient(180deg, #f7f3ea 0%, #f8fafc 58%, #f8fafc 100%);
+    radial-gradient(circle at top, rgba(37, 99, 235, 0.12), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(14, 165, 233, 0.08), transparent 26%),
+    linear-gradient(180deg, #f8fbff 0%, #eef4ff 54%, #f8fafc 100%);
 }
 
 .app-shell,
