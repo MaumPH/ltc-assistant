@@ -1,3 +1,5 @@
+import type { Category } from './knowledgeCategories';
+
 export type PromptMode = 'integrated' | 'evaluation';
 
 export type QueryIntent = PromptMode | 'legal-exact' | 'manual-qna' | 'synthesis';
@@ -504,8 +506,14 @@ export interface ChatCapabilities {
   }>;
 }
 
+export interface KnowledgeCategoryCount {
+  category: Category;
+  count: number;
+}
+
 export interface HomeOverviewResponse {
   knowledgeDocumentCount: number;
+  knowledgeCategoryCounts: KnowledgeCategoryCount[];
   chunkCount: number;
   compiledPageCount: number;
   retrievalReadiness: RetrievalReadiness;

@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import * as dotenv from 'dotenv';
+import { buildKnowledgeCategoryCounts } from './src/lib/knowledgeCategories';
 import { NodeRagService } from './src/lib/nodeRagService';
 import type { ChatMessage, PromptMode } from './src/lib/ragTypes';
 import type { PromptVariant } from './src/lib/promptAssembly';
@@ -200,6 +201,7 @@ async function startServer() {
 
       res.json({
         knowledgeDocumentCount: knowledgeFiles.length,
+        knowledgeCategoryCounts: buildKnowledgeCategoryCounts(knowledgeFiles),
         chunkCount: stats.chunks,
         compiledPageCount: stats.compiledPages,
         retrievalReadiness: indexStatus.retrievalReadiness,

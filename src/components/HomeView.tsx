@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getApiUrl } from '../lib/apiUrl';
+import { CATEGORY_ORDER, type Category } from '../lib/knowledgeCategories';
 import type { ChatCapabilities, HomeOverviewResponse } from '../lib/ragTypes';
 import { MODELS, type ModelId, type TabId } from './TopNav';
 
@@ -74,6 +75,18 @@ const ACTION_CARDS: ActionCardDefinition[] = [
     icon: Settings2,
   },
 ];
+
+const CATEGORY_DOT_STYLES: Record<Category, string> = {
+  법령: 'bg-slate-900',
+  시행령: 'bg-blue-500',
+  시행규칙: 'bg-cyan-500',
+  고시: 'bg-emerald-500',
+  '별표·별지': 'bg-amber-500',
+  '평가·매뉴얼': 'bg-violet-500',
+  참고자료: 'bg-slate-400',
+};
+
+const EMPTY_CATEGORY_COUNTS = CATEGORY_ORDER.map((category) => ({ category, count: 0 }));
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat('ko-KR').format(value);
@@ -198,6 +211,7 @@ function HomeOverviewStats({
   isLoading: boolean;
   overview: HomeOverviewResponse | null;
 }) {
+  const categoryItems = overview?.knowledgeCategoryCounts ?? EMPTY_CATEGORY_COUNTS;
   const items = [
     {
       label: '지식 문서',
@@ -241,6 +255,33 @@ function HomeOverviewStats({
             </div>
           </motion.div>
         ))}
+      </div>
+
+      <div className="mt-5 border-t border-slate-100 pt-5">
+        <div className="mb-3">
+          <p className="text-sm font-semibold text-slate-900">지식기반 분류 현황</p>
+          <p className="mt-1 text-xs text-slate-500">지식 파일 개수를 분류 기준별로 보여줍니다.</p>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          {categoryItems.map((item, index) => (
+            <motion.div
+              key={item.category}
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: 0.38 + index * 0.04, ease: 'easeOut' }}
+              className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3"
+            >
+              <div className="flex items-center gap-2">
+                <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${CATEGORY_DOT_STYLES[item.category]}`} />
+                <p className="min-w-0 truncate text-xs font-medium text-slate-500">{item.category}</p>
+              </div>
+              <p className="mt-2 text-base font-semibold text-slate-900">
+                {isLoading ? '집계 중...' : formatNumber(item.count)}
+              </p>
+            </motion.div>
+          ))}
+        </div>
       </div>
     </div>
   );

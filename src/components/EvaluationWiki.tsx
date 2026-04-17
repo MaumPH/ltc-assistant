@@ -230,9 +230,9 @@ export default function EvaluationWiki() {
           {navigationContent}
         </aside>
 
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 lg:p-10">
           {selectedPage ? (
-            <div className="mx-auto max-w-3xl">
+            <div className="mx-auto max-w-5xl">
               <div className="mb-4 flex items-center justify-between gap-3 md:hidden">
                 <button
                   type="button"
@@ -271,7 +271,7 @@ export default function EvaluationWiki() {
                 </div>
               </div>
 
-              <div className="prose prose-sm max-w-none break-words prose-headings:font-semibold prose-h2:mt-6 prose-h2:text-base prose-a:text-blue-600 md:prose-base">
+              <div className="prose prose-sm max-w-none break-words prose-headings:font-semibold prose-p:leading-8 prose-li:leading-8 prose-h2:mt-8 prose-h2:border-b prose-h2:border-slate-200 prose-h2:pb-2 prose-h2:text-lg prose-a:text-blue-600 md:prose-base">
                 <ReactMarkdown>{selectedPage.body}</ReactMarkdown>
               </div>
             </div>
