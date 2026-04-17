@@ -108,7 +108,7 @@ function SectionShell({
   return (
     <section className="rounded-3xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5">
       <div className="mb-3 flex items-center gap-2">
-        <Icon className="h-4 w-4 text-[#8a6a36]" />
+        <Icon className="h-4 w-4 text-blue-600" />
         <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
       </div>
       {children}
@@ -137,7 +137,7 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
       >
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-2xl bg-[#edf3ff] text-[#39598a]">
+            <span className="flex h-8 w-8 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
               <Sparkles className="h-4 w-4" />
             </span>
             <div>

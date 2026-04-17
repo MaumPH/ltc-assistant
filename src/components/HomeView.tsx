@@ -165,25 +165,25 @@ function ActionCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.36, delay: 0.1 + index * 0.06, ease: 'easeOut' }}
       onClick={onClick}
-      className="group relative overflow-hidden rounded-[28px] border border-slate-200 bg-white/92 p-5 text-left shadow-[0_18px_45px_-28px_rgba(15,23,42,0.35)] transition-all hover:-translate-y-0.5 hover:border-[#b59353]/40 hover:shadow-[0_22px_55px_-28px_rgba(15,23,42,0.4)]"
+      className="group relative overflow-hidden rounded-[28px] border border-slate-200 bg-white/94 p-5 text-left shadow-[0_18px_45px_-28px_rgba(15,23,42,0.24)] transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_24px_60px_-30px_rgba(37,99,235,0.24)]"
     >
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#c3a464] to-transparent opacity-70" />
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent opacity-80" />
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8f7650]">{card.eyebrow}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-700">{card.eyebrow}</p>
           <div>
             <h2 className="text-xl font-semibold tracking-tight text-slate-900">{card.title}</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">{card.description}</p>
           </div>
         </div>
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[#ddc58f]/40 bg-[#f8f1df] text-[#7b5c28] transition-colors group-hover:bg-[#f2e7cb]">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-blue-100 bg-blue-50 text-blue-700 transition-colors group-hover:bg-blue-100">
           <Icon className="h-5 w-5" />
         </span>
       </div>
 
       <div className="mt-5 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
         <span className="text-sm font-medium text-slate-700">{meta}</span>
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500 transition-colors group-hover:bg-slate-900 group-hover:text-white">
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500 transition-colors group-hover:bg-blue-600 group-hover:text-white">
           바로 이동
         </span>
       </div>
@@ -222,7 +222,7 @@ function HomeOverviewStats({
   ];
 
   return (
-    <div className="rounded-[30px] border border-[#d9c7a0]/40 bg-white/80 px-5 py-5 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.35)] backdrop-blur sm:px-6">
+    <div className="rounded-[30px] border border-blue-100/70 bg-white/82 px-5 py-5 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.22)] backdrop-blur sm:px-6">
       <div className="grid gap-4 md:grid-cols-5">
         {items.map((item, index) => (
           <motion.div
@@ -230,9 +230,9 @@ function HomeOverviewStats({
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.32, delay: 0.22 + index * 0.05, ease: 'easeOut' }}
-            className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-[#fffdfa] px-4 py-3"
+            className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3"
           >
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#c3a464]" />
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-500" />
             <div className="min-w-0">
               <p className="text-xs font-medium text-slate-500">{item.label}</p>
               <p className="mt-1 truncate text-sm font-semibold text-slate-900">
@@ -295,18 +295,18 @@ export default function HomeView({
   const readinessClass = getReadinessBadge(overview?.retrievalReadiness ?? capabilities?.retrievalReadiness);
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(211,183,124,0.12),transparent_30%),linear-gradient(180deg,#f7f3ea_0%,#f6f5f1_48%,#f8fafc_100%)] px-4 py-6 sm:px-6 md:px-8">
+    <div className="flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.12),transparent_32%),linear-gradient(180deg,#f8fbff_0%,#eff5ff_48%,#f8fafc_100%)] px-4 py-6 sm:px-6 md:px-8">
       <div className="mx-auto flex max-w-6xl flex-col gap-6 md:gap-8">
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.42, ease: 'easeOut' }}
-          className="overflow-hidden rounded-[36px] border border-[#d7c39d]/45 bg-[linear-gradient(180deg,rgba(255,251,243,0.95),rgba(255,255,255,0.88))] shadow-[0_24px_80px_-48px_rgba(15,23,42,0.45)]"
+          className="overflow-hidden rounded-[36px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,251,255,0.98),rgba(255,255,255,0.92))] shadow-[0_24px_80px_-48px_rgba(15,23,42,0.28)]"
         >
           <div className="relative px-6 py-10 sm:px-8 md:px-12 md:py-14">
-            <div className="absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-[#c3a464] to-transparent" />
+            <div className="absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent" />
             <div className="mx-auto max-w-3xl text-center">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#d8c398]/50 bg-white/70 px-4 py-1.5 text-sm text-[#7b5c28] shadow-sm">
+              <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50/90 px-4 py-1.5 text-sm text-blue-700 shadow-sm">
                 <Scale className="h-4 w-4" />
                 <span className="font-medium">로컬 인덱스 + 온톨로지 기반</span>
               </div>
