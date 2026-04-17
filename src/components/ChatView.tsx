@@ -262,8 +262,8 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex-1 overflow-y-auto px-3 pb-6 pt-4 sm:p-4 md:px-8 md:pb-8 md:pt-6">
-        <div className="mx-auto max-w-4xl space-y-4 sm:space-y-6 md:space-y-8">
+      <div className="flex-1 overflow-y-auto px-3 pb-6 pt-4 sm:p-4 md:px-8 md:pb-8 md:pt-6 lg:px-10">
+        <div className="mx-auto max-w-5xl space-y-4 sm:space-y-6 md:space-y-8">
           {requiresUserKey && !apiKey && (
             <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
               개인 Gemini API 키를 등록하면 이 채팅창에서 바로 답변 생성을 시작할 수 있습니다.
@@ -281,8 +281,8 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
               <div
                 className={`flex flex-col ${
                   message.role === 'user'
-                    ? 'max-w-[92%] items-end sm:max-w-[85%] md:max-w-[75%]'
-                    : 'max-w-[96%] items-start sm:max-w-[92%] md:max-w-[88%] lg:max-w-[84%]'
+                    ? 'max-w-[92%] items-end sm:max-w-[85%] md:max-w-[74%] lg:max-w-[70%]'
+                    : 'max-w-[97%] items-start sm:max-w-[95%] md:max-w-[92%] lg:max-w-[90%] xl:max-w-[88%]'
                 }`}
               >
                 {message.role === 'user' ? (
@@ -318,7 +318,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
         className="shrink-0 border-t border-slate-200 bg-white/95 px-3 pt-3 shadow-[0_-4px_20px_-15px_rgba(0,0,0,0.1)] backdrop-blur sm:px-4 md:px-6"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
       >
-        <div className="mx-auto max-w-4xl">
+        <div className="mx-auto max-w-5xl">
           <form onSubmit={handleSubmit} className="relative flex items-end gap-2 sm:gap-3">
             <div className="relative flex-1 rounded-2xl border border-slate-300 bg-slate-50 shadow-sm transition-all focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
               <textarea

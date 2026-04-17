@@ -1,6 +1,8 @@
 import type { KnowledgeFile } from './ragCore';
+import { CATEGORY_ORDER, categorizeKnowledgeFileName, type Category } from './knowledgeCategories';
 
 export { buildContext, searchKnowledge, chunksToContext, getAllChunks, type KnowledgeFile, type Chunk } from './ragCore';
+export { CATEGORY_ORDER, type Category } from './knowledgeCategories';
 
 const allMdModules = import.meta.glob('/knowledge/**/*.md', { query: '?url', import: 'default', eager: true });
 const allTxtModules = import.meta.glob('/knowledge/**/*.txt', { query: '?url', import: 'default', eager: true });
@@ -18,15 +20,6 @@ const evalModules: Record<string, unknown> = { ...evalMdModules, ...evalTxtModul
 
 export type KnowledgeSource = 'general' | 'eval';
 
-export type Category =
-  | '법령'
-  | '시행령'
-  | '시행규칙'
-  | '고시'
-  | '별표·별지'
-  | '평가·매뉴얼'
-  | '참고자료';
-
 export interface KnowledgeDocument extends KnowledgeFile {
   category: Category;
   displayTitle: string;
@@ -43,29 +36,13 @@ export interface KnowledgeListItem {
   sourceLabel: string;
 }
 
-export const CATEGORY_ORDER: Category[] = [
-  '법령',
-  '시행령',
-  '시행규칙',
-  '고시',
-  '별표·별지',
-  '평가·매뉴얼',
-  '참고자료',
-];
-
 export const SOURCE_LABELS: Record<KnowledgeSource, string> = {
   general: '일반 문서',
   eval: '평가 문서',
 };
 
 export function categorize(fileName: string): Category {
-  if (/\(법률\)/.test(fileName)) return '법령';
-  if (/\(시행령\)/.test(fileName)) return '시행령';
-  if (/\(시행규칙\)|보건복지부령/.test(fileName)) return '시행규칙';
-  if (/^\[(별표|별지)/.test(fileName)) return '별표·별지';
-  if (/\(고시\)/.test(fileName)) return '고시';
-  if (/평가|매뉴얼|Q&A|사례집/i.test(fileName)) return '평가·매뉴얼';
-  return '참고자료';
+  return categorizeKnowledgeFileName(fileName);
 }
 
 function getKnowledgeSource(filePath: string): KnowledgeSource {
