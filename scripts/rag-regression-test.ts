@@ -3,6 +3,7 @@ import { buildEvidenceBalance, describeHybridReadiness, inferAgentDecision } fro
 import { compareIndexStatus } from '../src/lib/ragIndex';
 import { buildRagCorpusIndex, searchCorpus } from '../src/lib/ragEngine';
 import { buildPlannerSystemInstruction } from '../src/lib/promptAssembly';
+import { buildServiceScopeDocumentBoosts, parseServiceScopes } from '../src/lib/serviceScopes';
 import type { StructuredChunk } from '../src/lib/ragTypes';
 
 function makeChunk(id: string, patch: Partial<StructuredChunk>): StructuredChunk {
@@ -173,11 +174,89 @@ function testPlannerPromptDocumentsAnswerTypeSelection() {
   assert.match(instruction, /mixed/);
 }
 
+function testServiceScopeParserRejectsInvalidValues() {
+  assert.deepEqual(parseServiceScopes(undefined), ['all']);
+  assert.deepEqual(parseServiceScopes(['all']), ['all']);
+  assert.deepEqual(parseServiceScopes(['all', 'day-night-care']), ['day-night-care']);
+  assert.deepEqual(parseServiceScopes(['home-visit-care', 'home-visit-bath', 'home-visit-care']), [
+    'home-visit-care',
+    'home-visit-bath',
+  ]);
+  assert.throws(() => parseServiceScopes(['day-night-care', 'unknown-scope']), /Invalid serviceScopes/);
+}
+
+function testServiceScopeBoostsDayNightCareEvidence() {
+  const chunks = [
+    makeChunk('facility-staffing', {
+      documentId: 'facility-doc',
+      docTitle: '노인요양시설 인력기준',
+      searchText: '요양원 공동생활가정 시설급여 인력기준 직원배치기준',
+      text: '노인요양시설과 공동생활가정 인력기준입니다.',
+      sourceType: 'manual',
+    }),
+    makeChunk('day-care-staffing', {
+      documentId: 'day-care-doc',
+      docTitle: '주야간보호 인력기준',
+      searchText: '주야간보호센터 주간보호 데이케어 인력기준 직원배치기준',
+      text: '주야간보호센터 인력기준입니다.',
+      sourceType: 'manual',
+    }),
+  ];
+
+  const result = searchCorpus({
+    index: buildRagCorpusIndex(chunks),
+    query: '인력기준 알려줘',
+    mode: 'integrated',
+    queryEmbedding: null,
+    queryAliases: ['주야간보호', '주간보호', '데이케어'],
+    options: {
+      documentScoreBoosts: buildServiceScopeDocumentBoosts(chunks, ['day-night-care']),
+    },
+  });
+
+  assert.equal(result.fusedCandidates[0]?.documentId, 'day-care-doc');
+}
+
+function testServiceScopeBoostsFacilityEvidence() {
+  const chunks = [
+    makeChunk('facility-staffing', {
+      documentId: 'facility-doc',
+      docTitle: '노인요양시설 인력기준',
+      searchText: '요양원 공동생활가정 시설급여 인력기준 직원배치기준',
+      text: '노인요양시설과 공동생활가정 인력기준입니다.',
+      sourceType: 'manual',
+    }),
+    makeChunk('day-care-staffing', {
+      documentId: 'day-care-doc',
+      docTitle: '주야간보호 인력기준',
+      searchText: '주야간보호센터 주간보호 데이케어 인력기준 직원배치기준',
+      text: '주야간보호센터 인력기준입니다.',
+      sourceType: 'manual',
+    }),
+  ];
+
+  const result = searchCorpus({
+    index: buildRagCorpusIndex(chunks),
+    query: '인력기준 알려줘',
+    mode: 'integrated',
+    queryEmbedding: null,
+    queryAliases: ['요양원', '공동생활가정', '시설급여'],
+    options: {
+      documentScoreBoosts: buildServiceScopeDocumentBoosts(chunks, ['facility-care']),
+    },
+  });
+
+  assert.equal(result.fusedCandidates[0]?.documentId, 'facility-doc');
+}
+
 testHybridReadinessReason();
 testEvidenceBalanceAndAgentDecision();
 testShortKoreanQueryFallback();
 testCompactedDocumentTitleQuery();
 testOutOfDomainQueryStaysLowConfidence();
 testPlannerPromptDocumentsAnswerTypeSelection();
+testServiceScopeParserRejectsInvalidValues();
+testServiceScopeBoostsDayNightCareEvidence();
+testServiceScopeBoostsFacilityEvidence();
 
 console.log('RAG regression tests passed.');

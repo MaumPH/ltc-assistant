@@ -24,7 +24,12 @@ async function main() {
   let requiredCitationHits = 0;
 
   for (const testCase of cases) {
-    const inspection = await service.inspectRetrieval(testCase.messages ?? testCase.question, testCase.mode);
+    const inspection = await service.inspectRetrieval(
+      testCase.messages ?? testCase.question,
+      testCase.mode,
+      undefined,
+      testCase.serviceScopes,
+    );
     const top3 = inspection.search.fusedCandidates.slice(0, 3);
     const top5 = inspection.search.fusedCandidates.slice(0, 5);
     const top3Hit = top3.some((candidate) => candidate.docTitle.includes(testCase.expectedDoc));

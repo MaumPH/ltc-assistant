@@ -1,16 +1,23 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Loader2, Scale, Send } from 'lucide-react';
+import { Check, Loader2, Scale, Send } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { MODELS, type ModelId } from './TopNav';
 import ExpertAnswerCard from './ExpertAnswerCard';
 import RetrievalTracePanel from './RetrievalTracePanel';
 import { getApiUrl } from '../lib/apiUrl';
-import type { ChatCapabilities, ExpertAnswerEnvelope, RetrievalDiagnostics } from '../lib/ragTypes';
+import {
+  ALL_SERVICE_SCOPE_ID,
+  SERVICE_SCOPE_OPTIONS,
+  coerceServiceScopes,
+  getServiceScopeLabels,
+} from '../lib/serviceScopes';
+import type { ChatCapabilities, ExpertAnswerEnvelope, RetrievalDiagnostics, ServiceScopeId } from '../lib/ragTypes';
 
 export interface Message {
   id: string;
   role: 'user' | 'model';
   text: string;
+  serviceScopes?: ServiceScopeId[];
   answer?: ExpertAnswerEnvelope;
   citations?: Array<{
     evidenceId: string;
@@ -45,6 +52,7 @@ interface ChatApiErrorResponse {
 }
 
 const MAX_RATE_LIMIT_RETRIES = 2;
+const SERVICE_SCOPE_STORAGE_PREFIX = 'ltc.chat.serviceScopes';
 const REQUEST_TIMEOUT_MS_BY_MODEL: Record<ModelId, number> = {
   'gemini-3-flash-preview': 120_000,
   'gemini-3.1-pro-preview': 240_000,
@@ -74,6 +82,69 @@ function createMessage(role: Message['role'], text: string, extras?: Partial<Mes
     text,
     ...extras,
   };
+}
+
+function getServiceScopeStorageKey(mode: ChatViewProps['mode']): string {
+  return `${SERVICE_SCOPE_STORAGE_PREFIX}.${mode}`;
+}
+
+function readStoredServiceScopes(mode: ChatViewProps['mode']): ServiceScopeId[] {
+  if (typeof window === 'undefined') return [ALL_SERVICE_SCOPE_ID];
+  const raw = window.localStorage.getItem(getServiceScopeStorageKey(mode));
+  if (!raw) return [ALL_SERVICE_SCOPE_ID];
+  try {
+    return coerceServiceScopes(JSON.parse(raw));
+  } catch {
+    return [ALL_SERVICE_SCOPE_ID];
+  }
+}
+
+function getServiceScopeLabelText(scopes: ServiceScopeId[] | undefined): string {
+  return getServiceScopeLabels(scopes?.length ? scopes : [ALL_SERVICE_SCOPE_ID]).join(', ');
+}
+
+function ServiceScopeSelector({
+  selectedScopes,
+  onToggle,
+}: {
+  selectedScopes: ServiceScopeId[];
+  onToggle: (scope: ServiceScopeId) => void;
+}) {
+  const selected = new Set(selectedScopes);
+
+  return (
+    <div className="mb-2">
+      <div className="mb-1 px-1 text-xs font-semibold text-slate-500">적용 급여유형</div>
+      <div className="flex flex-wrap gap-1.5 sm:gap-2">
+        {SERVICE_SCOPE_OPTIONS.map((option) => {
+          const checked = selected.has(option.id);
+          return (
+            <button
+              key={option.id}
+              type="button"
+              aria-pressed={checked}
+              onClick={() => onToggle(option.id)}
+              className={`inline-flex h-8 max-w-full items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition sm:h-9 sm:px-3 sm:text-sm ${
+                checked
+                  ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+                  : 'border-slate-300 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50'
+              }`}
+            >
+              <span
+                className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
+                  checked ? 'border-white bg-white text-blue-600' : 'border-slate-400 bg-white'
+                }`}
+                aria-hidden="true"
+              >
+                {checked && <Check className="h-3 w-3" />}
+              </span>
+              <span className="truncate">{option.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function getModelLabel(modelId: string): string {
@@ -167,6 +238,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
   const [messages, setMessages] = useState<Message[]>(() => [createMessage('model', INITIAL_MESSAGES[mode])]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedServiceScopes, setSelectedServiceScopes] = useState<ServiceScopeId[]>(() => readStoredServiceScopes(mode));
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const requiresUserKey = capabilities?.requiresUserGenerationKey ?? true;
@@ -175,11 +247,29 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
   useEffect(() => {
     setMessages([createMessage('model', INITIAL_MESSAGES[mode])]);
     setInput('');
+    setSelectedServiceScopes(readStoredServiceScopes(mode));
   }, [mode]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: messages.length > 1 ? 'smooth' : 'auto' });
   }, [isLoading, messages]);
+
+  useEffect(() => {
+    window.localStorage.setItem(getServiceScopeStorageKey(mode), JSON.stringify(selectedServiceScopes));
+  }, [mode, selectedServiceScopes]);
+
+  const handleServiceScopeToggle = (scope: ServiceScopeId) => {
+    setSelectedServiceScopes((current) => {
+      if (scope === ALL_SERVICE_SCOPE_ID) return [ALL_SERVICE_SCOPE_ID];
+
+      const specifics = current.filter((item) => item !== ALL_SERVICE_SCOPE_ID);
+      const next = specifics.includes(scope)
+        ? specifics.filter((item) => item !== scope)
+        : [...specifics, scope];
+
+      return next.length > 0 ? next : [ALL_SERVICE_SCOPE_ID];
+    });
+  };
 
   const submitCurrentMessage = async () => {
     const trimmed = input.trim();
@@ -196,7 +286,8 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
     const requestModel = selectedModel;
     const requestModelLabel = getModelLabel(requestModel);
     const requestTimeoutMs = getRequestTimeoutMs(requestModel);
-    const userMessage = createMessage('user', trimmed);
+    const requestServiceScopes = selectedServiceScopes;
+    const userMessage = createMessage('user', trimmed, { serviceScopes: requestServiceScopes });
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInput('');
@@ -213,6 +304,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
             model: requestModel,
             promptVariant: 'v2',
             apiKey: apiKey ?? undefined,
+            serviceScopes: requestServiceScopes,
           }),
           signal: AbortSignal.timeout(requestTimeoutMs),
         });
@@ -342,9 +434,16 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
                 }`}
               >
                 {message.role === 'user' ? (
-                  <div className="rounded-2xl rounded-tr-sm bg-blue-600 px-4 py-3 text-white shadow-sm sm:px-5 sm:py-4">
-                    <p className="whitespace-pre-wrap text-[15px] leading-relaxed sm:text-base">{message.text}</p>
-                  </div>
+                  <>
+                    <div className="rounded-2xl rounded-tr-sm bg-blue-600 px-4 py-3 text-white shadow-sm sm:px-5 sm:py-4">
+                      <p className="whitespace-pre-wrap text-[15px] leading-relaxed sm:text-base">{message.text}</p>
+                    </div>
+                    {message.serviceScopes && (
+                      <span className="mt-1 max-w-full truncate px-1 text-[11px] font-medium text-slate-500 sm:text-xs">
+                        적용 급여유형: {getServiceScopeLabelText(message.serviceScopes)}
+                      </span>
+                    )}
+                  </>
                 ) : (
                   <>
                     {renderModelMessage(message)}
@@ -378,6 +477,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
       >
         <div className="mx-auto max-w-5xl">
+          <ServiceScopeSelector selectedScopes={selectedServiceScopes} onToggle={handleServiceScopeToggle} />
           <form onSubmit={handleSubmit} className="relative flex items-end gap-2 sm:gap-3">
             <div className="relative flex-1 rounded-2xl border border-slate-300 bg-slate-50 shadow-sm transition-all focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
               <textarea

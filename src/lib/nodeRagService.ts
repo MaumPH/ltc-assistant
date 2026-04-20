@@ -29,6 +29,7 @@ import {
   selectWorkflowBriefs,
   summarizeWorkflowEvents,
   type DomainBrain,
+  type ServiceScopeClarification,
   type WorkflowBrief,
 } from './brain';
 import {
@@ -95,8 +96,16 @@ import type {
   SearchRun,
   SourceRole,
   StructuredChunk,
+  ServiceScopeId,
 } from './ragTypes';
 import { CHAT_MODELS } from './chatModels';
+import {
+  buildServiceScopeDocumentBoosts,
+  buildServiceScopePromptContext,
+  getServiceScopeLabels,
+  getServiceScopeSearchAliases,
+  parseServiceScopes,
+} from './serviceScopes';
 
 interface StoredChunkRow {
   id: string;
@@ -168,6 +177,7 @@ interface GroundedChatRequest {
   model: string;
   promptVariant: PromptVariant;
   apiKey?: string;
+  serviceScopes?: ServiceScopeId[];
 }
 
 export interface GroundedChatResponse {
@@ -182,6 +192,8 @@ export interface RetrievalInspectionResponse {
   query: string;
   normalizedQuery: string;
   querySources: string[];
+  selectedServiceScopes: RetrievalDiagnostics['selectedServiceScopes'];
+  serviceScopeLabels: RetrievalDiagnostics['serviceScopeLabels'];
   search: SearchRun;
   compiledPages: CompiledPage[];
   indexStatus: IndexStatus;
@@ -710,6 +722,8 @@ interface SearchPlanningOptions {
 interface RetrievalPlanResult {
   normalizedQuery: string;
   querySources: string[];
+  selectedServiceScopes: ServiceScopeId[];
+  serviceScopeLabels: string[];
   aliases: string[];
   queryProfile: NaturalLanguageQueryProfile;
   questionArchetype: string;
@@ -1312,6 +1326,8 @@ function buildRetrievalDiagnostics(
   indexStatus: IndexStatus,
   scope: RetrievalScopeContext,
   extras?: {
+    selectedServiceScopes?: ServiceScopeId[];
+    serviceScopeLabels?: string[];
     selectedRetrievalMode?: RetrievalMode;
     workflowEventsHit?: string[];
     subquestions?: string[];
@@ -1340,6 +1356,8 @@ function buildRetrievalDiagnostics(
   return {
     normalizedQuery,
     querySources,
+    selectedServiceScopes: extras?.selectedServiceScopes ?? ['all'],
+    serviceScopeLabels: extras?.serviceScopeLabels ?? ['전체/공통'],
     matchedDocumentPaths: Array.from(new Set(search.evidence.map((item) => item.path))),
     candidateDiagnostics,
     focusTerms: search.focusTerms ?? deriveFocusTerms(search.query),
@@ -3035,7 +3053,16 @@ export class NodeRagService {
     });
   }
 
-  private async runRetrievalPlan(input: string | ChatMessage[], mode: PromptMode): Promise<RetrievalPlanResult> {
+  private async runRetrievalPlan(
+    input: string | ChatMessage[],
+    mode: PromptMode,
+    serviceScopes?: ServiceScopeId[],
+  ): Promise<RetrievalPlanResult> {
+    const selectedServiceScopes = parseServiceScopes(serviceScopes);
+    const serviceScopeLabels = getServiceScopeLabels(selectedServiceScopes);
+    const serviceScopeAliases = getServiceScopeSearchAliases(selectedServiceScopes);
+    const serviceScopeContext = buildServiceScopePromptContext(selectedServiceScopes);
+    const allSearchChunks = this.getAllSearchChunks();
     const recentMessages = Array.isArray(input) ? input.slice(-4) : [];
     const query = Array.isArray(input)
       ? [...recentMessages].reverse().find((message) => message.role === 'user')?.text ?? ''
@@ -3046,7 +3073,9 @@ export class NodeRagService {
     const queryProfile = normalized.queryProfile;
     const brainProfileQuery = uniqueNonEmptyLines([
       normalized.normalizedQuery,
+      serviceScopeContext,
       ...normalized.aliases,
+      ...serviceScopeAliases,
       ...queryProfile.searchVariants,
       ...queryProfile.aliasResolutions.flatMap((item) => [item.canonical, ...item.alternatives]),
       ...queryProfile.parsedLawRefs.flatMap((item) => [
@@ -3057,6 +3086,7 @@ export class NodeRagService {
     const profile = buildBrainQueryProfile(this.brain, brainProfileQuery, mode);
     const plannerTrace: Array<{ step: string; detail: string }> = [
       { step: 'query-type', detail: queryProfile.queryType },
+      { step: 'service-scope', detail: serviceScopeLabels.join(', ') },
       { step: 'question-archetype', detail: profile.questionArchetype },
       { step: 'preferred-answer-type', detail: profile.recommendedAnswerType },
       { step: 'initial-retrieval-mode', detail: profile.preferredRetrievalMode },
@@ -3064,16 +3094,20 @@ export class NodeRagService {
     const workflowBriefs = selectWorkflowBriefs(this.workflowBriefs, profile.workflowEvents);
     const aliases = uniqueNonEmptyLines([
       ...normalized.aliases,
+      ...serviceScopeAliases,
       ...profile.aliases,
       ...profile.relatedTerms,
     ]);
-    const embeddingQuery = [normalized.normalizedQuery, ...aliases].filter(Boolean).join('\n');
+    const embeddingQuery = [normalized.normalizedQuery, serviceScopeContext, ...aliases].filter(Boolean).join('\n');
     const queryEmbedding = await this.getQueryEmbedding(embeddingQuery);
-    const workflowBoosts = buildBrainDocumentBoosts(
-      this.brain,
-      this.getAllSearchChunks(),
-      profile.workflowEvents,
-      normalized.normalizedQuery,
+    const workflowBoosts = mergeDocumentScoreBoostMaps(
+      buildBrainDocumentBoosts(
+        this.brain,
+        allSearchChunks,
+        profile.workflowEvents,
+        normalized.normalizedQuery,
+      ),
+      buildServiceScopeDocumentBoosts(allSearchChunks, selectedServiceScopes),
     );
     const workflowAliasHints = workflowBriefs.flatMap((brief) => [brief.label, brief.summary]);
     let selectedRetrievalMode: RetrievalMode = profile.preferredRetrievalMode;
@@ -3164,13 +3198,18 @@ export class NodeRagService {
 
     const evidence = constrainEvidence({
       ...search,
-      evidence: expandEvidenceWithNeighbors(search.evidence, this.getAllSearchChunks()),
+      evidence: expandEvidenceWithNeighbors(search.evidence, allSearchChunks),
     });
     const basisCoverage = buildBasisCoverage(evidence);
-    const knowledgeContext = buildExpertKnowledgeContext({
-      evidence,
-      workflowBriefs,
-    });
+    const knowledgeContext = [
+      serviceScopeContext,
+      buildExpertKnowledgeContext({
+        evidence,
+        workflowBriefs,
+      }),
+    ]
+      .filter(Boolean)
+      .join('\n\n');
     plannerTrace.push({
       step: 'workflow-events',
       detail: profile.workflowEvents.length > 0 ? summarizeWorkflowEvents(this.brain, profile.workflowEvents).join(', ') : 'none',
@@ -3183,6 +3222,8 @@ export class NodeRagService {
     return {
       normalizedQuery: normalized.normalizedQuery,
       querySources: normalized.querySources,
+      selectedServiceScopes,
+      serviceScopeLabels,
       aliases,
       queryProfile,
       questionArchetype: profile.questionArchetype,
@@ -3205,7 +3246,12 @@ export class NodeRagService {
     };
   }
 
-  async inspectRetrieval(input: string | ChatMessage[], mode: PromptMode, apiKey?: string): Promise<RetrievalInspectionResponse> {
+  async inspectRetrieval(
+    input: string | ChatMessage[],
+    mode: PromptMode,
+    apiKey?: string,
+    serviceScopes?: ServiceScopeId[],
+  ): Promise<RetrievalInspectionResponse> {
     await this.initialize();
     void apiKey;
     if (this.embeddingAi) {
@@ -3214,7 +3260,7 @@ export class NodeRagService {
     const query = Array.isArray(input)
       ? [...input.slice(-4)].reverse().find((message) => message.role === 'user')?.text ?? ''
       : input;
-    const planned = await this.runRetrievalPlan(input, mode);
+    const planned = await this.runRetrievalPlan(input, mode, serviceScopes);
     const compiledPages = this.store.getCompiledPages(mode, planned.evidence.map((item) => item.documentId));
     const indexStatus = this.refreshIndexStatus();
     const retrieval = buildRetrievalDiagnostics(
@@ -3228,6 +3274,8 @@ export class NodeRagService {
       indexStatus,
       planned.scope,
       {
+        selectedServiceScopes: planned.selectedServiceScopes,
+        serviceScopeLabels: planned.serviceScopeLabels,
         selectedRetrievalMode: planned.selectedRetrievalMode,
         workflowEventsHit: planned.workflowEventsHit,
         subquestions: planned.subquestions,
@@ -3247,6 +3295,8 @@ export class NodeRagService {
       query,
       normalizedQuery: planned.normalizedQuery,
       querySources: planned.querySources,
+      selectedServiceScopes: retrieval.selectedServiceScopes,
+      serviceScopeLabels: retrieval.serviceScopeLabels,
       search: {
         ...planned.search,
         evidence: planned.evidence,
@@ -3297,7 +3347,7 @@ export class NodeRagService {
 
     const recentMessages = request.messages.slice(-4);
     const latestUserMessage = [...recentMessages].reverse().find((message) => message.role === 'user')?.text ?? '';
-    const planned = await this.runRetrievalPlan(recentMessages, request.mode);
+    const planned = await this.runRetrievalPlan(recentMessages, request.mode, request.serviceScopes);
     const indexStatus = this.refreshIndexStatus();
     const retrieval = buildRetrievalDiagnostics(
       {
@@ -3310,6 +3360,8 @@ export class NodeRagService {
       indexStatus,
       planned.scope,
       {
+        selectedServiceScopes: planned.selectedServiceScopes,
+        serviceScopeLabels: planned.serviceScopeLabels,
         selectedRetrievalMode: planned.selectedRetrievalMode,
         workflowEventsHit: planned.workflowEventsHit,
         subquestions: planned.subquestions,
@@ -3329,7 +3381,14 @@ export class NodeRagService {
     const keyIssueDate = planned.evidence.find((item) => item.effectiveDate)?.effectiveDate;
     const citations = dedupeCitations(planned.evidence);
     const question = latestUserMessage || planned.normalizedQuery;
-    const serviceScopeClarification = detectServiceScopeClarification(question);
+    const hasSelectedServiceScope = planned.selectedServiceScopes.some((scope) => scope !== 'all');
+    const serviceScopeClarification: ServiceScopeClarification = hasSelectedServiceScope
+      ? {
+          needsClarification: false,
+          candidateScopes: [],
+          ambiguitySignals: [],
+        }
+      : detectServiceScopeClarification(question);
     const clarificationDecision = await detectClarificationNeed({
       ai,
       model: request.model,

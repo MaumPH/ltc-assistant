@@ -8,7 +8,8 @@ import { createServer as createViteServer } from 'vite';
 import * as dotenv from 'dotenv';
 import { buildKnowledgeCategoryCounts } from './src/lib/knowledgeCategories';
 import { NodeRagService } from './src/lib/nodeRagService';
-import type { ChatMessage, PromptMode } from './src/lib/ragTypes';
+import { parseServiceScopes } from './src/lib/serviceScopes';
+import type { ChatMessage, PromptMode, ServiceScopeId } from './src/lib/ragTypes';
 import type { PromptVariant } from './src/lib/promptAssembly';
 
 dotenv.config();
@@ -301,11 +302,13 @@ async function startServer() {
         messages,
         mode = 'integrated',
         apiKey,
+        serviceScopes,
       }: {
         query?: string;
         messages?: ChatMessage[];
         mode?: PromptMode;
         apiKey?: string;
+        serviceScopes?: ServiceScopeId[];
       } = req.body;
 
       const hasMessages = Array.isArray(messages) && messages.length > 0;
@@ -313,9 +316,21 @@ async function startServer() {
         return res.status(400).json({ error: 'query or messages must be provided' });
       }
 
-      const inspection = await ragService.inspectRetrieval(hasMessages ? messages : (query as string), mode, apiKey);
+      const selectedServiceScopes = parseServiceScopes(serviceScopes);
+      const inspection = await ragService.inspectRetrieval(
+        hasMessages ? messages : (query as string),
+        mode,
+        apiKey,
+        selectedServiceScopes,
+      );
       res.json(inspection);
     } catch (error) {
+      if (error instanceof Error && error.message.includes('Invalid serviceScopes')) {
+        return res.status(400).json({
+          error: 'Invalid serviceScopes',
+          details: getSafeErrorMessage(error),
+        });
+      }
       logServerError('retrieval inspect failed', error);
       res.status(500).json({
         error: 'Failed to inspect retrieval',
@@ -333,18 +348,22 @@ async function startServer() {
         model = 'gemini-3-flash-preview',
         promptVariant = 'v2',
         apiKey,
+        serviceScopes,
       }: {
         messages?: ChatMessage[];
         mode?: PromptMode;
         model?: string;
         promptVariant?: PromptVariant;
         apiKey?: string;
+        serviceScopes?: ServiceScopeId[];
       } = req.body;
       requestedModel = model;
 
       if (!Array.isArray(messages) || messages.length === 0) {
         return res.status(400).json({ error: 'messages must be a non-empty array' });
       }
+
+      const selectedServiceScopes = parseServiceScopes(serviceScopes);
 
       await enqueueRequest(async () => {
         const response = await ragService.generateChatResponse({
@@ -353,6 +372,7 @@ async function startServer() {
           model,
           promptVariant,
           apiKey,
+          serviceScopes: selectedServiceScopes,
         });
 
         res.json({
@@ -370,6 +390,8 @@ async function startServer() {
           retrieval: {
             normalizedQuery: response.retrieval.normalizedQuery,
             querySources: response.retrieval.querySources,
+            selectedServiceScopes: response.retrieval.selectedServiceScopes,
+            serviceScopeLabels: response.retrieval.serviceScopeLabels,
             intent: response.search.intent,
             confidence: response.search.confidence,
             retrievalReadiness: response.retrieval.retrievalReadiness,
@@ -415,6 +437,12 @@ async function startServer() {
       const message = error instanceof Error ? error.message : String(error);
       const safeMessage = sanitizeSensitiveText(message);
       const lowered = message.toLowerCase();
+      if (message.includes('Invalid serviceScopes')) {
+        return res.status(400).json({
+          error: 'Invalid serviceScopes',
+          details: safeMessage,
+        });
+      }
       logServerError('chat request failed', error);
       if (
         lowered.includes('429') ||

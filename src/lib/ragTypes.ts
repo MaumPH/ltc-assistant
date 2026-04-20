@@ -347,6 +347,7 @@ export interface BenchmarkCase {
   expectedEvidenceDocs?: string[];
   forbiddenEvidenceDocs?: string[];
   requiredCitationDocs?: string[];
+  serviceScopes?: ServiceScopeId[];
 }
 
 export interface GroundedAnswer {
@@ -364,7 +365,19 @@ export interface GroundedAnswer {
 export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
+  serviceScopes?: ServiceScopeId[];
 }
+
+export type ServiceScopeId =
+  | 'all'
+  | 'facility-care'
+  | 'day-night-care'
+  | 'short-term-care'
+  | 'home-visit-care'
+  | 'home-visit-bath'
+  | 'home-visit-nursing'
+  | 'integrated-home-care'
+  | 'welfare-equipment';
 
 export interface IndexManifestEntry {
   documentId: string;
@@ -455,6 +468,8 @@ export interface CandidateDiagnostic {
 export interface RetrievalDiagnostics {
   normalizedQuery: string;
   querySources: string[];
+  selectedServiceScopes: ServiceScopeId[];
+  serviceScopeLabels: string[];
   matchedDocumentPaths: string[];
   candidateDiagnostics: CandidateDiagnostic[];
   focusTerms: string[];
