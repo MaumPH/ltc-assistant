@@ -15,7 +15,8 @@
     "rag:index": "tsx scripts/rag-index.ts",
     "rag:doctor": "tsx scripts/rag-doctor.ts",
     "rag:compiled": "tsx scripts/rag-compiled-pages.ts",
-    "rag:bench": "tsx scripts/rag-benchmark.ts"
+    "rag:bench": "tsx scripts/rag-benchmark.ts",
+    "rag:test": "tsx scripts/rag-regression-test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

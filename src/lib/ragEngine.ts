@@ -43,8 +43,30 @@ const CANDIDATE_METADATA_TERMS = new Set([
   'date-match',
 ]);
 
+const DOCUMENT_QUERY_NOISE_TERMS = [
+  '문서를찾아줘',
+  '문서찾아줘',
+  '문서를보여줘',
+  '문서보여줘',
+  '문서를',
+  '문서',
+  '우선근거로잡아줘',
+  '우선',
+  '먼저',
+  '찾아줘',
+  '보여줘',
+  '기준으로설명해줘',
+  '설명해줘',
+  '근거를찾아줘',
+  '근거',
+  '확인하나요',
+  '확인',
+];
+
 const GENERIC_QUERY_TERMS = new Set([
   '장기요양',
+  '장기요양기관',
+  '요양기관',
   '기관',
   '급여',
   '제공',
@@ -66,6 +88,17 @@ const GENERIC_QUERY_TERMS = new Set([
   '대상',
   '질문',
   '사용',
+  '비용',
+  '청구',
+  '청구할',
+  '수있나요',
+  '있나요',
+  '되나요',
+  '하나요',
+  '어떤',
+  '누가',
+  '언제',
+  '어떻게',
 ]);
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -78,6 +111,19 @@ function cosineSimilarity(a: number[], b: number[]): number {
     normB += b[index] * b[index];
   }
   return dot / (Math.sqrt(normA) * Math.sqrt(normB) + 1e-10);
+}
+
+function compactForMetadata(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^\uac00-\ud7a3\u1100-\u11ff\u3130-\u318f0-9a-z]+/gi, '');
+}
+
+function stripDocumentQueryNoise(value: string): string {
+  return DOCUMENT_QUERY_NOISE_TERMS.reduce(
+    (current, term) => current.split(compactForMetadata(term)).join(''),
+    value,
+  );
 }
 
 export function buildRagCorpusIndex(chunks: StructuredChunk[]): RagCorpusIndex {
@@ -143,7 +189,7 @@ export function getCandidateFocusMatches(candidate: StructuredChunk, focusTerms:
 }
 
 function scoreAliasMetadata(alias: string, titleCompact: string, sectionCompact: string, matchedTerms: Set<string>): number {
-  const aliasCompact = alias.replace(/\s+/g, '').toLowerCase();
+  const aliasCompact = compactForMetadata(alias);
   if (aliasCompact.length < 2) return 0;
 
   if (titleCompact.includes(aliasCompact)) {
@@ -211,14 +257,28 @@ function scoreExact(
   options?: SearchOptions,
 ): SearchCandidate {
   const candidate = createCandidate(chunk);
-  const compactQuery = query.replace(/\s+/g, '').toLowerCase();
-  const titleCompact = chunk.docTitle.replace(/\s+/g, '').toLowerCase();
-  const sectionCompact = chunk.sectionPath.join(' ').replace(/\s+/g, '').toLowerCase();
+  const compactQuery = compactForMetadata(query);
+  const titleCompact = compactForMetadata(chunk.docTitle);
+  const fileNameCompact = compactForMetadata(chunk.fileName);
+  const sectionCompact = compactForMetadata(chunk.sectionPath.join(' '));
+  const documentQueryProbe = stripDocumentQueryNoise(compactQuery);
   const matchedTerms = new Set<string>();
   let score = 0;
 
   if (compactQuery.length >= 4 && titleCompact.includes(compactQuery)) {
     score += 28;
+    matchedTerms.add('document-title');
+  }
+
+  if (
+    documentQueryProbe.length >= 4 &&
+    [titleCompact, fileNameCompact].some(
+      (candidateTitle) =>
+        candidateTitle.includes(documentQueryProbe) ||
+        (candidateTitle.length >= 4 && documentQueryProbe.includes(candidateTitle)),
+    )
+  ) {
+    score += 34;
     matchedTerms.add('document-title');
   }
 
@@ -232,11 +292,12 @@ function scoreExact(
   }
 
   for (const token of queryTokens(query)) {
-    if (titleCompact.includes(token)) {
+    const compactToken = compactForMetadata(token);
+    if (titleCompact.includes(compactToken)) {
       score += 6;
       matchedTerms.add(token);
     }
-    if (sectionCompact.includes(token)) {
+    if (sectionCompact.includes(compactToken)) {
       score += 4;
       matchedTerms.add(token);
     }
@@ -392,9 +453,14 @@ function rerankCandidate(
   if (mode === 'evaluation' && candidate.mode === 'evaluation') score += 6;
 
   if (mode === 'evaluation') {
-    if (candidate.sourceRole === 'primary_evaluation') score += 10;
+    if (candidate.sourceRole === 'primary_evaluation') score += 16;
     if (candidate.sourceRole === 'support_reference') score += 6;
-    if (candidate.sourceRole === 'routing_summary') score -= 14;
+    if (candidate.sourceRole === 'routing_summary') score -= 24;
+  }
+
+  if (mode === 'integrated' && intent === 'legal-exact') {
+    if (candidate.mode === 'integrated') score += 12;
+    if (candidate.mode === 'evaluation') score -= 8;
   }
 
   if ((options?.lawRefs?.length ?? 0) > 0 && ['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType)) {

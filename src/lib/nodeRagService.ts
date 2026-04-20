@@ -18,6 +18,7 @@ import {
   buildKnowledgeManifest,
   compareIndexStatus,
 } from './ragIndex';
+import { buildEvidenceBalance, describeHybridReadiness, inferAgentDecision } from './ragDiagnostics';
 import {
   buildBrainDocumentBoosts,
   buildBrainQueryProfile,
@@ -187,6 +188,9 @@ export interface RetrievalInspectionResponse {
   candidateDiagnostics: CandidateDiagnostic[];
   matchedDocumentPaths: string[];
   retrievalReadiness: RetrievalReadiness;
+  hybridReadinessReason: RetrievalDiagnostics['hybridReadinessReason'];
+  evidenceBalance: RetrievalDiagnostics['evidenceBalance'];
+  agentDecision: RetrievalDiagnostics['agentDecision'];
   stageTrace: SearchRun['stageTrace'];
   neighborWindows: ChunkWindowRef[];
   rejectionReasons: RetrievalDiagnostics['rejectionReasons'];
@@ -984,12 +988,22 @@ function injectEvidenceCandidate(search: SearchRun, candidate: SearchCandidate |
     return search;
   }
 
+  const topScore = search.fusedCandidates[0]?.rerankScore ?? candidate.rerankScore;
+  const promotedCandidate =
+    candidate.sourceRole === 'primary_evaluation' || candidate.sourceRole === 'support_reference'
+      ? {
+          ...candidate,
+          rerankScore: Math.max(candidate.rerankScore, topScore + 1),
+          matchedTerms: Array.from(new Set([...candidate.matchedTerms, 'routing-expanded-primary'])),
+        }
+      : candidate;
+
   return applyGroundingGate({
     ...search,
-    fusedCandidates: [candidate, ...search.fusedCandidates.filter((item) => item.id !== candidate.id)]
+    fusedCandidates: [promotedCandidate, ...search.fusedCandidates.filter((item) => item.id !== candidate.id)]
       .sort((left, right) => right.rerankScore - left.rerankScore)
       .slice(0, Math.max(search.fusedCandidates.length, 24)),
-    evidence: [candidate, ...search.evidence.filter((item) => item.id !== candidate.id)]
+    evidence: [promotedCandidate, ...search.evidence.filter((item) => item.id !== candidate.id)]
       .sort((left, right) => right.rerankScore - left.rerankScore)
       .slice(0, Math.max(search.evidence.length, 12)),
   });
@@ -1161,6 +1175,23 @@ function applyGroundingGate(search: SearchRun): SearchRun {
   };
 }
 
+function applyOriginalFocusGate(search: SearchRun, originalQuery: string): SearchRun {
+  const focusTerms = deriveFocusTerms(originalQuery);
+  if (focusTerms.length === 0 || search.fusedCandidates.length === 0) return search;
+
+  const topCandidates = search.fusedCandidates.slice(0, 5);
+  const matchedFocusTerms = new Set(topCandidates.flatMap((candidate) => getCandidateFocusMatches(candidate, focusTerms)));
+  const requiredMatches = Math.min(2, focusTerms.length);
+  if (matchedFocusTerms.size >= requiredMatches) return search;
+
+  return {
+    ...search,
+    confidence: 'low',
+    mismatchSignals: Array.from(new Set([...(search.mismatchSignals ?? []), 'insufficient-original-focus-terms-in-top-candidates'])),
+    groundingGatePassed: false,
+  };
+}
+
 function buildRetrievalStageTrace(
   search: SearchRun,
   normalizedQuery: string,
@@ -1278,7 +1309,7 @@ function buildRetrievalDiagnostics(
   normalizedQuery: string,
   querySources: string[],
   allChunks: StructuredChunk[],
-  retrievalReadiness: RetrievalReadiness,
+  indexStatus: IndexStatus,
   scope: RetrievalScopeContext,
   extras?: {
     selectedRetrievalMode?: RetrievalMode;
@@ -1293,10 +1324,19 @@ function buildRetrievalDiagnostics(
     graphExpansionTrace?: GraphExpansionTrace[];
     fallbackTriggered?: boolean;
     fallbackSources?: LawFallbackSource[];
+    agentDecision?: RetrievalDiagnostics['agentDecision'];
   },
 ): RetrievalDiagnostics {
   const neighborWindows = collectNeighborWindows(allChunks, search.evidence);
   const candidateDiagnostics = buildCandidateDiagnostics(search, neighborWindows, scope);
+  const basisCoverage = extras?.basisCoverage ?? { legal: 0, evaluation: 0, practical: 0 };
+  const agentDecision =
+    extras?.agentDecision ??
+    inferAgentDecision({
+      confidence: search.confidence,
+      evidenceCount: search.evidence.length,
+    });
+
   return {
     normalizedQuery,
     querySources,
@@ -1306,7 +1346,10 @@ function buildRetrievalDiagnostics(
     mismatchSignals: search.mismatchSignals ?? [],
     groundingGatePassed: search.groundingGatePassed ?? false,
     stageTrace: buildRetrievalStageTrace(search, normalizedQuery, querySources, scope),
-    retrievalReadiness,
+    retrievalReadiness: indexStatus.retrievalReadiness,
+    hybridReadinessReason: describeHybridReadiness(indexStatus),
+    evidenceBalance: buildEvidenceBalance(basisCoverage),
+    agentDecision,
     neighborWindows,
     rejectionReasons: candidateDiagnostics
       .filter((candidate) => candidate.rejectionReasons.length > 0)
@@ -1320,7 +1363,7 @@ function buildRetrievalDiagnostics(
     selectedRetrievalMode: extras?.selectedRetrievalMode ?? 'local',
     workflowEventsHit: extras?.workflowEventsHit ?? [],
     subquestions: extras?.subquestions ?? [],
-    basisCoverage: extras?.basisCoverage ?? { legal: 0, evaluation: 0, practical: 0 },
+    basisCoverage,
     plannerTrace: extras?.plannerTrace ?? [],
     normalizationTrace: extras?.normalizationTrace ?? [],
     aliasResolutions: extras?.aliasResolutions ?? [],
@@ -3079,7 +3122,10 @@ export class NodeRagService {
 
       search = {
         ...search,
-        confidence: mergedEvidence.size >= 3 ? 'medium' : search.confidence,
+        confidence:
+          mergedEvidence.size >= 3 && (search.mismatchSignals ?? []).length === 0
+            ? 'medium'
+            : search.confidence,
         fusedCandidates: Array.from(mergedCandidates.values())
           .sort((left, right) => right.rerankScore - left.rerankScore)
           .slice(0, Math.max(search.fusedCandidates.length, 20)),
@@ -3113,6 +3159,8 @@ export class NodeRagService {
         });
       }
     }
+
+    search = applyOriginalFocusGate(search, normalized.normalizedQuery);
 
     const evidence = constrainEvidence({
       ...search,
@@ -3177,7 +3225,7 @@ export class NodeRagService {
       planned.normalizedQuery,
       planned.querySources,
       this.getAllSearchChunks(),
-      indexStatus.retrievalReadiness,
+      indexStatus,
       planned.scope,
       {
         selectedRetrievalMode: planned.selectedRetrievalMode,
@@ -3208,6 +3256,9 @@ export class NodeRagService {
       candidateDiagnostics: retrieval.candidateDiagnostics,
       matchedDocumentPaths: retrieval.matchedDocumentPaths,
       retrievalReadiness: retrieval.retrievalReadiness,
+      hybridReadinessReason: retrieval.hybridReadinessReason,
+      evidenceBalance: retrieval.evidenceBalance,
+      agentDecision: retrieval.agentDecision,
       stageTrace: retrieval.stageTrace,
       neighborWindows: retrieval.neighborWindows,
       rejectionReasons: retrieval.rejectionReasons,
@@ -3256,7 +3307,7 @@ export class NodeRagService {
       planned.normalizedQuery,
       planned.querySources,
       this.getAllSearchChunks(),
-      indexStatus.retrievalReadiness,
+      indexStatus,
       planned.scope,
       {
         selectedRetrievalMode: planned.selectedRetrievalMode,
@@ -3277,10 +3328,52 @@ export class NodeRagService {
 
     const keyIssueDate = planned.evidence.find((item) => item.effectiveDate)?.effectiveDate;
     const citations = dedupeCitations(planned.evidence);
+    const question = latestUserMessage || planned.normalizedQuery;
+    const serviceScopeClarification = detectServiceScopeClarification(question);
+    const clarificationDecision = await detectClarificationNeed({
+      ai,
+      model: request.model,
+      recentMessages,
+      question,
+      normalizedQuery: planned.normalizedQuery,
+      mode: request.mode,
+      questionArchetype: planned.questionArchetype,
+      retrievalMode: planned.selectedRetrievalMode,
+      workflowEvents: planned.workflowEventIds,
+      serviceScopeClarification,
+    });
+
+    if (clarificationDecision.needsClarification) {
+      retrieval.agentDecision = 'clarify';
+      retrieval.plannerTrace = [
+        ...retrieval.plannerTrace,
+        { step: 'agent-decision', detail: `clarify: ${clarificationDecision.reason}` },
+      ];
+      const answer = createExpertClarificationAnswer({
+        question,
+        decision: clarificationDecision,
+        serviceScopeClarification,
+      });
+      return {
+        answer,
+        text: renderExpertAnswerMarkdown(answer),
+        search: {
+          ...planned.search,
+          evidence: planned.evidence,
+        },
+        citations,
+        retrieval,
+      };
+    }
 
     if (planned.evidence.length === 0 || planned.search.confidence === 'low') {
+      retrieval.agentDecision = 'abstain';
+      retrieval.plannerTrace = [
+        ...retrieval.plannerTrace,
+        { step: 'agent-decision', detail: 'abstain: evidence is empty or confidence is low' },
+      ];
       const answer = createExpertAbstainAnswer({
-        question: latestUserMessage || planned.normalizedQuery,
+        question,
         confidence: planned.search.confidence,
         evidenceState: planned.search.confidence === 'low' ? 'not_enough' : 'partial',
         keyIssueDate,
@@ -3305,7 +3398,7 @@ export class NodeRagService {
       mode: request.mode,
       variant: request.promptVariant,
       sources: this.promptSources,
-      question: latestUserMessage || planned.normalizedQuery,
+      question,
       retrievalMode: planned.selectedRetrievalMode,
       questionArchetype: planned.questionArchetype,
       recommendedAnswerType: planned.recommendedAnswerType,
@@ -3326,7 +3419,7 @@ export class NodeRagService {
       mode: request.mode,
       variant: request.promptVariant,
       sources: this.promptSources,
-      question: latestUserMessage || planned.normalizedQuery,
+      question,
       brain: this.brain,
       plan: answerPlan,
       evidence: planned.evidence,
@@ -3344,6 +3437,11 @@ export class NodeRagService {
     const answerEvidenceIds = new Set(answer.citations.map((item) => item.evidenceId));
     const resolvedCitations = citations.filter((item) => answerEvidenceIds.has(item.id));
     const finalCitations = resolvedCitations.length > 0 ? resolvedCitations : citations.slice(0, 4);
+    retrieval.agentDecision = 'answer';
+    retrieval.plannerTrace = [
+      ...retrieval.plannerTrace,
+      { step: 'agent-decision', detail: 'answer: evidence passed grounding and clarification gates' },
+    ];
 
     return {
       answer,

@@ -391,10 +391,21 @@ export function buildBrainDocumentBoosts(
   }
 
   const queryCompact = compact(query);
-  const scores = new Map<string, number>();
+  const matchedSignalsByDocument = new Map<string, Set<string>>();
+  const baseScores = new Map<string, number>();
   for (const chunk of chunks) {
+    if (chunk.sourceRole === 'routing_summary') continue;
+
     const searchCompact = compact([chunk.docTitle, chunk.parentSectionTitle, chunk.searchText].join(' '));
-    let score = 0;
+    const matchedSignals = matchedSignalsByDocument.get(chunk.documentId) ?? new Set<string>();
+    let baseScore = baseScores.get(chunk.documentId) ?? 0;
+
+    if (chunk.sourceRole === 'primary_evaluation') {
+      baseScore = Math.max(baseScore, 16);
+    }
+    if (/2026|2025/.test(chunk.fileName) || /2026|2025/.test(chunk.docTitle)) {
+      baseScore = Math.max(baseScore, 8);
+    }
 
     for (const task of tasks) {
       if (task.service_scope && !task.service_scope.includes(chunk.mode)) continue;
@@ -405,21 +416,29 @@ export function buildBrainDocumentBoosts(
         ...task.evaluation_basis,
         ...task.practical_basis,
       ];
-      const taskScore = taskSignals.reduce((sum, signal) => {
+      taskSignals.forEach((signal) => {
         const normalized = compact(signal);
-        if (!normalized) return sum;
-        if (searchCompact.includes(normalized)) return sum + 8;
-        if (queryCompact.includes(normalized) && searchCompact.includes(normalized.slice(0, Math.max(2, normalized.length - 2)))) {
-          return sum + 4;
+        if (!normalized) return;
+        if (searchCompact.includes(normalized)) {
+          matchedSignals.add(normalized);
+          return;
         }
-        return sum;
-      }, 0);
-      score += taskScore;
+        if (queryCompact.includes(normalized) && searchCompact.includes(normalized.slice(0, Math.max(2, normalized.length - 2)))) {
+          matchedSignals.add(normalized);
+        }
+      });
     }
 
-    if (score > 0) {
-      addDocumentScore(scores, chunk.documentId, score);
+    if (matchedSignals.size > 0 || baseScore > 0) {
+      matchedSignalsByDocument.set(chunk.documentId, matchedSignals);
+      baseScores.set(chunk.documentId, baseScore);
     }
+  }
+
+  const scores = new Map<string, number>();
+  for (const [documentId, matchedSignals] of matchedSignalsByDocument.entries()) {
+    const signalScore = Math.min(80, matchedSignals.size * 8);
+    addDocumentScore(scores, documentId, (baseScores.get(documentId) ?? 0) + signalScore);
   }
 
   return new Map(

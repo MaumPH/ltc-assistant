@@ -14,6 +14,15 @@ const EMPTY_CONTEXT_FALLBACK = [
   '(no retrieved knowledge context)',
   'If direct grounding is missing, keep the answer conservative and surface what is missing.',
 ].join('\n');
+const ANSWER_TYPE_SELECTION_GUIDE = [
+  '# Answer Type Selection',
+  '- `verdict`: use when the user asks whether something is allowed, required, compliant, or risky.',
+  '- `checklist`: use when the user needs preparation items, operating checks, or broad task coverage.',
+  '- `procedure`: use when the user asks how to do a sequence, submit, record, notify, or remediate.',
+  '- `comparison`: use when the answer must compare rules, years, document versions, roles, or service scopes.',
+  '- `definition`: use when the user asks what a term, standard, indicator, or document means.',
+  '- `mixed`: use when more than one shape is required, but still separate legal, evaluation, and practical basis.',
+].join('\n');
 
 function normalizeBlock(text: string): string {
   return text.replace(/\r\n/g, '\n').trim();
@@ -41,6 +50,7 @@ function buildContractInstructions(contract: PromptContract, retrievalMode: Retr
       '- Keep legal, evaluation, and practical basis separate.',
       '- Prefer concise, deterministic planning over stylistic prose.',
       retrievalMode ? `- The selected retrieval mode is \`${retrievalMode}\`. Respect that choice unless the evidence clearly shows a mismatch.` : null,
+      ANSWER_TYPE_SELECTION_GUIDE,
     ]
       .filter(Boolean)
       .join('\n');
@@ -54,6 +64,7 @@ function buildContractInstructions(contract: PromptContract, retrievalMode: Retr
     '- Keep legal, evaluation, and practical basis explicitly separated.',
     '- Prefer practical completeness over rhetorical flourish.',
     retrievalMode ? `- The selected retrieval mode is \`${retrievalMode}\`. Keep the structure aligned with what that retrieval path can justify.` : null,
+    ANSWER_TYPE_SELECTION_GUIDE,
   ]
     .filter(Boolean)
     .join('\n');

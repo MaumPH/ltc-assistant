@@ -43,6 +43,8 @@ export type ExpertAnswerType = 'verdict' | 'checklist' | 'procedure' | 'comparis
 
 export type BasisBucketKey = 'legal' | 'evaluation' | 'practical';
 
+export type AgentDecision = 'answer' | 'abstain' | 'clarify';
+
 export interface QueryNormalizationTraceEntry {
   step: string;
   detail: string;
@@ -256,6 +258,14 @@ export interface ExpertBasisBuckets {
   practical: ExpertBasisEntry[];
 }
 
+export interface EvidenceBalance {
+  legal: number;
+  evaluation: number;
+  practical: number;
+  missingBuckets: BasisBucketKey[];
+  balanced: boolean;
+}
+
 export interface ExpertAnswerBlockItem {
   label: string;
   detail: string;
@@ -452,6 +462,9 @@ export interface RetrievalDiagnostics {
   groundingGatePassed: boolean;
   stageTrace: RetrievalStageTrace[];
   retrievalReadiness: RetrievalReadiness;
+  hybridReadinessReason: string;
+  evidenceBalance: EvidenceBalance;
+  agentDecision: AgentDecision;
   neighborWindows: ChunkWindowRef[];
   rejectionReasons: Array<{ candidateId: string; reasons: string[] }>;
   routingDocuments: string[];

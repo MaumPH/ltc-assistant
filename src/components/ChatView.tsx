@@ -107,6 +107,62 @@ function buildErrorMessage(title: string, detail?: string): string {
   return detail ? `${title}\n\n> ${detail}` : title;
 }
 
+function getRetrievalText(retrieval: RetrievalDiagnostics | undefined, key: keyof RetrievalDiagnostics): string | undefined {
+  const value = retrieval?.[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function getAgentDecisionLabel(value: string | undefined): string {
+  switch (value) {
+    case 'answer':
+      return '답변';
+    case 'abstain':
+      return '보류';
+    case 'clarify':
+      return '확인 요청';
+    default:
+      return value ?? '판단 전';
+  }
+}
+
+function getEvidenceBalanceLabel(retrieval: RetrievalDiagnostics | undefined): string | undefined {
+  const balance = retrieval?.evidenceBalance;
+  if (!balance || typeof balance !== 'object') return undefined;
+  const entries = balance as { legal?: unknown; evaluation?: unknown; practical?: unknown; missingBuckets?: unknown };
+  const missingBuckets = Array.isArray(entries.missingBuckets)
+    ? entries.missingBuckets.map((item) => String(item)).filter(Boolean)
+    : [];
+  const counts = [
+    `법 ${Number(entries.legal ?? 0)}`,
+    `평가 ${Number(entries.evaluation ?? 0)}`,
+    `실무 ${Number(entries.practical ?? 0)}`,
+  ].join(' / ');
+  return missingBuckets.length > 0 ? `${counts} · 부족: ${missingBuckets.join(', ')}` : counts;
+}
+
+function RetrievalStatus({ retrieval }: { retrieval?: RetrievalDiagnostics }) {
+  const readiness = getRetrievalText(retrieval, 'retrievalReadiness');
+  const hybridReason = getRetrievalText(retrieval, 'hybridReadinessReason');
+  const agentDecision = getRetrievalText(retrieval, 'agentDecision');
+  const evidenceBalance = getEvidenceBalanceLabel(retrieval);
+  const shouldShow =
+    Boolean(hybridReason) &&
+    (readiness !== 'hybrid_ready' || agentDecision === 'abstain' || agentDecision === 'clarify');
+
+  if (!shouldShow) return null;
+
+  return (
+    <div className="mt-2 max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600 shadow-sm">
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        <span>검색: {readiness ?? 'unknown'}</span>
+        <span>판단: {getAgentDecisionLabel(agentDecision)}</span>
+        {evidenceBalance && <span>근거: {evidenceBalance}</span>}
+      </div>
+      {hybridReason && <p className="mt-1 text-slate-500">{hybridReason}</p>}
+    </div>
+  );
+}
+
 export default function ChatView({ mode, apiKey, capabilities, selectedModel }: ChatViewProps) {
   const [messages, setMessages] = useState<Message[]>(() => [createMessage('model', INITIAL_MESSAGES[mode])]);
   const [input, setInput] = useState('');
@@ -290,7 +346,10 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
                     <p className="whitespace-pre-wrap text-[15px] leading-relaxed sm:text-base">{message.text}</p>
                   </div>
                 ) : (
-                  renderModelMessage(message)
+                  <>
+                    {renderModelMessage(message)}
+                    <RetrievalStatus retrieval={message.retrieval} />
+                  </>
                 )}
               </div>
             </div>
