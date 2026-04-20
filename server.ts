@@ -248,6 +248,89 @@ async function startServer() {
     }
   });
 
+  app.get('/api/admin/rag/profiles', async (_req, res) => {
+    try {
+      await ragService.initialize();
+      res.json(ragService.getAdminProfiles());
+    } catch (error) {
+      logServerError('admin rag profiles failed', error);
+      res.status(500).json({
+        error: 'Failed to load RAG profiles',
+        details: getSafeErrorMessage(error),
+      });
+    }
+  });
+
+  app.post('/api/admin/rag/profiles', async (req, res) => {
+    try {
+      await ragService.initialize();
+      const { activeProfileId, overrides }: { activeProfileId?: string; overrides?: Record<string, boolean> } = req.body ?? {};
+      res.json(
+        ragService.updateAdminProfiles({
+          activeProfileId,
+          overrides,
+        }),
+      );
+    } catch (error) {
+      logServerError('admin rag profile update failed', error);
+      res.status(500).json({
+        error: 'Failed to update RAG profile settings',
+        details: getSafeErrorMessage(error),
+      });
+    }
+  });
+
+  app.post('/api/admin/rag/reindex', async (_req, res) => {
+    try {
+      const response = await ragService.requestReindex();
+      res.status(202).json(response);
+    } catch (error) {
+      logServerError('admin rag reindex failed', error);
+      res.status(500).json({
+        error: 'Failed to enqueue reindex',
+        details: getSafeErrorMessage(error),
+      });
+    }
+  });
+
+  app.get('/api/admin/rag/evals', async (_req, res) => {
+    try {
+      await ragService.initialize();
+      res.json(ragService.listEvalTrials());
+    } catch (error) {
+      logServerError('admin rag eval list failed', error);
+      res.status(500).json({
+        error: 'Failed to load eval trials',
+        details: getSafeErrorMessage(error),
+      });
+    }
+  });
+
+  app.post('/api/admin/rag/evals', async (req, res) => {
+    try {
+      const { profileIds }: { profileIds?: string[] } = req.body ?? {};
+      res.json(await ragService.runEvalTrial(Array.isArray(profileIds) && profileIds.length > 0 ? profileIds : undefined));
+    } catch (error) {
+      logServerError('admin rag eval run failed', error);
+      res.status(500).json({
+        error: 'Failed to run eval trial',
+        details: getSafeErrorMessage(error),
+      });
+    }
+  });
+
+  app.get('/api/admin/rag/health', async (_req, res) => {
+    try {
+      res.json(await ragService.getAdminHealth());
+    } catch (error) {
+      logServerError('admin rag health failed', error);
+      res.status(500).json({
+        error: 'Failed to load RAG health',
+        details: getSafeErrorMessage(error),
+      });
+    }
+  });
+
   app.get('/api/knowledge/file', (req, res) => {
     const requestedPath = typeof req.query.path === 'string' ? req.query.path : '';
     const filePath = resolveKnowledgeFilePath(requestedPath);
@@ -303,12 +386,14 @@ async function startServer() {
         mode = 'integrated',
         apiKey,
         serviceScopes,
+        retrievalProfileId,
       }: {
         query?: string;
         messages?: ChatMessage[];
         mode?: PromptMode;
         apiKey?: string;
         serviceScopes?: ServiceScopeId[];
+        retrievalProfileId?: string;
       } = req.body;
 
       const hasMessages = Array.isArray(messages) && messages.length > 0;
@@ -322,6 +407,7 @@ async function startServer() {
         mode,
         apiKey,
         selectedServiceScopes,
+        retrievalProfileId,
       );
       res.json(inspection);
     } catch (error) {
@@ -349,6 +435,7 @@ async function startServer() {
         promptVariant = 'v2',
         apiKey,
         serviceScopes,
+        retrievalProfileId,
       }: {
         messages?: ChatMessage[];
         mode?: PromptMode;
@@ -356,6 +443,7 @@ async function startServer() {
         promptVariant?: PromptVariant;
         apiKey?: string;
         serviceScopes?: ServiceScopeId[];
+        retrievalProfileId?: string;
       } = req.body;
       requestedModel = model;
 
@@ -373,6 +461,7 @@ async function startServer() {
           promptVariant,
           apiKey,
           serviceScopes: selectedServiceScopes,
+          retrievalProfileId,
         });
 
         res.json({
@@ -420,6 +509,11 @@ async function startServer() {
             graphExpansionTrace: response.retrieval.graphExpansionTrace,
             fallbackTriggered: response.retrieval.fallbackTriggered,
             fallbackSources: response.retrieval.fallbackSources,
+            profile: response.retrieval.profile,
+            guardrails: response.retrieval.guardrails,
+            latency: response.retrieval.latency,
+            sectionRouting: response.retrieval.sectionRouting,
+            cacheHits: response.retrieval.cacheHits,
             evidence: response.search.evidence.map((item) => ({
               evidenceId: item.id,
               docTitle: item.docTitle,

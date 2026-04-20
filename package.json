@@ -16,6 +16,7 @@
     "rag:doctor": "tsx scripts/rag-doctor.ts",
     "rag:compiled": "tsx scripts/rag-compiled-pages.ts",
     "rag:bench": "tsx scripts/rag-benchmark.ts",
+    "rag:eval": "tsx scripts/rag-eval-trial.ts",
     "rag:test": "tsx scripts/rag-regression-test.ts"
   },
   "dependencies": {

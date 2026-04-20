@@ -52,6 +52,12 @@ import {
   sha1,
   toDocumentMetadata,
 } from './ragMetadata';
+import {
+  applyPiiMasking,
+  buildCitationWarning,
+  buildHallucinationSignal,
+  detectPromptInjectionSignals,
+} from './ragGuardrails';
 import { buildNaturalLanguageQueryProfile as buildNaturalQueryProfile } from './ragNaturalQuery';
 import { loadKnowledgeCorporaFromDisk } from './nodeKnowledge';
 import {
@@ -61,11 +67,25 @@ import {
   type OntologyGraph,
   type OntologySearchResult,
 } from './ragOntology';
+import {
+  applyRetrievalFeatureOverrides,
+  getRetrievalFeatureFlags,
+  getRetrievalProfile,
+  listRetrievalProfiles,
+  resolveInitialRetrievalProfileId,
+} from './ragProfiles';
 import { loadPromptSourceSet } from './nodePrompts';
 import type { PromptVariant } from './promptAssembly';
+import { RuntimeRagCache } from './ragRuntimeCache';
 import { resolveEmbeddingApiKey, resolveGenerationMode, resolveServerGenerationApiKey } from './ragRuntime';
 import { buildCompiledPages, buildStructuredChunks, buildStructuredSections, chunksToEvidenceContext } from './ragStructured';
 import type {
+  AdminHealthResponse,
+  AdminProfilesResponse,
+  AdminReindexResponse,
+  BackendReadiness,
+  BackendReadinessItem,
+  CacheHitSummary,
   BenchmarkCase,
   CandidateDiagnostic,
   ExpertAnswerEnvelope,
@@ -75,7 +95,11 @@ import type {
   CompiledPage,
   ConfidenceLevel,
   DocumentDiagnostics,
+  EvalTrialCaseResult,
+  EvalTrialReport,
+  EvalTrialSummary,
   GenerationMode,
+  GuardrailResult,
   GraphExpansionTrace,
   GroundedAnswer,
   IndexManifestEntry,
@@ -88,15 +112,20 @@ import type {
   OntologyHit,
   PromptMode,
   QueryIntent,
+  RetrievalFeatureFlags,
   RetrievalMode,
   RetrievalDiagnostics,
+  RetrievalProfile,
   RetrievalReadiness,
   RecentRetrievalMatch,
   SearchCandidate,
   SearchRun,
+  SectionRoutingDecision,
+  StageLatencyBreakdown,
   SourceRole,
   StructuredChunk,
   ServiceScopeId,
+  WorkerQueueStatus,
 } from './ragTypes';
 import { CHAT_MODELS } from './chatModels';
 import {
@@ -178,6 +207,7 @@ interface GroundedChatRequest {
   promptVariant: PromptVariant;
   apiKey?: string;
   serviceScopes?: ServiceScopeId[];
+  retrievalProfileId?: string;
 }
 
 export interface GroundedChatResponse {
@@ -192,6 +222,7 @@ export interface RetrievalInspectionResponse {
   query: string;
   normalizedQuery: string;
   querySources: string[];
+  profile: RetrievalProfile;
   selectedServiceScopes: RetrievalDiagnostics['selectedServiceScopes'];
   serviceScopeLabels: RetrievalDiagnostics['serviceScopeLabels'];
   search: SearchRun;
@@ -221,6 +252,10 @@ export interface RetrievalInspectionResponse {
   graphExpansionTrace: RetrievalDiagnostics['graphExpansionTrace'];
   fallbackTriggered: RetrievalDiagnostics['fallbackTriggered'];
   fallbackSources: RetrievalDiagnostics['fallbackSources'];
+  guardrails: RetrievalDiagnostics['guardrails'];
+  latency: RetrievalDiagnostics['latency'];
+  sectionRouting: RetrievalDiagnostics['sectionRouting'];
+  cacheHits: RetrievalDiagnostics['cacheHits'];
 }
 
 interface RagStore {
@@ -247,6 +282,156 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function createEmptyLatencyBreakdown(): StageLatencyBreakdown {
+  return {
+    queryNormalizationMs: 0,
+    cacheLookupMs: 0,
+    hydeMs: 0,
+    retrievalMs: 0,
+    fallbackMs: 0,
+    planningMs: 0,
+    answerMs: 0,
+    totalMs: 0,
+  };
+}
+
+function createEmptyCacheHitSummary(): CacheHitSummary {
+  return {
+    normalization: false,
+    hyde: false,
+    retrieval: false,
+    fallback: false,
+    answer: false,
+  };
+}
+
+function createBackendReadinessItem(
+  name: BackendReadinessItem['name'],
+  partial?: Partial<BackendReadinessItem>,
+): BackendReadinessItem {
+  return {
+    name,
+    status: partial?.status ?? 'disabled',
+    enabled: partial?.enabled ?? false,
+    detail: partial?.detail ?? 'Not configured.',
+    checkedAt: partial?.checkedAt,
+    latencyMs: partial?.latencyMs,
+    backlog: partial?.backlog,
+  };
+}
+
+function createDefaultBackendReadiness(): BackendReadiness {
+  return {
+    pgvector: createBackendReadinessItem('pgvector', { detail: 'Waiting for store initialization.' }),
+    elasticsearch: createBackendReadinessItem('elasticsearch'),
+    redis: createBackendReadinessItem('redis'),
+    parser: createBackendReadinessItem('parser'),
+    reranker: createBackendReadinessItem('reranker'),
+    queue: createBackendReadinessItem('queue', { status: 'ready', enabled: true, detail: 'In-process worker queue is idle.' }),
+  };
+}
+
+function cloneWorkerQueueStatus(queue: WorkerQueueStatus): WorkerQueueStatus {
+  return {
+    pending: queue.pending,
+    running: queue.running,
+    lastStartedAt: queue.lastStartedAt,
+    lastCompletedAt: queue.lastCompletedAt,
+    lastError: queue.lastError,
+  };
+}
+
+function buildScopedCacheKey(parts: Array<string | number | undefined>): string {
+  return sha1(parts.filter((part) => part !== undefined && String(part).trim()).map((part) => String(part)).join('|'));
+}
+
+function summarizeSectionRouting(chunks: StructuredChunk[], enabled: boolean): SectionRoutingDecision {
+  if (!enabled || chunks.length === 0) {
+    return {
+      enabled,
+      strategy: 'chunk_only',
+      selectedSectionIds: [],
+      selectedSectionTitles: [],
+      selectedDocumentIds: [],
+      detail: enabled ? 'No section route could be derived from the current candidate set.' : 'Section routing is disabled by profile.',
+    };
+  }
+
+  const sectionMap = new Map<string, { title: string; documentId: string; count: number }>();
+  for (const chunk of chunks) {
+    const current = sectionMap.get(chunk.parentSectionId) ?? {
+      title: chunk.parentSectionTitle,
+      documentId: chunk.documentId,
+      count: 0,
+    };
+    current.count += 1;
+    sectionMap.set(chunk.parentSectionId, current);
+  }
+
+  const selected = Array.from(sectionMap.entries())
+    .sort((left, right) => right[1].count - left[1].count)
+    .slice(0, 3);
+
+  return {
+    enabled: true,
+    strategy: 'document_to_section',
+    selectedSectionIds: selected.map(([sectionId]) => sectionId),
+    selectedSectionTitles: selected.map(([, value]) => value.title),
+    selectedDocumentIds: Array.from(new Set(selected.map(([, value]) => value.documentId))),
+    detail: selected.length > 0 ? `Top routed sections: ${selected.map(([, value]) => value.title).join(', ')}` : 'No routed section selected.',
+  };
+}
+
+function applySectionRoutingBoost(search: SearchRun, enabled: boolean): SearchRun {
+  if (!enabled || search.fusedCandidates.length === 0) {
+    return search;
+  }
+
+  const topSectionIds = new Set(search.fusedCandidates.slice(0, 6).map((candidate) => candidate.parentSectionId));
+  const fusedCandidates = search.fusedCandidates
+    .map((candidate) =>
+      topSectionIds.has(candidate.parentSectionId)
+        ? {
+            ...candidate,
+            rerankScore: candidate.rerankScore + 3,
+            matchedTerms: uniqueNonEmptyLines([...candidate.matchedTerms, 'section-routing']),
+          }
+        : candidate,
+    )
+    .sort((left, right) => right.rerankScore - left.rerankScore);
+
+  return {
+    ...search,
+    fusedCandidates,
+    evidence: fusedCandidates.slice(0, Math.max(search.evidence.length, 12)),
+  };
+}
+
+function buildPseudoHydeText(params: {
+  normalizedQuery: string;
+  profile: RetrievalProfile;
+  queryProfile: NaturalLanguageQueryProfile;
+  serviceScopeLabels: string[];
+  workflowEvents: string[];
+}): string {
+  if (!params.profile.queryProcessing.hyde) return '';
+
+  const hints = uniqueNonEmptyLines([
+    ...params.queryProfile.searchVariants,
+    ...params.queryProfile.aliasResolutions.map((item) => item.canonical),
+    ...params.workflowEvents,
+    ...params.serviceScopeLabels,
+  ]).slice(0, 8);
+
+  if (hints.length === 0) return '';
+
+  return [
+    `가상의 정답 문서 요약: ${params.normalizedQuery}`,
+    `질의 유형: ${params.queryProfile.queryType}`,
+    `핵심 힌트: ${hints.join(', ')}`,
+  ].join('\n');
+}
+
 const EMBEDDING_MODEL = 'gemini-embedding-001';
 const EMBEDDING_DIMENSIONS = 768;
 const EMBEDDING_BATCH_SIZE = parsePositiveInteger(process.env.RAG_EMBEDDING_BATCH_SIZE, 20);
@@ -262,6 +447,12 @@ const MAX_CONTEXT_CHARS_BY_MODE: Record<PromptMode, number> = {
   evaluation: 12_000,
 };
 const EMBEDDING_CACHE_FILE = 'embeddings.json';
+const NORMALIZATION_CACHE_TTL_MS = parsePositiveInteger(process.env.RAG_NORMALIZATION_CACHE_TTL_MS, 10 * 60 * 1000);
+const HYDE_CACHE_TTL_MS = parsePositiveInteger(process.env.RAG_HYDE_CACHE_TTL_MS, 30 * 60 * 1000);
+const RETRIEVAL_CACHE_TTL_MS = parsePositiveInteger(process.env.RAG_RETRIEVAL_CACHE_TTL_MS, 10 * 60 * 1000);
+const ANSWER_CACHE_TTL_MS = parsePositiveInteger(process.env.RAG_ANSWER_CACHE_TTL_MS, 5 * 60 * 1000);
+const FALLBACK_CACHE_TTL_MS = parsePositiveInteger(process.env.RAG_FALLBACK_CACHE_TTL_MS, 60 * 60 * 1000);
+const BACKEND_HEALTH_TIMEOUT_MS = parsePositiveInteger(process.env.RAG_BACKEND_HEALTH_TIMEOUT_MS, 2_000);
 
 let embeddingQuotaBlockedUntil = 0;
 let embeddingQuotaBlockLogShown = false;
@@ -711,9 +902,11 @@ interface SearchExecutionResult {
   scope: RetrievalScopeContext;
   ontologyHits: OntologyHit[];
   graphExpansionTrace: GraphExpansionTrace[];
+  sectionRouting: SectionRoutingDecision;
 }
 
 interface SearchPlanningOptions {
+  profile?: RetrievalProfile;
   additionalDocumentScoreBoosts?: Map<string, number>;
   extraAliases?: string[];
   queryProfile?: NaturalLanguageQueryProfile;
@@ -722,6 +915,7 @@ interface SearchPlanningOptions {
 interface RetrievalPlanResult {
   normalizedQuery: string;
   querySources: string[];
+  profile: RetrievalProfile;
   selectedServiceScopes: ServiceScopeId[];
   serviceScopeLabels: string[];
   aliases: string[];
@@ -743,6 +937,9 @@ interface RetrievalPlanResult {
   graphExpansionTrace: GraphExpansionTrace[];
   fallbackTriggered: boolean;
   fallbackSources: LawFallbackSource[];
+  cacheHits: CacheHitSummary;
+  sectionRouting: SectionRoutingDecision;
+  latency: StageLatencyBreakdown;
 }
 
 function uniqueDocumentPaths(chunks: Array<Pick<StructuredChunk, 'documentId' | 'path'>>): string[] {
@@ -1212,7 +1409,7 @@ function buildRetrievalStageTrace(
   querySources: string[],
   scope: RetrievalScopeContext,
 ): SearchRun['stageTrace'] {
-  return [
+  const stages: SearchRun['stageTrace'] = [
     {
       stage: 'query_normalization',
       inputCount: querySources.length > 0 ? querySources.length : 1,
@@ -1231,7 +1428,21 @@ function buildRetrievalStageTrace(
       outputCount: search.vectorCandidates.length,
       notes: search.vectorCandidates.length > 0 ? [`top=${search.vectorCandidates[0].docTitle}`] : ['vector-unavailable-or-empty'],
     },
-    {
+  ];
+
+  if (scope.routingDocuments.length > 0 || scope.primaryExpansionDocuments.length > 0) {
+    stages.push({
+      stage: 'section_routing',
+      inputCount: search.fusedCandidates.length,
+      outputCount: scope.primaryExpansionDocuments.length,
+      notes: [
+        ...(scope.routingDocuments.length > 0 ? [`routing=${scope.routingDocuments.length}`] : []),
+        ...(scope.primaryExpansionDocuments.length > 0 ? [`expanded=${scope.primaryExpansionDocuments.length}`] : []),
+      ],
+    });
+  }
+
+  stages.push({
       stage: 'fusion',
       inputCount: search.exactCandidates.length + search.lexicalCandidates.length + search.vectorCandidates.length,
       outputCount: search.fusedCandidates.length,
@@ -1239,11 +1450,9 @@ function buildRetrievalStageTrace(
         `exact=${search.exactCandidates.length}`,
         `lexical=${search.lexicalCandidates.length}`,
         `vector=${search.vectorCandidates.length}`,
-        ...(scope.routingDocuments.length > 0 ? [`routing=${scope.routingDocuments.length}`] : []),
-        ...(scope.primaryExpansionDocuments.length > 0 ? [`expanded=${scope.primaryExpansionDocuments.length}`] : []),
       ],
-    },
-    {
+    });
+  stages.push({
       stage: 'document_diversification',
       inputCount: search.fusedCandidates.length,
       outputCount: search.evidence.length,
@@ -1251,14 +1460,14 @@ function buildRetrievalStageTrace(
         `documents=${new Set(search.evidence.map((item) => item.documentId)).size}`,
         `clusters=${new Set(search.evidence.map((item) => item.citationGroupId)).size}`,
       ],
-    },
-    {
+    });
+  stages.push({
       stage: 'answer_evidence_gate',
       inputCount: search.evidence.length,
       outputCount: search.groundingGatePassed ? search.evidence.length : 0,
       notes: search.mismatchSignals && search.mismatchSignals.length > 0 ? search.mismatchSignals : [search.groundingGatePassed ? 'grounding-passed' : 'grounding-failed'],
-    },
-  ];
+    });
+  return stages;
 }
 
 function mergeSearchCandidateLists(
@@ -1326,6 +1535,7 @@ function buildRetrievalDiagnostics(
   indexStatus: IndexStatus,
   scope: RetrievalScopeContext,
   extras?: {
+    profile?: RetrievalProfile;
     selectedServiceScopes?: ServiceScopeId[];
     serviceScopeLabels?: string[];
     selectedRetrievalMode?: RetrievalMode;
@@ -1341,6 +1551,10 @@ function buildRetrievalDiagnostics(
     fallbackTriggered?: boolean;
     fallbackSources?: LawFallbackSource[];
     agentDecision?: RetrievalDiagnostics['agentDecision'];
+    guardrails?: GuardrailResult[];
+    latency?: StageLatencyBreakdown;
+    sectionRouting?: SectionRoutingDecision;
+    cacheHits?: CacheHitSummary;
   },
 ): RetrievalDiagnostics {
   const neighborWindows = collectNeighborWindows(allChunks, search.evidence);
@@ -1356,6 +1570,7 @@ function buildRetrievalDiagnostics(
   return {
     normalizedQuery,
     querySources,
+    profile: extras?.profile ?? getRetrievalProfile(undefined),
     selectedServiceScopes: extras?.selectedServiceScopes ?? ['all'],
     serviceScopeLabels: extras?.serviceScopeLabels ?? ['전체/공통'],
     matchedDocumentPaths: Array.from(new Set(search.evidence.map((item) => item.path))),
@@ -1390,6 +1605,10 @@ function buildRetrievalDiagnostics(
     graphExpansionTrace: extras?.graphExpansionTrace ?? [],
     fallbackTriggered: extras?.fallbackTriggered ?? false,
     fallbackSources: extras?.fallbackSources ?? [],
+    guardrails: extras?.guardrails ?? [],
+    latency: extras?.latency ?? createEmptyLatencyBreakdown(),
+    sectionRouting: extras?.sectionRouting ?? summarizeSectionRouting(search.evidence, false),
+    cacheHits: extras?.cacheHits ?? createEmptyCacheHitSummary(),
   };
 }
 
@@ -2459,6 +2678,16 @@ export class NodeRagService {
     indexedEntries: [],
     storageMode: 'memory',
   });
+  private readonly runtimeCache = new RuntimeRagCache();
+  private readonly retrievalProfiles = listRetrievalProfiles();
+  private activeProfileId = resolveInitialRetrievalProfileId();
+  private profileOverrides: Partial<RetrievalFeatureFlags> = {};
+  private readonly recentEvalTrials: EvalTrialReport[] = [];
+  private backendReadiness: BackendReadiness = createDefaultBackendReadiness();
+  private workerQueue: WorkerQueueStatus = { pending: 0, running: 0 };
+  private readonly adminJobs: Array<() => Promise<void>> = [];
+  private adminQueueRunning = false;
+  private profilesUpdatedAt = new Date().toISOString();
   private lastRetrievalByPath = new Map<string, RecentRetrievalMatch>();
   private readonly queryEmbeddingCache = new Map<string, number[] | null>();
   private embeddingRefreshTimer: NodeJS.Timeout | null = null;
@@ -2482,6 +2711,400 @@ export class NodeRagService {
     const embeddingApiKey = resolveEmbeddingApiKey();
     this.embeddingAi = embeddingApiKey ? new GoogleGenAI({ apiKey: embeddingApiKey }) : null;
     this.lawMcpClient = new LawMcpClient(LAW_MCP_BASE_URL, LAW_MCP_ENABLED);
+    this.backendReadiness.pgvector = createBackendReadinessItem('pgvector', {
+      status: storageMode === 'postgres' && databaseUrl ? 'ready' : 'degraded',
+      enabled: true,
+      detail:
+        storageMode === 'postgres' && databaseUrl
+          ? 'Postgres/pgvector store configured.'
+          : 'Running on memory store; vector search falls back to in-process embeddings.',
+    });
+  }
+
+  private getActiveProfile(profileId?: string): RetrievalProfile {
+    const resolvedId = profileId ?? this.activeProfileId;
+    return applyRetrievalFeatureOverrides(getRetrievalProfile(resolvedId), this.profileOverrides);
+  }
+
+  private getActiveFeatureFlags(profileId?: string): RetrievalFeatureFlags {
+    return getRetrievalFeatureFlags(this.getActiveProfile(profileId));
+  }
+
+  getAdminProfiles(): AdminProfilesResponse {
+    return {
+      activeProfileId: this.activeProfileId,
+      profiles: this.retrievalProfiles,
+      featureFlags: this.getActiveFeatureFlags(),
+      updatedAt: this.profilesUpdatedAt,
+    };
+  }
+
+  updateAdminProfiles(params: {
+    activeProfileId?: string;
+    overrides?: Partial<RetrievalFeatureFlags>;
+  }): AdminProfilesResponse {
+    if (params.activeProfileId) {
+      this.activeProfileId = getRetrievalProfile(params.activeProfileId).id;
+    }
+    this.profileOverrides = { ...this.profileOverrides, ...(params.overrides ?? {}) };
+    this.profilesUpdatedAt = new Date().toISOString();
+    return this.getAdminProfiles();
+  }
+
+  private async rebuildRuntimeState(): Promise<void> {
+    try {
+      await this.store.initialize(this.embeddingAi);
+    } catch (error) {
+      if (!(this.store instanceof MemoryRagStore)) {
+        console.warn(`Falling back to memory RAG store: ${error instanceof Error ? error.message : String(error)}`);
+        this.store = new MemoryRagStore(this.projectRoot);
+        await this.store.initialize(this.embeddingAi);
+      } else {
+        throw error;
+      }
+    }
+    if (this.embeddingAi) {
+      await this.store.ensureEmbeddings(this.embeddingAi);
+    }
+    await this.loadFallbackChunks();
+    this.refreshIndexStatus();
+    this.rebuildOntologyGraph();
+    this.workflowBriefs = this.buildWorkflowBriefIndex();
+  }
+
+  private async probeHttpBackend(url: string, detailPrefix: string): Promise<Partial<BackendReadinessItem>> {
+    const start = Date.now();
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(BACKEND_HEALTH_TIMEOUT_MS) });
+      return {
+        status: response.ok ? 'ready' : 'degraded',
+        enabled: true,
+        detail: `${detailPrefix}: ${response.status}`,
+        latencyMs: Date.now() - start,
+        checkedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        status: 'unavailable',
+        enabled: true,
+        detail: `${detailPrefix}: ${describeError(error)}`,
+        latencyMs: Date.now() - start,
+        checkedAt: new Date().toISOString(),
+      };
+    }
+  }
+
+  private async refreshBackendReadiness(): Promise<BackendReadiness> {
+    const indexStatus = this.refreshIndexStatus();
+    const backendReadiness = createDefaultBackendReadiness();
+    backendReadiness.pgvector = createBackendReadinessItem('pgvector', {
+      status: this.store instanceof PostgresRagStore ? 'ready' : 'degraded',
+      enabled: true,
+      detail:
+        this.store instanceof PostgresRagStore
+          ? 'Postgres/pgvector store active.'
+          : 'Memory store active; vector retrieval is local-only.',
+      checkedAt: new Date().toISOString(),
+    });
+
+    const elasticsearchUrl = process.env.RAG_ELASTICSEARCH_URL?.trim();
+    if (elasticsearchUrl) {
+      backendReadiness.elasticsearch = createBackendReadinessItem(
+        'elasticsearch',
+        await this.probeHttpBackend(`${elasticsearchUrl.replace(/\/$/, '')}/_cluster/health`, 'Elasticsearch'),
+      );
+    }
+
+    const rerankerUrl = process.env.RAG_RERANKER_URL?.trim();
+    if (rerankerUrl) {
+      backendReadiness.reranker = createBackendReadinessItem(
+        'reranker',
+        await this.probeHttpBackend(rerankerUrl, 'Reranker'),
+      );
+    }
+
+    const redisUrl = process.env.RAG_REDIS_URL?.trim();
+    backendReadiness.redis = createBackendReadinessItem('redis', {
+      status: redisUrl ? 'degraded' : 'disabled',
+      enabled: Boolean(redisUrl),
+      detail: redisUrl
+        ? 'Redis URL configured, but this build is using the in-process cache fallback.'
+        : 'Redis is not configured; using in-process cache fallback.',
+      checkedAt: new Date().toISOString(),
+    });
+
+    const parserMode = process.env.RAG_PDF_PARSER_MODE?.trim() || 'markdown';
+    backendReadiness.parser = createBackendReadinessItem('parser', {
+      status: parserMode === 'markdown' ? 'degraded' : 'ready',
+      enabled: true,
+      detail:
+        parserMode === 'markdown'
+          ? 'Structured PDF parser is not configured; markdown/txt ingestion remains active.'
+          : `Parser mode: ${parserMode}`,
+      checkedAt: new Date().toISOString(),
+    });
+
+    backendReadiness.queue = createBackendReadinessItem('queue', {
+      status: this.workerQueue.running > 0 || this.workerQueue.pending > 0 ? 'degraded' : 'ready',
+      enabled: true,
+      detail:
+        this.workerQueue.running > 0 || this.workerQueue.pending > 0
+          ? `Background worker busy (${this.workerQueue.running} running / ${this.workerQueue.pending} pending).`
+          : 'Background worker queue is idle.',
+      checkedAt: new Date().toISOString(),
+      backlog: this.workerQueue.pending,
+    });
+
+    this.backendReadiness = backendReadiness;
+    this.indexStatus = {
+      ...indexStatus,
+      backendReadiness,
+      queue: cloneWorkerQueueStatus(this.workerQueue),
+    };
+    return backendReadiness;
+  }
+
+  private async drainAdminJobs(): Promise<void> {
+    this.adminQueueRunning = true;
+    while (this.adminJobs.length > 0) {
+      const next = this.adminJobs.shift();
+      this.workerQueue.pending = this.adminJobs.length;
+      this.workerQueue.running = 1;
+      this.workerQueue.lastStartedAt = new Date().toISOString();
+      await this.refreshBackendReadiness();
+      try {
+        if (next) await next();
+        this.workerQueue.lastCompletedAt = new Date().toISOString();
+        this.workerQueue.lastError = undefined;
+      } catch (error) {
+        this.workerQueue.lastError = describeError(error);
+      } finally {
+        this.workerQueue.running = 0;
+        this.workerQueue.pending = this.adminJobs.length;
+        await this.refreshBackendReadiness();
+      }
+    }
+    this.adminQueueRunning = false;
+  }
+
+  private enqueueAdminJob(task: () => Promise<void>): WorkerQueueStatus {
+    this.adminJobs.push(task);
+    this.workerQueue.pending = this.adminJobs.length;
+    if (!this.adminQueueRunning) {
+      void this.drainAdminJobs();
+    }
+    return cloneWorkerQueueStatus(this.workerQueue);
+  }
+
+  private async performReindex(): Promise<void> {
+    const files = await loadKnowledgeFilesForIndex(this.projectRoot);
+    const structuredChunks = buildStructuredChunks(files);
+    const ontologyRows = buildOntologyRows(buildOntologyGraph(this.brain, structuredChunks));
+    const documentVersionRows = buildDocumentVersionRows(files);
+    const sectionRows = buildSectionRows(files);
+    const chunkRows = buildChunkRows(files);
+    if (this.embeddingAi) {
+      await embedIndexRows(this.embeddingAi, chunkRows);
+    }
+    const manifestEntries = buildIndexManifestEntriesFromRows(files, chunkRows);
+    const documentRows = buildDocumentRows(files, manifestEntries);
+    const compiledRows = buildCompiledRows(files);
+    const indexMetadataRow = buildIndexMetadataRow(
+      manifestEntries,
+      this.store instanceof PostgresRagStore ? 'postgres' : 'memory',
+    );
+    const cacheDir = path.join(this.projectRoot, '.rag-cache');
+    fs.mkdirSync(cacheDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(cacheDir, 'rag-index.json'),
+      JSON.stringify(
+        {
+          generatedAt: new Date().toISOString(),
+          manifestEntries,
+          indexMetadata: indexMetadataRow,
+          documents: documentRows,
+          documentVersions: documentVersionRows,
+          sections: sectionRows,
+          chunks: chunkRows,
+          compiledPages: compiledRows,
+          ontology: ontologyRows,
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+
+    const databaseUrl = process.env.DATABASE_URL;
+    if (databaseUrl && this.store instanceof PostgresRagStore) {
+      await upsertRowsToPostgres({
+        connectionString: databaseUrl,
+        documentRows,
+        documentVersionRows,
+        sectionRows,
+        chunkRows,
+        compiledRows,
+        ontologyEntityRows: ontologyRows.entityRows,
+        ontologyAliasRows: ontologyRows.aliasRows,
+        ontologyEdgeRows: ontologyRows.edgeRows,
+        indexMetadataRow,
+      });
+    }
+
+    this.runtimeCache.clear();
+    this.queryEmbeddingCache.clear();
+    this.initialized = false;
+    await this.initialize();
+  }
+
+  async requestReindex(): Promise<AdminReindexResponse> {
+    await this.initialize();
+    const queue = this.enqueueAdminJob(async () => {
+      await this.performReindex();
+    });
+    return {
+      accepted: true,
+      queue,
+    };
+  }
+
+  listEvalTrials(): EvalTrialReport[] {
+    const outputDir = path.join(this.projectRoot, 'benchmarks', 'trials');
+    const diskReports = fs.existsSync(outputDir)
+      ? fs
+          .readdirSync(outputDir)
+          .filter((fileName) => fileName.endsWith('.json'))
+          .map((fileName) => {
+            const filePath = path.join(outputDir, fileName);
+            try {
+              return JSON.parse(fs.readFileSync(filePath, 'utf8')) as EvalTrialReport;
+            } catch {
+              return null;
+            }
+          })
+          .filter((report): report is EvalTrialReport => report !== null)
+      : [];
+
+    const merged = new Map<string, EvalTrialReport>();
+    for (const report of [...this.recentEvalTrials, ...diskReports]) {
+      merged.set(report.id, report);
+    }
+
+    return Array.from(merged.values()).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async runEvalTrial(profileIds = [this.activeProfileId]): Promise<EvalTrialReport> {
+    await this.initialize();
+    const cases = loadBenchmarkCases(this.projectRoot);
+    const normalizedProfileIds = profileIds.map((profileId) => getRetrievalProfile(profileId).id);
+    const results: EvalTrialCaseResult[] = [];
+    let top3Hits = 0;
+    let top5Hits = 0;
+    let expectedEvidenceHits = 0;
+    let forbiddenEvidencePasses = 0;
+    let requiredCitationHits = 0;
+    let sectionHits = 0;
+    let primarySourceHits = 0;
+    let citationUniquenessTotal = 0;
+    let abstainHits = 0;
+    let abstainTotal = 0;
+
+    for (const testCase of cases) {
+      const profileId = normalizedProfileIds[results.length % normalizedProfileIds.length];
+      const startedAt = Date.now();
+      const inspection = await this.inspectRetrieval(
+        testCase.messages ?? testCase.question,
+        testCase.mode,
+        undefined,
+        testCase.serviceScopes,
+        profileId,
+      );
+      const top3 = inspection.search.fusedCandidates.slice(0, 3);
+      const top5 = inspection.search.fusedCandidates.slice(0, 5);
+      const top3Hit = top3.some((candidate) => candidate.docTitle.includes(testCase.expectedDoc));
+      const top5Hit = top5.some((candidate) => candidate.docTitle.includes(testCase.expectedDoc));
+      const evidenceDocs = Array.from(new Set(inspection.search.evidence.map((candidate) => candidate.docTitle)));
+      const matchesAnyEvidence = (needle: string) => evidenceDocs.some((doc) => doc.includes(needle));
+      const expectedEvidenceHit =
+        !testCase.expectedEvidenceDocs || testCase.expectedEvidenceDocs.every((doc) => matchesAnyEvidence(doc));
+      const forbiddenEvidencePass =
+        !testCase.forbiddenEvidenceDocs || testCase.forbiddenEvidenceDocs.every((doc) => !matchesAnyEvidence(doc));
+      const requiredCitationHit =
+        !testCase.requiredCitationDocs || testCase.requiredCitationDocs.every((doc) => matchesAnyEvidence(doc));
+      const sectionHit = !testCase.expectedSection || inspection.sectionRouting.selectedSectionTitles.some((title) => title.includes(testCase.expectedSection ?? ''));
+      const primarySourcePriority = inspection.search.evidence[0]?.sourceRole === 'primary_evaluation' || testCase.mode === 'integrated';
+      const citationUniqueness = new Set(inspection.search.evidence.map((item) => item.citationGroupId)).size;
+      const abstainAccepted = testCase.acceptableAbstain ? inspection.agentDecision === 'abstain' : null;
+
+      if (top3Hit) top3Hits += 1;
+      if (top5Hit) top5Hits += 1;
+      if (expectedEvidenceHit) expectedEvidenceHits += 1;
+      if (forbiddenEvidencePass) forbiddenEvidencePasses += 1;
+      if (requiredCitationHit) requiredCitationHits += 1;
+      if (sectionHit) sectionHits += 1;
+      if (primarySourcePriority) primarySourceHits += 1;
+      citationUniquenessTotal += citationUniqueness;
+      if (testCase.acceptableAbstain) {
+        abstainTotal += 1;
+        if (inspection.agentDecision === 'abstain') abstainHits += 1;
+      }
+
+      results.push({
+        id: testCase.id,
+        top3Hit,
+        top5Hit,
+        expectedEvidenceHit,
+        forbiddenEvidencePass,
+        requiredCitationHit,
+        sectionHit,
+        primarySourcePriority,
+        citationUniqueness,
+        abstainAccepted,
+        selectedProfileId: profileId,
+        latencyMs: Date.now() - startedAt,
+      });
+    }
+
+    const createdAt = new Date().toISOString();
+    const reportId = `trial-${createdAt.replace(/[:.]/g, '-')}`;
+    const outputDir = path.join(this.projectRoot, 'benchmarks', 'trials');
+    fs.mkdirSync(outputDir, { recursive: true });
+    const outputPath = path.join(outputDir, `${reportId}.json`);
+    const report: EvalTrialReport = {
+      id: reportId,
+      createdAt,
+      profileIds: normalizedProfileIds,
+      totalCases: cases.length,
+      top3Recall: cases.length > 0 ? Number((top3Hits / cases.length).toFixed(4)) : 0,
+      top5Recall: cases.length > 0 ? Number((top5Hits / cases.length).toFixed(4)) : 0,
+      expectedEvidencePassRate: cases.length > 0 ? Number((expectedEvidenceHits / cases.length).toFixed(4)) : 0,
+      forbiddenEvidencePassRate: cases.length > 0 ? Number((forbiddenEvidencePasses / cases.length).toFixed(4)) : 0,
+      requiredCitationPassRate: cases.length > 0 ? Number((requiredCitationHits / cases.length).toFixed(4)) : 0,
+      sectionHitRate: cases.length > 0 ? Number((sectionHits / cases.length).toFixed(4)) : 0,
+      primarySourcePriorityRate: cases.length > 0 ? Number((primarySourceHits / cases.length).toFixed(4)) : 0,
+      avgCitationUniqueness: cases.length > 0 ? Number((citationUniquenessTotal / cases.length).toFixed(2)) : 0,
+      abstainPrecision: abstainTotal > 0 ? Number((abstainHits / abstainTotal).toFixed(4)) : null,
+      outputPath,
+      results,
+    };
+    fs.writeFileSync(outputPath, JSON.stringify(report, null, 2), 'utf8');
+    this.recentEvalTrials.unshift(report);
+    if (this.recentEvalTrials.length > 12) {
+      this.recentEvalTrials.splice(12);
+    }
+    return report;
+  }
+
+  async getAdminHealth(): Promise<AdminHealthResponse> {
+    await this.initialize();
+    const backendReadiness = await this.refreshBackendReadiness();
+    return {
+      activeProfileId: this.activeProfileId,
+      backendReadiness,
+      queue: cloneWorkerQueueStatus(this.workerQueue),
+      indexStatus: this.refreshIndexStatus(),
+      featureFlags: this.getActiveFeatureFlags(),
+    };
   }
 
   private loadDiskKnowledgeState(): { files: KnowledgeFile[]; manifestEntries: IndexManifestEntry[]; issues: KnowledgeDoctorIssue[] } {
@@ -2595,6 +3218,11 @@ export class NodeRagService {
       issues: this.doctorIssues,
       nextEmbeddingRetryAt: getNextEmbeddingRetryAt(),
     });
+    this.indexStatus = {
+      ...this.indexStatus,
+      backendReadiness: this.backendReadiness,
+      queue: cloneWorkerQueueStatus(this.workerQueue),
+    };
     return this.indexStatus;
   }
 
@@ -2632,7 +3260,29 @@ export class NodeRagService {
     queryProfile: NaturalLanguageQueryProfile,
     queryEmbedding: number[] | null,
     aliases: string[],
+    cacheEnabled: boolean,
   ): Promise<{ search: SearchRun | null; sources: LawFallbackSource[]; triggered: boolean }> {
+    const runtimeCacheKey = buildScopedCacheKey([
+      this.indexStatus.manifestHash,
+      mode,
+      queryProfile.normalizedQuery,
+      aliases.join(','),
+      ...queryProfile.parsedLawRefs.map(
+        (lawRef) => `${lawRef.canonicalLawName}:${lawRef.article ?? lawRef.jo ?? lawRef.raw}`,
+      ),
+    ]);
+    if (cacheEnabled) {
+      const cached = this.runtimeCache.get<{ search: SearchRun | null; sources: LawFallbackSource[]; triggered: boolean }>(
+        'fallback',
+        runtimeCacheKey,
+      );
+      if (cached) {
+        const cloned = structuredClone(cached);
+        cloned.sources = cloned.sources.map((source) => ({ ...source, cached: true }));
+        return cloned;
+      }
+    }
+
     const cacheKeys = uniqueNonEmptyLines([
       queryProfile.normalizedQuery,
       ...queryProfile.parsedLawRefs.map((lawRef) => `${lawRef.canonicalLawName}:${lawRef.jo ?? lawRef.article ?? queryProfile.normalizedQuery}`),
@@ -2656,7 +3306,11 @@ export class NodeRagService {
     } else {
       const fallback = await this.lawMcpClient.fetchFallback(queryProfile.normalizedQuery, queryProfile.parsedLawRefs);
       if (!fallback) {
-        return { search: null, sources, triggered: true };
+        const result = { search: null, sources, triggered: true };
+        if (cacheEnabled) {
+          this.runtimeCache.set('fallback', runtimeCacheKey, result, FALLBACK_CACHE_TTL_MS);
+        }
+        return result;
       }
 
       chunk = fallbackResultToChunk(fallback, mode, queryProfile.parsedLawRefs[0]?.article);
@@ -2673,7 +3327,11 @@ export class NodeRagService {
     }
 
     if (!chunk) {
-      return { search: null, sources, triggered: true };
+      const result = { search: null, sources, triggered: true };
+      if (cacheEnabled) {
+        this.runtimeCache.set('fallback', runtimeCacheKey, result, FALLBACK_CACHE_TTL_MS);
+      }
+      return result;
     }
 
     const fallbackSearch = searchCorpus({
@@ -2688,11 +3346,16 @@ export class NodeRagService {
       },
     });
 
-    return {
+    const result = {
       search: fallbackSearch.evidence.length > 0 ? fallbackSearch : null,
       sources,
       triggered: true,
     };
+    if (cacheEnabled) {
+      this.runtimeCache.set('fallback', runtimeCacheKey, result, FALLBACK_CACHE_TTL_MS);
+    }
+
+    return result;
   }
 
   private async getQueryEmbedding(query: string): Promise<number[] | null> {
@@ -2753,6 +3416,7 @@ export class NodeRagService {
   ): SearchExecutionResult {
     const combinedAliases = uniqueNonEmptyLines([...(options?.extraAliases ?? []), ...aliases]);
     const searchQuery = uniqueNonEmptyLines([normalizedQuery, ...combinedAliases]).join('\n');
+    const sectionRoutingEnabled = options?.profile?.retrieval.sectionRouting ?? false;
     const emptyScope: RetrievalScopeContext = {
       routeOnlyDocumentIds: new Set<string>(),
       primaryExpansionDocumentIds: new Set<string>(),
@@ -2764,6 +3428,7 @@ export class NodeRagService {
       hits: [],
       trace: [],
     };
+    const emptySectionRouting = summarizeSectionRouting([], sectionRoutingEnabled);
 
     if (mode !== 'evaluation') {
       const allChunks = this.getAllSearchChunks();
@@ -2772,7 +3437,8 @@ export class NodeRagService {
         buildOperationalDocumentBoosts(allChunks, normalizedQuery),
         options?.additionalDocumentScoreBoosts ?? new Map<string, number>(),
       );
-      const initialSearch = this.store.search(
+      const initialSearch = applySectionRoutingBoost(
+        this.store.search(
         searchQuery,
         mode,
         queryEmbedding,
@@ -2782,6 +3448,8 @@ export class NodeRagService {
           lawRefs: options?.queryProfile?.parsedLawRefs,
           queryType: options?.queryProfile?.queryType,
         },
+      ),
+        sectionRoutingEnabled,
       );
       const ontologyResult =
         this.ontologyGraph && options?.queryProfile
@@ -2808,6 +3476,7 @@ export class NodeRagService {
           scope: emptyScope,
           ontologyHits: ontologyResult.hits,
           graphExpansionTrace: ontologyResult.trace,
+          sectionRouting: summarizeSectionRouting(initialSearch.fusedCandidates.slice(0, 6), sectionRoutingEnabled),
         };
       }
 
@@ -2831,14 +3500,15 @@ export class NodeRagService {
         ...routingCandidates.map((candidate) => candidate.parentSectionTitle),
       ]).join('\n');
 
-      const rerankedSearch = applyGroundingGate(
+      const rerankedSearch = applyGroundingGate(applySectionRoutingBoost(
         this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
           documentScoreBoosts,
           excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
           lawRefs: options?.queryProfile?.parsedLawRefs,
           queryType: options?.queryProfile?.queryType,
         }),
-      );
+        sectionRoutingEnabled,
+      ));
       const promotedPrimaryCandidate = this.store
         .search(expansionQuery, mode, queryEmbedding, expansionAliases, {
           allowedDocumentIds: primaryExpansionDocumentIds,
@@ -2849,18 +3519,19 @@ export class NodeRagService {
         })
         .fusedCandidates.find((candidate) => candidate.sourceRole !== 'routing_summary') ?? null;
 
-      return {
-        search: pruneIrrelevantSupportEvidence(injectEvidenceCandidate(rerankedSearch, promotedPrimaryCandidate)),
-        scope: {
-          routeOnlyDocumentIds,
-          primaryExpansionDocumentIds,
-          routingDocuments: uniqueDocumentPaths(routingCandidates),
-          primaryExpansionDocuments: documentPathsFromIds(primaryExpansionDocumentIds, representatives),
-        },
-        ontologyHits: ontologyResult.hits,
-        graphExpansionTrace: ontologyResult.trace,
-      };
-    }
+        return {
+          search: pruneIrrelevantSupportEvidence(injectEvidenceCandidate(rerankedSearch, promotedPrimaryCandidate)),
+          scope: {
+            routeOnlyDocumentIds,
+            primaryExpansionDocumentIds,
+            routingDocuments: uniqueDocumentPaths(routingCandidates),
+            primaryExpansionDocuments: documentPathsFromIds(primaryExpansionDocumentIds, representatives),
+          },
+          ontologyHits: ontologyResult.hits,
+          graphExpansionTrace: ontologyResult.trace,
+          sectionRouting: summarizeSectionRouting(rerankedSearch.fusedCandidates.slice(0, 6), sectionRoutingEnabled),
+        };
+      }
 
     const allChunks = this.getAllSearchChunks();
     const representatives = buildDocumentRepresentativeMap(allChunks);
@@ -2877,12 +3548,12 @@ export class NodeRagService {
         .map((chunk) => chunk.documentId),
     );
 
-    const routingSearch = this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
+    const routingSearch = applySectionRoutingBoost(this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
       allowedDocumentIds: evaluationDocumentIds,
       documentScoreBoosts: baseDocumentScoreBoosts,
       lawRefs: options?.queryProfile?.parsedLawRefs,
       queryType: options?.queryProfile?.queryType,
-    });
+    }), sectionRoutingEnabled);
     const ontologyResult =
       this.ontologyGraph && options?.queryProfile
         ? expandDocumentsWithOntology(
@@ -2947,7 +3618,7 @@ export class NodeRagService {
       ...routingCandidates.map((candidate) => candidate.parentSectionTitle),
     ]).join('\n');
 
-    const baseSearch = applyGroundingGate(
+    const baseSearch = applyGroundingGate(applySectionRoutingBoost(
       this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
         allowedDocumentIds,
         documentScoreBoosts,
@@ -2955,7 +3626,8 @@ export class NodeRagService {
         lawRefs: options?.queryProfile?.parsedLawRefs,
         queryType: options?.queryProfile?.queryType,
       }),
-    );
+      sectionRoutingEnabled,
+    ));
     const promotedPrimaryCandidate =
       primaryExpansionDocumentIds.size > 0
         ? this.store
@@ -2979,6 +3651,10 @@ export class NodeRagService {
       },
       ontologyHits: ontologyResult.hits,
       graphExpansionTrace: ontologyResult.trace,
+      sectionRouting:
+        baseSearch.fusedCandidates.length > 0
+          ? summarizeSectionRouting(baseSearch.fusedCandidates.slice(0, 6), sectionRoutingEnabled)
+          : emptySectionRouting,
     };
   }
 
@@ -2990,6 +3666,14 @@ export class NodeRagService {
       requiresUserGenerationKey: this.generationMode === 'user',
       serverEmbeddingReady: status.retrievalReadiness !== 'lexical_only',
       retrievalReadiness: status.retrievalReadiness,
+      activeProfileId: this.activeProfileId,
+      availableProfiles: this.retrievalProfiles.map((profile) => ({
+        id: profile.id,
+        label: profile.label,
+        description: profile.description,
+      })),
+      featureFlags: this.getActiveFeatureFlags(),
+      backendReadiness: this.backendReadiness,
       supportedModels: CHAT_MODELS.map((model) => ({
         id: model.id,
         label: model.label,
@@ -2999,24 +3683,8 @@ export class NodeRagService {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    try {
-      await this.store.initialize(this.embeddingAi);
-    } catch (error) {
-      if (!(this.store instanceof MemoryRagStore)) {
-        console.warn(`Falling back to memory RAG store: ${error instanceof Error ? error.message : String(error)}`);
-        this.store = new MemoryRagStore(this.projectRoot);
-        await this.store.initialize(this.embeddingAi);
-      } else {
-        throw error;
-      }
-    }
-    if (this.embeddingAi) {
-      await this.store.ensureEmbeddings(this.embeddingAi);
-    }
-    await this.loadFallbackChunks();
-    this.refreshIndexStatus();
-    this.rebuildOntologyGraph();
-    this.workflowBriefs = this.buildWorkflowBriefIndex();
+    await this.rebuildRuntimeState();
+    await this.refreshBackendReadiness();
     this.startBackgroundEmbeddingRefresh();
     this.initialized = true;
   }
@@ -3031,6 +3699,7 @@ export class NodeRagService {
 
   async getIndexStatus(): Promise<IndexStatus> {
     await this.initialize();
+    await this.refreshBackendReadiness();
     return this.refreshIndexStatus();
   }
 
@@ -3057,25 +3726,84 @@ export class NodeRagService {
     input: string | ChatMessage[],
     mode: PromptMode,
     serviceScopes?: ServiceScopeId[],
+    profileId?: string,
   ): Promise<RetrievalPlanResult> {
+    const planStartedAt = Date.now();
+    const latency = createEmptyLatencyBreakdown();
     const selectedServiceScopes = parseServiceScopes(serviceScopes);
     const serviceScopeLabels = getServiceScopeLabels(selectedServiceScopes);
     const serviceScopeAliases = getServiceScopeSearchAliases(selectedServiceScopes);
     const serviceScopeContext = buildServiceScopePromptContext(selectedServiceScopes);
+    const runtimeProfile = this.getActiveProfile(profileId);
+    const cacheHits = createEmptyCacheHitSummary();
     const allSearchChunks = this.getAllSearchChunks();
     const recentMessages = Array.isArray(input) ? input.slice(-4) : [];
     const query = Array.isArray(input)
       ? [...recentMessages].reverse().find((message) => message.role === 'user')?.text ?? ''
       : input;
-    const normalized = buildNormalizedRetrievalQuery(
-      recentMessages.length > 0 ? recentMessages : query.trim() ? [{ role: 'user', text: query.trim() }] : [],
-    );
+    const singleUserMessagePayload: ChatMessage[] = query.trim() ? [{ role: 'user', text: query.trim() }] : [];
+    const messagePayload: ChatMessage[] = recentMessages.length > 0 ? recentMessages : singleUserMessagePayload;
+    const normalizationCacheKey = buildScopedCacheKey([
+      this.indexStatus.manifestHash,
+      runtimeProfile.id,
+      mode,
+      selectedServiceScopes.join(','),
+      messagePayload.map((message) => `${message.role}:${message.text}`).join('\n'),
+    ]);
+    const normalizationStartedAt = Date.now();
+    let normalized =
+      runtimeProfile.cache.normalization && runtimeProfile.queryProcessing.rewrite
+        ? this.runtimeCache.get<ReturnType<typeof buildNormalizedRetrievalQuery>>('normalization', normalizationCacheKey)
+        : null;
+    if (normalized) {
+      cacheHits.normalization = true;
+    } else {
+      normalized = buildNormalizedRetrievalQuery(
+        runtimeProfile.queryProcessing.rewrite ? messagePayload : singleUserMessagePayload,
+      );
+      if (runtimeProfile.cache.normalization && runtimeProfile.queryProcessing.rewrite) {
+        this.runtimeCache.set('normalization', normalizationCacheKey, normalized, NORMALIZATION_CACHE_TTL_MS);
+      }
+    }
+    latency.queryNormalizationMs = Date.now() - normalizationStartedAt;
     const queryProfile = normalized.queryProfile;
+    const hydeStartedAt = Date.now();
+    const pseudoHyde =
+      runtimeProfile.queryProcessing.hyde
+        ? (() => {
+            const hydeCacheKey = buildScopedCacheKey([
+              this.indexStatus.manifestHash,
+              runtimeProfile.id,
+              normalized?.normalizedQuery,
+              selectedServiceScopes.join(','),
+            ]);
+            const cachedHyde = runtimeProfile.cache.hyde
+              ? this.runtimeCache.get<string>('hyde', hydeCacheKey)
+              : null;
+            if (cachedHyde) {
+              cacheHits.hyde = true;
+              return cachedHyde;
+            }
+            const value = buildPseudoHydeText({
+              normalizedQuery: normalized.normalizedQuery,
+              profile: runtimeProfile,
+              queryProfile,
+              serviceScopeLabels,
+              workflowEvents: [],
+            });
+            if (value && runtimeProfile.cache.hyde) {
+              this.runtimeCache.set('hyde', hydeCacheKey, value, HYDE_CACHE_TTL_MS);
+            }
+            return value;
+          })()
+        : '';
+    latency.hydeMs = Date.now() - hydeStartedAt;
     const brainProfileQuery = uniqueNonEmptyLines([
       normalized.normalizedQuery,
       serviceScopeContext,
       ...normalized.aliases,
       ...serviceScopeAliases,
+      pseudoHyde,
       ...queryProfile.searchVariants,
       ...queryProfile.aliasResolutions.flatMap((item) => [item.canonical, ...item.alternatives]),
       ...queryProfile.parsedLawRefs.flatMap((item) => [
@@ -3085,6 +3813,7 @@ export class NodeRagService {
     ]).join('\n');
     const profile = buildBrainQueryProfile(this.brain, brainProfileQuery, mode);
     const plannerTrace: Array<{ step: string; detail: string }> = [
+      { step: 'retrieval-profile', detail: runtimeProfile.id },
       { step: 'query-type', detail: queryProfile.queryType },
       { step: 'service-scope', detail: serviceScopeLabels.join(', ') },
       { step: 'question-archetype', detail: profile.questionArchetype },
@@ -3097,7 +3826,41 @@ export class NodeRagService {
       ...serviceScopeAliases,
       ...profile.aliases,
       ...profile.relatedTerms,
+      pseudoHyde,
     ]);
+    const retrievalCacheKey = buildScopedCacheKey([
+      this.indexStatus.manifestHash,
+      runtimeProfile.id,
+      mode,
+      selectedServiceScopes.join(','),
+      normalized.normalizedQuery,
+      aliases.join('\n'),
+      queryProfile.queryType,
+      queryProfile.parsedLawRefs.map((item) => `${item.canonicalLawName}:${item.article ?? item.jo ?? item.raw}`).join('|'),
+    ]);
+    const retrievalCacheLookupStartedAt = Date.now();
+    const cachedPlan =
+      runtimeProfile.cache.retrieval
+        ? this.runtimeCache.get<RetrievalPlanResult>('retrieval', retrievalCacheKey)
+        : null;
+    latency.cacheLookupMs += Date.now() - retrievalCacheLookupStartedAt;
+    if (cachedPlan) {
+      const cloned = structuredClone(cachedPlan);
+      cloned.cacheHits = {
+        ...cloned.cacheHits,
+        ...cacheHits,
+        retrieval: true,
+      };
+      cloned.latency = {
+        ...cloned.latency,
+        queryNormalizationMs: cloned.latency.queryNormalizationMs + latency.queryNormalizationMs,
+        cacheLookupMs: cloned.latency.cacheLookupMs + latency.cacheLookupMs,
+        hydeMs: cloned.latency.hydeMs + latency.hydeMs,
+        totalMs: Date.now() - planStartedAt,
+      };
+      return cloned;
+    }
+
     const embeddingQuery = [normalized.normalizedQuery, serviceScopeContext, ...aliases].filter(Boolean).join('\n');
     const queryEmbedding = await this.getQueryEmbedding(embeddingQuery);
     const workflowBoosts = mergeDocumentScoreBoostMaps(
@@ -3107,20 +3870,31 @@ export class NodeRagService {
         profile.workflowEvents,
         normalized.normalizedQuery,
       ),
-      buildServiceScopeDocumentBoosts(allSearchChunks, selectedServiceScopes),
+      runtimeProfile.retrieval.scopeBoosts
+        ? buildServiceScopeDocumentBoosts(allSearchChunks, selectedServiceScopes)
+        : new Map<string, number>(),
     );
     const workflowAliasHints = workflowBriefs.flatMap((brief) => [brief.label, brief.summary]);
     let selectedRetrievalMode: RetrievalMode = profile.preferredRetrievalMode;
-    let { search, scope, ontologyHits, graphExpansionTrace } = this.executeSearch(mode, normalized.normalizedQuery, queryEmbedding, aliases, {
-      additionalDocumentScoreBoosts: workflowBoosts,
-      extraAliases: selectedRetrievalMode === 'workflow-global' ? workflowAliasHints : [],
-      queryProfile,
-    });
+    const retrievalStartedAt = Date.now();
+    let { search, scope, ontologyHits, graphExpansionTrace, sectionRouting } = this.executeSearch(
+      mode,
+      normalized.normalizedQuery,
+      queryEmbedding,
+      aliases,
+      {
+        profile: runtimeProfile,
+        additionalDocumentScoreBoosts: workflowBoosts,
+        extraAliases: selectedRetrievalMode === 'workflow-global' ? workflowAliasHints : [],
+        queryProfile,
+      },
+    );
     const subquestions: string[] = [];
     let fallbackTriggered = false;
     let fallbackSources: LawFallbackSource[] = [];
 
     if (
+      runtimeProfile.queryProcessing.decompose &&
       profile.preferredRetrievalMode !== 'local' &&
       (search.confidence === 'low' || search.evidence.length < 2 || (search.mismatchSignals ?? []).length > 0)
     ) {
@@ -3135,6 +3909,7 @@ export class NodeRagService {
         const refinedAliases = uniqueNonEmptyLines([...aliases, subquestion]);
         const refinedEmbedding = await this.getQueryEmbedding([subquestion, ...refinedAliases].join('\n'));
         const refinedSearch = this.executeSearch(mode, subquestion, refinedEmbedding, refinedAliases, {
+          profile: runtimeProfile,
           additionalDocumentScoreBoosts: workflowBoosts,
           extraAliases: workflowAliasHints,
           queryProfile: buildNaturalQueryProfile(subquestion),
@@ -3152,6 +3927,9 @@ export class NodeRagService {
         });
         ontologyHits = mergeOntologyHits(ontologyHits, refinedSearch.ontologyHits);
         graphExpansionTrace = [...graphExpansionTrace, ...refinedSearch.graphExpansionTrace];
+        if (refinedSearch.sectionRouting.selectedSectionIds.length > sectionRouting.selectedSectionIds.length) {
+          sectionRouting = refinedSearch.sectionRouting;
+        }
       }
 
       search = {
@@ -3177,11 +3955,20 @@ export class NodeRagService {
         this.hasMissingLawReferenceEvidence(search, queryProfile));
 
     if (shouldAttemptFallback) {
-      const fallback = await this.fetchLawFallbackSearch(mode, queryProfile, queryEmbedding, aliases);
+      const fallbackStartedAt = Date.now();
+      const fallback = await this.fetchLawFallbackSearch(
+        mode,
+        queryProfile,
+        queryEmbedding,
+        aliases,
+        runtimeProfile.cache.fallback,
+      );
+      latency.fallbackMs += Date.now() - fallbackStartedAt;
       fallbackTriggered = fallback.triggered;
       fallbackSources = fallback.sources;
       if (fallback.search) {
         search = mergeSearchRuns(search, fallback.search);
+        cacheHits.fallback = fallback.sources.some((source) => source.cached);
         plannerTrace.push({
           step: 'law-fallback',
           detail: fallback.sources.map((source) => `${source.title}${source.cached ? ' (cache)' : ''}`).join(', '),
@@ -3219,9 +4006,10 @@ export class NodeRagService {
       detail: `legal=${basisCoverage.legal}, evaluation=${basisCoverage.evaluation}, practical=${basisCoverage.practical}`,
     });
 
-    return {
+    const result: RetrievalPlanResult = {
       normalizedQuery: normalized.normalizedQuery,
       querySources: normalized.querySources,
+      profile: runtimeProfile,
       selectedServiceScopes,
       serviceScopeLabels,
       aliases,
@@ -3243,7 +4031,19 @@ export class NodeRagService {
       graphExpansionTrace,
       fallbackTriggered,
       fallbackSources,
+      cacheHits,
+      sectionRouting,
+      latency: {
+        ...latency,
+        retrievalMs: Date.now() - retrievalStartedAt,
+        totalMs: Date.now() - planStartedAt,
+      },
     };
+    if (runtimeProfile.cache.retrieval) {
+      this.runtimeCache.set('retrieval', retrievalCacheKey, result, RETRIEVAL_CACHE_TTL_MS);
+    }
+
+    return result;
   }
 
   async inspectRetrieval(
@@ -3251,18 +4051,25 @@ export class NodeRagService {
     mode: PromptMode,
     apiKey?: string,
     serviceScopes?: ServiceScopeId[],
+    profileId?: string,
   ): Promise<RetrievalInspectionResponse> {
     await this.initialize();
     void apiKey;
     if (this.embeddingAi) {
       await this.store.ensureEmbeddings(this.embeddingAi);
     }
+    const startedAt = Date.now();
     const query = Array.isArray(input)
       ? [...input.slice(-4)].reverse().find((message) => message.role === 'user')?.text ?? ''
       : input;
-    const planned = await this.runRetrievalPlan(input, mode, serviceScopes);
+    const planned = await this.runRetrievalPlan(input, mode, serviceScopes, profileId);
     const compiledPages = this.store.getCompiledPages(mode, planned.evidence.map((item) => item.documentId));
     const indexStatus = this.refreshIndexStatus();
+    const guardrails = planned.profile.guardrails.promptInjection ? [detectPromptInjectionSignals(query)] : [];
+    const latency: StageLatencyBreakdown = {
+      ...planned.latency,
+      totalMs: Date.now() - startedAt,
+    };
     const retrieval = buildRetrievalDiagnostics(
       {
         ...planned.search,
@@ -3274,6 +4081,7 @@ export class NodeRagService {
       indexStatus,
       planned.scope,
       {
+        profile: planned.profile,
         selectedServiceScopes: planned.selectedServiceScopes,
         serviceScopeLabels: planned.serviceScopeLabels,
         selectedRetrievalMode: planned.selectedRetrievalMode,
@@ -3288,6 +4096,10 @@ export class NodeRagService {
         graphExpansionTrace: planned.graphExpansionTrace,
         fallbackTriggered: planned.fallbackTriggered,
         fallbackSources: planned.fallbackSources,
+        guardrails,
+        latency,
+        sectionRouting: planned.sectionRouting,
+        cacheHits: planned.cacheHits,
       },
     );
     this.rememberRetrieval(retrieval, query);
@@ -3295,6 +4107,7 @@ export class NodeRagService {
       query,
       normalizedQuery: planned.normalizedQuery,
       querySources: planned.querySources,
+      profile: planned.profile,
       selectedServiceScopes: retrieval.selectedServiceScopes,
       serviceScopeLabels: retrieval.serviceScopeLabels,
       search: {
@@ -3327,11 +4140,17 @@ export class NodeRagService {
       graphExpansionTrace: retrieval.graphExpansionTrace,
       fallbackTriggered: retrieval.fallbackTriggered,
       fallbackSources: retrieval.fallbackSources,
+      guardrails: retrieval.guardrails,
+      latency: retrieval.latency,
+      sectionRouting: retrieval.sectionRouting,
+      cacheHits: retrieval.cacheHits,
     };
   }
 
   async generateChatResponse(request: GroundedChatRequest): Promise<GroundedChatResponse> {
     await this.initialize();
+    const startedAt = Date.now();
+    let latency = createEmptyLatencyBreakdown();
     const effectiveApiKey =
       this.generationMode === 'server'
         ? resolveServerGenerationApiKey()
@@ -3347,8 +4166,52 @@ export class NodeRagService {
 
     const recentMessages = request.messages.slice(-4);
     const latestUserMessage = [...recentMessages].reverse().find((message) => message.role === 'user')?.text ?? '';
-    const planned = await this.runRetrievalPlan(recentMessages, request.mode, request.serviceScopes);
+    const activeProfile = this.getActiveProfile(request.retrievalProfileId);
+    const answerCacheKey = buildScopedCacheKey([
+      this.indexStatus.manifestHash,
+      activeProfile.id,
+      request.mode,
+      request.model,
+      ...(request.serviceScopes ?? []),
+      recentMessages.map((message) => `${message.role}:${message.text}`).join('\n'),
+    ]);
+    if (activeProfile.cache.answer) {
+      const cached = this.runtimeCache.get<GroundedChatResponse>('answer', answerCacheKey);
+      if (cached) {
+        return {
+          ...cached,
+          retrieval: {
+            ...cached.retrieval,
+            cacheHits: {
+              ...cached.retrieval.cacheHits,
+              answer: true,
+            },
+            latency: {
+              ...cached.retrieval.latency,
+              cacheLookupMs: Date.now() - startedAt,
+              totalMs: Date.now() - startedAt,
+            },
+          },
+        };
+      }
+    }
+
+    const planned = await this.runRetrievalPlan(
+      recentMessages,
+      request.mode,
+      request.serviceScopes,
+      request.retrievalProfileId,
+    );
+    latency = {
+      ...planned.latency,
+      cacheLookupMs:
+        planned.latency.cacheLookupMs +
+        (activeProfile.cache.answer ? Math.max(0, Date.now() - startedAt - planned.latency.totalMs) : 0),
+    };
     const indexStatus = this.refreshIndexStatus();
+    const guardrails: GuardrailResult[] = planned.profile.guardrails.promptInjection
+      ? [detectPromptInjectionSignals(latestUserMessage)]
+      : [];
     const retrieval = buildRetrievalDiagnostics(
       {
         ...planned.search,
@@ -3360,6 +4223,7 @@ export class NodeRagService {
       indexStatus,
       planned.scope,
       {
+        profile: planned.profile,
         selectedServiceScopes: planned.selectedServiceScopes,
         serviceScopeLabels: planned.serviceScopeLabels,
         selectedRetrievalMode: planned.selectedRetrievalMode,
@@ -3374,6 +4238,10 @@ export class NodeRagService {
         graphExpansionTrace: planned.graphExpansionTrace,
         fallbackTriggered: planned.fallbackTriggered,
         fallbackSources: planned.fallbackSources,
+        guardrails,
+        latency,
+        sectionRouting: planned.sectionRouting,
+        cacheHits: planned.cacheHits,
       },
     );
     this.rememberRetrieval(retrieval, latestUserMessage || planned.normalizedQuery);
@@ -3389,18 +4257,25 @@ export class NodeRagService {
           ambiguitySignals: [],
         }
       : detectServiceScopeClarification(question);
-    const clarificationDecision = await detectClarificationNeed({
-      ai,
-      model: request.model,
-      recentMessages,
-      question,
-      normalizedQuery: planned.normalizedQuery,
-      mode: request.mode,
-      questionArchetype: planned.questionArchetype,
-      retrievalMode: planned.selectedRetrievalMode,
-      workflowEvents: planned.workflowEventIds,
-      serviceScopeClarification,
-    });
+    const clarificationDecision = planned.profile.queryProcessing.clarify
+      ? await detectClarificationNeed({
+          ai,
+          model: request.model,
+          recentMessages,
+          question,
+          normalizedQuery: planned.normalizedQuery,
+          mode: request.mode,
+          questionArchetype: planned.questionArchetype,
+          retrievalMode: planned.selectedRetrievalMode,
+          workflowEvents: planned.workflowEventIds,
+          serviceScopeClarification,
+        })
+      : {
+          needsClarification: false,
+          reason: 'clarification-disabled-by-profile',
+          missingDimensions: [],
+          candidateOptions: [],
+        };
 
     if (clarificationDecision.needsClarification) {
       retrieval.agentDecision = 'clarify';
@@ -3413,6 +4288,8 @@ export class NodeRagService {
         decision: clarificationDecision,
         serviceScopeClarification,
       });
+      latency.totalMs = Date.now() - startedAt;
+      retrieval.latency = latency;
       return {
         answer,
         text: renderExpertAnswerMarkdown(answer),
@@ -3438,6 +4315,8 @@ export class NodeRagService {
         keyIssueDate,
         evidence: citations,
       });
+      latency.totalMs = Date.now() - startedAt;
+      retrieval.latency = latency;
       return {
         answer,
         text: renderExpertAnswerMarkdown(answer),
@@ -3450,6 +4329,7 @@ export class NodeRagService {
       };
     }
 
+    const planningStartedAt = Date.now();
     const answerPlan = await generateAnswerPlan({
       ai,
       model: request.model,
@@ -3466,12 +4346,14 @@ export class NodeRagService {
       evidence: planned.evidence,
       knowledgeContext: planned.knowledgeContext,
     });
+    latency.planningMs = Date.now() - planningStartedAt;
     retrieval.plannerTrace = [
       ...retrieval.plannerTrace,
       { step: 'planner-answer-type', detail: answerPlan.recommendedAnswerType },
       { step: 'planner-tasks', detail: answerPlan.taskCandidates.map((task) => task.title).join(', ') || 'none' },
     ];
 
+    const answerStartedAt = Date.now();
     const answer = await synthesizeExpertAnswer({
       ai,
       model: request.model,
@@ -3493,18 +4375,29 @@ export class NodeRagService {
       confidence: planned.search.confidence,
       keyIssueDate,
     });
+    latency.answerMs = Date.now() - answerStartedAt;
     const answerEvidenceIds = new Set(answer.citations.map((item) => item.evidenceId));
     const resolvedCitations = citations.filter((item) => answerEvidenceIds.has(item.id));
     const finalCitations = resolvedCitations.length > 0 ? resolvedCitations : citations.slice(0, 4);
+    let finalAnswer = planned.profile.guardrails.piiMasking ? applyPiiMasking(answer) : answer;
+    if (planned.profile.guardrails.citationWarning) {
+      guardrails.push(buildCitationWarning(finalAnswer, finalCitations));
+    }
+    if (planned.profile.guardrails.hallucinationSignal) {
+      guardrails.push(buildHallucinationSignal(finalAnswer, finalCitations));
+    }
     retrieval.agentDecision = 'answer';
     retrieval.plannerTrace = [
       ...retrieval.plannerTrace,
       { step: 'agent-decision', detail: 'answer: evidence passed grounding and clarification gates' },
     ];
+    retrieval.guardrails = guardrails;
+    latency.totalMs = Date.now() - startedAt;
+    retrieval.latency = latency;
 
-    return {
-      answer,
-      text: renderExpertAnswerMarkdown(answer),
+    const response: GroundedChatResponse = {
+      answer: finalAnswer,
+      text: renderExpertAnswerMarkdown(finalAnswer),
       search: {
         ...planned.search,
         evidence: planned.evidence,
@@ -3512,6 +4405,11 @@ export class NodeRagService {
       citations: finalCitations,
       retrieval,
     };
+    if (planned.profile.cache.answer) {
+      this.runtimeCache.set('answer', answerCacheKey, response, ANSWER_CACHE_TTL_MS);
+    }
+
+    return response;
   }
 }
 

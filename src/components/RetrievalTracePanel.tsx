@@ -3,10 +3,13 @@ import {
   ChevronDown,
   ChevronUp,
   CircleDot,
+  Clock3,
   GitBranch,
+  Layers3,
   Orbit,
   SearchCheck,
   ShieldAlert,
+  SlidersHorizontal,
   Sparkles,
 } from 'lucide-react';
 import type { ConfidenceLevel, RetrievalDiagnostics, RetrievalStageTrace } from '../lib/ragTypes';
@@ -19,13 +22,13 @@ interface RetrievalTracePanelProps {
 function getConfidenceLabel(confidence?: ConfidenceLevel): string {
   switch (confidence) {
     case 'high':
-      return '신뢰도 높음';
+      return 'High confidence';
     case 'medium':
-      return '신뢰도 보통';
+      return 'Medium confidence';
     case 'low':
-      return '신뢰도 낮음';
+      return 'Low confidence';
     default:
-      return '신뢰도 미표기';
+      return 'Unrated confidence';
   }
 }
 
@@ -45,11 +48,11 @@ function getConfidenceTone(confidence?: ConfidenceLevel): string {
 function getReadinessLabel(readiness: RetrievalDiagnostics['retrievalReadiness']): string {
   switch (readiness) {
     case 'hybrid_ready':
-      return '하이브리드 준비 완료';
+      return 'Hybrid ready';
     case 'hybrid_partial':
-      return '하이브리드 준비 중';
+      return 'Hybrid partial';
     case 'lexical_only':
-      return '어휘 검색 우선';
+      return 'Lexical only';
   }
 }
 
@@ -67,28 +70,32 @@ function getReadinessTone(readiness: RetrievalDiagnostics['retrievalReadiness'])
 function getRetrievalModeLabel(mode: RetrievalDiagnostics['selectedRetrievalMode']): string {
   switch (mode) {
     case 'local':
-      return '로컬 검색';
+      return 'Local';
     case 'workflow-global':
-      return '워크플로 확장 검색';
+      return 'Workflow global';
     case 'drift-refine':
-      return '질의 보정 검색';
+      return 'Drift refine';
   }
 }
 
 function getStageLabel(stage: RetrievalStageTrace['stage']): string {
   switch (stage) {
     case 'query_normalization':
-      return '질의 정규화';
+      return 'Query normalization';
     case 'lexical_candidates':
-      return '어휘 후보 수집';
+      return 'Lexical candidates';
     case 'vector_candidates':
-      return '벡터 후보 수집';
+      return 'Vector candidates';
     case 'fusion':
-      return '후보 융합';
+      return 'Fusion';
     case 'document_diversification':
-      return '문서 다양화';
+      return 'Document diversification';
     case 'answer_evidence_gate':
-      return '답변 근거 게이트';
+      return 'Answer evidence gate';
+    case 'hyde_context':
+      return 'HyDE context';
+    case 'section_routing':
+      return 'Section routing';
   }
 }
 
@@ -121,11 +128,50 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
 
   const basisCoverage = useMemo(
     () => [
-      { label: '법적 근거', value: retrieval.basisCoverage.legal },
-      { label: '평가 근거', value: retrieval.basisCoverage.evaluation },
-      { label: '실무 근거', value: retrieval.basisCoverage.practical },
+      { label: 'Legal', value: retrieval.basisCoverage.legal },
+      { label: 'Evaluation', value: retrieval.basisCoverage.evaluation },
+      { label: 'Practical', value: retrieval.basisCoverage.practical },
     ],
     [retrieval.basisCoverage.evaluation, retrieval.basisCoverage.legal, retrieval.basisCoverage.practical],
+  );
+
+  const profileFlags = useMemo(
+    () => [
+      { label: 'rewrite', enabled: retrieval.profile.queryProcessing.rewrite },
+      { label: 'clarify', enabled: retrieval.profile.queryProcessing.clarify },
+      { label: 'hyde', enabled: retrieval.profile.queryProcessing.hyde },
+      { label: 'decompose', enabled: retrieval.profile.queryProcessing.decompose },
+      { label: 'tree-routing', enabled: retrieval.profile.retrieval.sectionRouting },
+      { label: 'reranker', enabled: retrieval.profile.retrieval.reranker },
+      { label: 'elastic', enabled: retrieval.profile.retrieval.externalElasticsearch },
+      { label: 'cache', enabled: Object.values(retrieval.profile.cache).some(Boolean) },
+      { label: 'guardrails', enabled: Object.values(retrieval.profile.guardrails).some(Boolean) },
+    ],
+    [retrieval.profile],
+  );
+
+  const latencyEntries = useMemo(
+    () => [
+      ['normalize', retrieval.latency.queryNormalizationMs],
+      ['cache', retrieval.latency.cacheLookupMs],
+      ['hyde', retrieval.latency.hydeMs],
+      ['retrieve', retrieval.latency.retrievalMs],
+      ['fallback', retrieval.latency.fallbackMs],
+      ['plan', retrieval.latency.planningMs],
+      ['answer', retrieval.latency.answerMs],
+      ['total', retrieval.latency.totalMs],
+    ],
+    [retrieval.latency],
+  );
+
+  const cacheEntries = useMemo(
+    () => Object.entries(retrieval.cacheHits) as Array<[keyof typeof retrieval.cacheHits, boolean]>,
+    [retrieval.cacheHits],
+  );
+
+  const activeGuardrails = useMemo(
+    () => retrieval.guardrails.filter((item) => item.triggered),
+    [retrieval.guardrails],
   );
 
   return (
@@ -141,10 +187,10 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
               <Sparkles className="h-4 w-4" />
             </span>
             <div>
-              <p className="text-sm font-semibold text-slate-900">분석 경과</p>
+              <p className="text-sm font-semibold text-slate-900">Retrieval analysis</p>
               <p className="mt-1 text-xs text-slate-500">
-                검색 단계 {retrieval.stageTrace.length}개 · 계획 단계 {retrieval.plannerTrace.length}개 · 근거 문서{' '}
-                {retrieval.finalEvidenceDocuments.length}개
+                {retrieval.stageTrace.length} stages, {retrieval.plannerTrace.length} planner steps,{' '}
+                {retrieval.finalEvidenceDocuments.length} evidence documents
               </p>
             </div>
           </div>
@@ -164,8 +210,9 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
                   : 'border-slate-200 bg-slate-100 text-slate-600'
               }
             >
-              {retrieval.fallbackTriggered ? '법령 fallback 사용' : '로컬 근거 우선'}
+              {retrieval.fallbackTriggered ? 'Law fallback used' : 'Primary evidence flow'}
             </TraceBadge>
+            <TraceBadge tone="border-slate-200 bg-white text-slate-700">{retrieval.profile.id}</TraceBadge>
           </div>
         </div>
 
@@ -177,14 +224,17 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
       {isOpen && (
         <div className="space-y-4 border-t border-slate-200 px-4 py-4 sm:px-5 sm:py-5">
           <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-            <SectionShell icon={SearchCheck} title="검색 흐름">
+            <SectionShell icon={SearchCheck} title="Search Flow">
               <div className="space-y-3">
                 {retrieval.stageTrace.map((stage) => (
-                  <div key={`${stage.stage}-${stage.inputCount}-${stage.outputCount}`} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <div
+                    key={`${stage.stage}-${stage.inputCount}-${stage.outputCount}`}
+                    className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3"
+                  >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-semibold text-slate-900">{getStageLabel(stage.stage)}</p>
                       <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-500">
-                        {stage.inputCount} → {stage.outputCount}
+                        {stage.inputCount} to {stage.outputCount}
                       </span>
                     </div>
                     {stage.notes && stage.notes.length > 0 && (
@@ -201,7 +251,7 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
               </div>
             </SectionShell>
 
-            <SectionShell icon={GitBranch} title="응답 계획">
+            <SectionShell icon={GitBranch} title="Planner Trace">
               <div className="space-y-3">
                 {retrieval.plannerTrace.length > 0 ? (
                   retrieval.plannerTrace.map((entry) => (
@@ -211,17 +261,17 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
                     </div>
                   ))
                 ) : (
-                  <p className="text-sm leading-6 text-slate-500">응답 계획 상세 로그가 없습니다.</p>
+                  <p className="text-sm leading-6 text-slate-500">No planner trace was recorded.</p>
                 )}
               </div>
             </SectionShell>
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-            <SectionShell icon={Orbit} title="질의 해석">
+            <SectionShell icon={Orbit} title="Query Analysis">
               <div className="space-y-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">정규화 단계</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Normalization</p>
                   <div className="mt-2 space-y-2">
                     {retrieval.normalizationTrace.length > 0 ? (
                       retrieval.normalizationTrace.map((entry) => (
@@ -231,21 +281,21 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
                         </div>
                       ))
                     ) : (
-                      <p className="text-sm text-slate-500">질의 정규화 로그가 없습니다.</p>
+                      <p className="text-sm text-slate-500">No normalization trace.</p>
                     )}
                   </div>
                 </div>
 
                 {retrieval.aliasResolutions.length > 0 && (
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">별칭 해석</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Alias Resolutions</p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {retrieval.aliasResolutions.map((entry) => (
                         <span
                           key={`${entry.alias}-${entry.canonical}`}
                           className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600"
                         >
-                          {entry.alias} → {entry.canonical}
+                          {entry.alias} to {entry.canonical}
                         </span>
                       ))}
                     </div>
@@ -254,17 +304,12 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
 
                 {retrieval.parsedLawRefs.length > 0 && (
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">법령 참조</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Law References</p>
                     <div className="mt-2 space-y-2">
                       {retrieval.parsedLawRefs.map((lawRef) => (
                         <div key={`${lawRef.raw}-${lawRef.canonicalLawName}`} className="rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-600">
                           <p className="font-semibold text-slate-900">{lawRef.canonicalLawName}</p>
-                          <p className="mt-1">
-                            원문: {lawRef.raw}
-                            {lawRef.article ? ` · ${lawRef.article}` : ''}
-                            {lawRef.clause ? ` · ${lawRef.clause}` : ''}
-                            {lawRef.item ? ` · ${lawRef.item}` : ''}
-                          </p>
+                          <p className="mt-1">{lawRef.raw}</p>
                         </div>
                       ))}
                     </div>
@@ -273,7 +318,7 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
               </div>
             </SectionShell>
 
-            <SectionShell icon={CircleDot} title="근거 범위">
+            <SectionShell icon={CircleDot} title="Evidence Coverage">
               <div className="space-y-4">
                 <div className="flex flex-wrap gap-2">
                   {basisCoverage.map((bucket) => (
@@ -284,7 +329,7 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">최종 근거 문서</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Final Evidence Documents</p>
                   {retrieval.finalEvidenceDocuments.length > 0 ? (
                     retrieval.finalEvidenceDocuments.map((documentPath) => (
                       <p key={documentPath} className="rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-600">
@@ -292,7 +337,107 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
                       </p>
                     ))
                   ) : (
-                    <p className="text-sm text-slate-500">최종 근거 문서가 표시되지 않았습니다.</p>
+                    <p className="text-sm text-slate-500">No final evidence documents were selected.</p>
+                  )}
+                </div>
+              </div>
+            </SectionShell>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-3">
+            <SectionShell icon={SlidersHorizontal} title="Retrieval Profile">
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {retrieval.profile.label} <span className="text-slate-400">({retrieval.profile.id})</span>
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">{retrieval.profile.description}</p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {profileFlags.map((flag) => (
+                    <span
+                      key={flag.label}
+                      className={`rounded-full px-3 py-1 text-xs font-medium ${
+                        flag.enabled ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {flag.label}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="grid gap-2 text-sm text-slate-600">
+                  <div className="rounded-2xl bg-slate-50 px-3 py-2">
+                    lexical {retrieval.profile.weights.lexical.toFixed(2)} / vector {retrieval.profile.weights.vector.toFixed(2)}
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 px-3 py-2">
+                    rerank {retrieval.profile.weights.rerank.toFixed(2)} / section {retrieval.profile.weights.section.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+            </SectionShell>
+
+            <SectionShell icon={Clock3} title="Latency And Cache">
+              <div className="space-y-3">
+                <div className="grid gap-2">
+                  {latencyEntries.map(([label, value]) => (
+                    <div key={label} className="flex items-center justify-between rounded-2xl bg-slate-50 px-3 py-2 text-sm">
+                      <span className="font-medium text-slate-700">{label}</span>
+                      <span className="text-slate-500">{value} ms</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {cacheEntries.map(([label, hit]) => (
+                    <span
+                      key={label}
+                      className={`rounded-full px-3 py-1 text-xs font-medium ${
+                        hit ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {label} {hit ? 'hit' : 'miss'}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </SectionShell>
+
+            <SectionShell icon={Layers3} title="Routing And Guardrails">
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {retrieval.sectionRouting.enabled ? retrieval.sectionRouting.strategy : 'chunk_only'}
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">{retrieval.sectionRouting.detail}</p>
+                </div>
+
+                {retrieval.sectionRouting.selectedSectionTitles.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {retrieval.sectionRouting.selectedSectionTitles.map((title) => (
+                      <span key={title} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
+                        {title}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  {activeGuardrails.length > 0 ? (
+                    activeGuardrails.map((guardrail) => (
+                      <div key={`${guardrail.type}-${guardrail.detail}`} className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-slate-900">{guardrail.type}</p>
+                          <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-amber-700">
+                            {guardrail.severity}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-sm leading-6 text-slate-600">{guardrail.detail}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-500">No guardrail warnings for this response.</p>
                   )}
                 </div>
               </div>
@@ -300,7 +445,7 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
           </div>
 
           {retrieval.fallbackTriggered && retrieval.fallbackSources.length > 0 && (
-            <SectionShell icon={ShieldAlert} title="Fallback 참조">
+            <SectionShell icon={ShieldAlert} title="Fallback Sources">
               <div className="space-y-3">
                 {retrieval.fallbackSources.map((source) => (
                   <div key={`${source.source}-${source.query}`} className="rounded-2xl border border-violet-100 bg-violet-50/70 px-3 py-3">

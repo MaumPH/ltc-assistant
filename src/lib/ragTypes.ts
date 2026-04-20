@@ -45,9 +45,127 @@ export type BasisBucketKey = 'legal' | 'evaluation' | 'practical';
 
 export type AgentDecision = 'answer' | 'abstain' | 'clarify';
 
+export type BackendReadinessStatus = 'ready' | 'degraded' | 'disabled' | 'unavailable';
+
+export type BackendReadinessKey = 'pgvector' | 'elasticsearch' | 'redis' | 'parser' | 'reranker' | 'queue';
+
 export interface QueryNormalizationTraceEntry {
   step: string;
   detail: string;
+}
+
+export interface RetrievalFeatureFlags {
+  queryRewrite: boolean;
+  queryClarification: boolean;
+  hyde: boolean;
+  decompose: boolean;
+  sectionRouting: boolean;
+  reranker: boolean;
+  cache: boolean;
+  guardrails: boolean;
+  externalElasticsearch: boolean;
+}
+
+export interface RetrievalWeightProfile {
+  lexical: number;
+  vector: number;
+  rerank: number;
+  section: number;
+}
+
+export interface RetrievalProfile {
+  id: string;
+  label: string;
+  description: string;
+  queryProcessing: {
+    rewrite: boolean;
+    clarify: boolean;
+    hyde: boolean;
+    decompose: boolean;
+  };
+  retrieval: {
+    sectionRouting: boolean;
+    reranker: boolean;
+    externalElasticsearch: boolean;
+    scopeBoosts: boolean;
+  };
+  guardrails: {
+    piiMasking: boolean;
+    promptInjection: boolean;
+    citationWarning: boolean;
+    hallucinationSignal: boolean;
+    abstainOnLowConfidence: boolean;
+  };
+  cache: {
+    normalization: boolean;
+    hyde: boolean;
+    retrieval: boolean;
+    answer: boolean;
+    fallback: boolean;
+  };
+  weights: RetrievalWeightProfile;
+}
+
+export interface BackendReadinessItem {
+  name: BackendReadinessKey;
+  status: BackendReadinessStatus;
+  enabled: boolean;
+  detail: string;
+  checkedAt?: string;
+  latencyMs?: number;
+  backlog?: number;
+}
+
+export interface BackendReadiness {
+  pgvector: BackendReadinessItem;
+  elasticsearch: BackendReadinessItem;
+  redis: BackendReadinessItem;
+  parser: BackendReadinessItem;
+  reranker: BackendReadinessItem;
+  queue: BackendReadinessItem;
+}
+
+export interface WorkerQueueStatus {
+  pending: number;
+  running: number;
+  lastStartedAt?: string;
+  lastCompletedAt?: string;
+  lastError?: string;
+}
+
+export interface CacheHitSummary {
+  normalization: boolean;
+  hyde: boolean;
+  retrieval: boolean;
+  fallback: boolean;
+  answer: boolean;
+}
+
+export interface GuardrailResult {
+  type: 'pii' | 'prompt_injection' | 'citation_warning' | 'hallucination_signal';
+  severity: 'info' | 'warning' | 'block';
+  triggered: boolean;
+  detail: string;
+}
+
+export interface SectionRoutingDecision {
+  enabled: boolean;
+  strategy: 'document_to_section' | 'chunk_only';
+  selectedSectionIds: string[];
+  selectedSectionTitles: string[];
+  selectedDocumentIds: string[];
+  detail: string;
+}
+
+export interface StageLatencyBreakdown {
+  queryNormalizationMs: number;
+  cacheLookupMs: number;
+  hydeMs: number;
+  retrievalMs: number;
+  fallbackMs: number;
+  planningMs: number;
+  answerMs: number;
+  totalMs: number;
 }
 
 export interface LawAliasResolution {
@@ -208,8 +326,10 @@ export interface SearchCandidate extends StructuredChunk {
 export interface RetrievalStageTrace {
   stage:
     | 'query_normalization'
+    | 'hyde_context'
     | 'lexical_candidates'
     | 'vector_candidates'
+    | 'section_routing'
     | 'fusion'
     | 'document_diversification'
     | 'answer_evidence_gate';
@@ -428,6 +548,8 @@ export interface IndexStatus {
   generatedAt?: string;
   modeCounts: Record<PromptMode, number>;
   issues: KnowledgeDoctorIssue[];
+  backendReadiness?: BackendReadiness;
+  queue?: WorkerQueueStatus;
 }
 
 export interface ChunkWindowRef {
@@ -468,6 +590,7 @@ export interface CandidateDiagnostic {
 export interface RetrievalDiagnostics {
   normalizedQuery: string;
   querySources: string[];
+  profile: RetrievalProfile;
   selectedServiceScopes: ServiceScopeId[];
   serviceScopeLabels: string[];
   matchedDocumentPaths: string[];
@@ -497,6 +620,10 @@ export interface RetrievalDiagnostics {
   graphExpansionTrace: GraphExpansionTrace[];
   fallbackTriggered: boolean;
   fallbackSources: LawFallbackSource[];
+  guardrails: GuardrailResult[];
+  latency: StageLatencyBreakdown;
+  sectionRouting: SectionRoutingDecision;
+  cacheHits: CacheHitSummary;
 }
 
 export interface RecentRetrievalMatch {
@@ -528,10 +655,74 @@ export interface ChatCapabilities {
   requiresUserGenerationKey: boolean;
   serverEmbeddingReady: boolean;
   retrievalReadiness: RetrievalReadiness;
+  activeProfileId?: string;
+  availableProfiles?: Array<{
+    id: string;
+    label: string;
+    description: string;
+  }>;
+  featureFlags?: RetrievalFeatureFlags;
+  backendReadiness?: BackendReadiness;
   supportedModels: Array<{
     id: string;
     label: string;
   }>;
+}
+
+export interface AdminProfilesResponse {
+  activeProfileId: string;
+  profiles: RetrievalProfile[];
+  featureFlags: RetrievalFeatureFlags;
+  updatedAt: string;
+}
+
+export interface AdminHealthResponse {
+  activeProfileId: string;
+  backendReadiness: BackendReadiness;
+  queue: WorkerQueueStatus;
+  indexStatus: IndexStatus;
+  featureFlags: RetrievalFeatureFlags;
+}
+
+export interface AdminReindexResponse {
+  accepted: boolean;
+  queue: WorkerQueueStatus;
+}
+
+export interface EvalTrialCaseResult {
+  id: string;
+  top3Hit: boolean;
+  top5Hit: boolean;
+  expectedEvidenceHit: boolean;
+  forbiddenEvidencePass: boolean;
+  requiredCitationHit: boolean;
+  sectionHit: boolean;
+  primarySourcePriority: boolean;
+  citationUniqueness: number;
+  abstainAccepted: boolean | null;
+  selectedProfileId: string;
+  latencyMs: number;
+}
+
+export interface EvalTrialSummary {
+  id: string;
+  createdAt: string;
+  profileIds: string[];
+  totalCases: number;
+  top3Recall: number;
+  top5Recall: number;
+  expectedEvidencePassRate: number;
+  forbiddenEvidencePassRate: number;
+  requiredCitationPassRate: number;
+  sectionHitRate: number;
+  primarySourcePriorityRate: number;
+  avgCitationUniqueness: number;
+  abstainPrecision: number | null;
+  outputPath: string;
+}
+
+export interface EvalTrialReport extends EvalTrialSummary {
+  results: EvalTrialCaseResult[];
 }
 
 export interface KnowledgeCategoryCount {
