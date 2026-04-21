@@ -16,6 +16,7 @@ const HomeView = lazy(() => import('./components/HomeView'));
 const EvaluationWiki = lazy(() => import('./components/EvaluationWiki'));
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const KnowledgeBaseView = lazy(() => import('./components/KnowledgeBaseView'));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 
 function readStoredModel(): ModelId {
   if (typeof window === 'undefined') return MODELS[0].id as ModelId;
@@ -156,6 +157,7 @@ export default function App() {
           {activeTab === 'wiki' && <EvaluationWiki />}
           {activeTab === 'dashboard' && <Dashboard />}
           {activeTab === 'knowledge' && <KnowledgeBaseView />}
+          {activeTab === 'admin' && <AdminDashboard />}
         </Suspense>
       </div>
 

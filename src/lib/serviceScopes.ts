@@ -134,7 +134,6 @@ export function getServiceScopeSearchAliases(scopes: readonly ServiceScopeId[] |
     getServiceScopeOptions(scopes).flatMap((option) => [
       option.label,
       ...option.aliases,
-      ...option.boostTerms,
     ]),
   );
 }
@@ -188,6 +187,56 @@ export function buildServiceScopeDocumentBoosts(
     if (chunkScore <= 0) continue;
     const current = boosts.get(chunk.documentId) ?? 0;
     boosts.set(chunk.documentId, Math.min(96, current + chunkScore));
+  }
+
+  return boosts;
+}
+
+export function buildServiceScopeChunkBoosts(
+  chunks: readonly StructuredChunk[],
+  scopes: readonly ServiceScopeId[] | undefined,
+  queryTerms: readonly string[],
+): Map<string, number> {
+  const scopeOptions = getServiceScopeOptions(scopes);
+  const focusTerms = unique(queryTerms.map(compact).filter((term) => term.length >= 2));
+  const boosts = new Map<string, number>();
+  if (scopeOptions.length === 0 || focusTerms.length === 0) return boosts;
+
+  for (const chunk of chunks) {
+    const metadataText = compact(
+      [
+        chunk.docTitle,
+        chunk.fileName,
+        chunk.title,
+        chunk.parentSectionTitle,
+        chunk.documentGroup,
+        ...chunk.sectionPath,
+        ...chunk.matchedLabels,
+        ...chunk.linkedDocumentTitles,
+      ].join(' '),
+    );
+    const bodyText = compact([chunk.searchText, chunk.text].join(' '));
+    const focusHits = focusTerms.filter((term) => metadataText.includes(term) || bodyText.includes(term));
+    if (focusHits.length === 0) continue;
+
+    let chunkScore = 0;
+    for (const option of scopeOptions) {
+      const scopeTerms = unique([option.label, ...option.aliases]).map(compact).filter(Boolean);
+      const boostTerms = unique(option.boostTerms).map(compact).filter(Boolean);
+      const scopeMatch = scopeTerms.some((term) => metadataText.includes(term) || bodyText.includes(term));
+      const boostTermMatch = boostTerms.some((term) => metadataText.includes(term) || bodyText.includes(term));
+      if (!scopeMatch && !boostTermMatch) continue;
+
+      chunkScore += Math.min(96, focusHits.length * 22 + (scopeMatch ? 24 : 0) + (boostTermMatch ? 18 : 0));
+    }
+
+    if (chunk.sourceRole === 'routing_summary' && chunkScore > 0) {
+      chunkScore += 28;
+    }
+
+    if (chunkScore > 0) {
+      boosts.set(chunk.id, Math.min(140, chunkScore));
+    }
   }
 
   return boosts;

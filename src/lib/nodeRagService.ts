@@ -40,6 +40,7 @@ import {
   detectClarificationNeed,
   generateAnswerPlan,
   renderExpertAnswerMarkdown,
+  suppressSelectedServiceScopeClarification,
   synthesizeExpertAnswer,
 } from './expertAnswering';
 import {
@@ -130,7 +131,7 @@ import type {
 } from './ragTypes';
 import { CHAT_MODELS } from './chatModels';
 import {
-  buildServiceScopeDocumentBoosts,
+  buildServiceScopeChunkBoosts,
   buildServiceScopePromptContext,
   getServiceScopeLabels,
   getServiceScopeSearchAliases,
@@ -909,6 +910,7 @@ interface SearchExecutionResult {
 interface SearchPlanningOptions {
   profile?: RetrievalProfile;
   additionalDocumentScoreBoosts?: Map<string, number>;
+  additionalChunkScoreBoosts?: Map<string, number>;
   extraAliases?: string[];
   queryProfile?: NaturalLanguageQueryProfile;
 }
@@ -3467,6 +3469,7 @@ export class NodeRagService {
         combinedAliases,
         {
           documentScoreBoosts: baseDocumentScoreBoosts,
+          chunkScoreBoosts: options?.additionalChunkScoreBoosts,
           lawRefs: options?.queryProfile?.parsedLawRefs,
           queryType: options?.queryProfile?.queryType,
         },
@@ -3525,6 +3528,7 @@ export class NodeRagService {
       const rerankedSearch = applyGroundingGate(applySectionRoutingBoost(
         this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
           documentScoreBoosts,
+          chunkScoreBoosts: options?.additionalChunkScoreBoosts,
           excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
           lawRefs: options?.queryProfile?.parsedLawRefs,
           queryType: options?.queryProfile?.queryType,
@@ -3536,6 +3540,7 @@ export class NodeRagService {
           .search(expansionQuery, mode, queryEmbedding, expansionAliases, {
             allowedDocumentIds: primaryExpansionDocumentIds,
             documentScoreBoosts,
+            chunkScoreBoosts: options?.additionalChunkScoreBoosts,
             excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
             lawRefs: options?.queryProfile?.parsedLawRefs,
             queryType: options?.queryProfile?.queryType,
@@ -3576,6 +3581,7 @@ export class NodeRagService {
     const routingSearch = applySectionRoutingBoost(this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
       allowedDocumentIds: evaluationDocumentIds,
       documentScoreBoosts: baseDocumentScoreBoosts,
+      chunkScoreBoosts: options?.additionalChunkScoreBoosts,
       lawRefs: options?.queryProfile?.parsedLawRefs,
       queryType: options?.queryProfile?.queryType,
     }), sectionRoutingEnabled);
@@ -3605,6 +3611,7 @@ export class NodeRagService {
             this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
               allowedDocumentIds: integratedSupportDocumentIds,
               documentScoreBoosts: baseDocumentScoreBoosts,
+              chunkScoreBoosts: options?.additionalChunkScoreBoosts,
               lawRefs: options?.queryProfile?.parsedLawRefs,
               queryType: options?.queryProfile?.queryType,
             }),
@@ -3647,6 +3654,7 @@ export class NodeRagService {
       this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
         allowedDocumentIds,
         documentScoreBoosts,
+        chunkScoreBoosts: options?.additionalChunkScoreBoosts,
         excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
         lawRefs: options?.queryProfile?.parsedLawRefs,
         queryType: options?.queryProfile?.queryType,
@@ -3660,6 +3668,7 @@ export class NodeRagService {
               .search(expansionQuery, mode, queryEmbedding, expansionAliases, {
                 allowedDocumentIds: primaryExpansionDocumentIds,
                 documentScoreBoosts,
+                chunkScoreBoosts: options?.additionalChunkScoreBoosts,
                 excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
                 lawRefs: options?.queryProfile?.parsedLawRefs,
                 queryType: options?.queryProfile?.queryType,
@@ -3889,8 +3898,20 @@ export class NodeRagService {
       return cloned;
     }
 
-    const embeddingQuery = [normalized.normalizedQuery, serviceScopeContext, ...aliases].filter(Boolean).join('\n');
+    const embeddingQuery = [normalized.normalizedQuery, ...aliases].filter(Boolean).join('\n');
     const queryEmbedding = await this.getQueryEmbedding(embeddingQuery);
+    const serviceScopeChunkBoosts = runtimeProfile.retrieval.scopeBoosts
+      ? buildServiceScopeChunkBoosts(
+          allSearchChunks,
+          selectedServiceScopes,
+          uniqueNonEmptyLines([
+            ...deriveFocusTerms(normalized.normalizedQuery),
+            ...queryProfile.searchVariants,
+            ...profile.aliases,
+            ...profile.relatedTerms,
+          ]),
+        )
+      : new Map<string, number>();
     const workflowBoosts = mergeDocumentScoreBoostMaps(
       buildBrainDocumentBoosts(
         this.brain,
@@ -3898,9 +3919,6 @@ export class NodeRagService {
         profile.workflowEvents,
         normalized.normalizedQuery,
       ),
-      runtimeProfile.retrieval.scopeBoosts
-        ? buildServiceScopeDocumentBoosts(allSearchChunks, selectedServiceScopes)
-        : new Map<string, number>(),
     );
     const workflowAliasHints = workflowBriefs.flatMap((brief) => [brief.label, brief.summary]);
     let selectedRetrievalMode: RetrievalMode = profile.preferredRetrievalMode;
@@ -3913,6 +3931,7 @@ export class NodeRagService {
       {
         profile: runtimeProfile,
         additionalDocumentScoreBoosts: workflowBoosts,
+        additionalChunkScoreBoosts: serviceScopeChunkBoosts,
         extraAliases: selectedRetrievalMode === 'workflow-global' ? workflowAliasHints : [],
         queryProfile,
       },
@@ -3939,6 +3958,7 @@ export class NodeRagService {
         const refinedSearch = this.executeSearch(mode, subquestion, refinedEmbedding, refinedAliases, {
           profile: runtimeProfile,
           additionalDocumentScoreBoosts: workflowBoosts,
+          additionalChunkScoreBoosts: serviceScopeChunkBoosts,
           extraAliases: workflowAliasHints,
           queryProfile: buildNaturalQueryProfile(subquestion),
         });
@@ -4285,25 +4305,28 @@ export class NodeRagService {
           ambiguitySignals: [],
         }
       : detectServiceScopeClarification(question);
-    const clarificationDecision = planned.profile.queryProcessing.clarify
-      ? await detectClarificationNeed({
-          ai,
-          model: request.model,
-          recentMessages,
-          question,
-          normalizedQuery: planned.normalizedQuery,
-          mode: request.mode,
-          questionArchetype: planned.questionArchetype,
-          retrievalMode: planned.selectedRetrievalMode,
-          workflowEvents: planned.workflowEventIds,
-          serviceScopeClarification,
-        })
-      : {
-          needsClarification: false,
-          reason: 'clarification-disabled-by-profile',
-          missingDimensions: [],
-          candidateOptions: [],
-        };
+    const clarificationDecision = suppressSelectedServiceScopeClarification(
+      planned.profile.queryProcessing.clarify
+        ? await detectClarificationNeed({
+            ai,
+            model: request.model,
+            recentMessages,
+            question,
+            normalizedQuery: planned.normalizedQuery,
+            mode: request.mode,
+            questionArchetype: planned.questionArchetype,
+            retrievalMode: planned.selectedRetrievalMode,
+            workflowEvents: planned.workflowEventIds,
+            serviceScopeClarification,
+          })
+        : {
+            needsClarification: false,
+            reason: 'clarification-disabled-by-profile',
+            missingDimensions: [],
+            candidateOptions: [],
+          },
+      hasSelectedServiceScope ? planned.serviceScopeLabels : [],
+    );
 
     if (clarificationDecision.needsClarification) {
       retrieval.agentDecision = 'clarify';

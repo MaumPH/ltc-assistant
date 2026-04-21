@@ -48,6 +48,36 @@ export interface ClarificationDecision {
   candidateOptions: string[];
 }
 
+export function suppressSelectedServiceScopeClarification(
+  decision: ClarificationDecision,
+  selectedServiceScopeLabels: readonly string[],
+): ClarificationDecision {
+  if (selectedServiceScopeLabels.length === 0 || !decision.needsClarification) {
+    return decision;
+  }
+
+  const remainingDimensions = decision.missingDimensions.filter((dimension) => dimension !== 'service_scope');
+  const clarificationText = [decision.clarificationQuestion ?? '', ...decision.candidateOptions].join(' ');
+  const looksLikeServiceScopeOnly =
+    decision.missingDimensions.length === 0 &&
+    /급여\s*유형|서비스\s*유형|기관\s*유형|주야간보호|주간보호|요양원|방문요양/.test(clarificationText);
+
+  if (remainingDimensions.length === 0 && (decision.missingDimensions.includes('service_scope') || looksLikeServiceScopeOnly)) {
+    return {
+      needsClarification: false,
+      reason: `선택된 급여유형(${selectedServiceScopeLabels.join(', ')})이 이미 적용되어 서비스 유형 확인 질문을 생략합니다.`,
+      missingDimensions: [],
+      clarificationQuestion: undefined,
+      candidateOptions: [],
+    };
+  }
+
+  return {
+    ...decision,
+    missingDimensions: remainingDimensions,
+  };
+}
+
 function uniqueStrings(values: Iterable<string>): string[] {
   return Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean)));
 }

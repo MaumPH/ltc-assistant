@@ -24,7 +24,7 @@ interface HomeViewProps {
 }
 
 interface ActionCardDefinition {
-  id: Exclude<TabId, 'home'> | 'settings';
+  id: Exclude<TabId, 'home' | 'admin'> | 'settings';
   title: string;
   eyebrow: string;
   description: string;
