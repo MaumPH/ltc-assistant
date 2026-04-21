@@ -15,6 +15,7 @@
   "include": [
     "server.ts",
     "scripts",
+    "src/lib/adminAuth.ts",
     "src/lib/nodeKnowledge.ts",
     "src/lib/nodePrompts.ts",
     "src/lib/promptAssembly.ts",

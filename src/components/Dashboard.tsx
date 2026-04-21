@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, ClipboardList, ListChecks } from 'lucide-react';
-import RagAdminPanel from './RagAdminPanel';
 import {
   AS_NEEDED_TRIGGER_ORDER,
   CYCLE_ORDER,
@@ -153,8 +152,6 @@ export default function Dashboard() {
             </div>
           </div>
         </section>
-
-        <RagAdminPanel />
 
         <section className="rounded-[28px] border border-slate-200 bg-white p-3 shadow-sm sm:p-4 md:p-5">
           <div className="flex flex-wrap gap-2">

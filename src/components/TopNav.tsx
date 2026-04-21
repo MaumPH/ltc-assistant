@@ -3,7 +3,7 @@ import { Bot, ChevronDown, Key, Scale, Settings2, X } from 'lucide-react';
 import { ApiKeyForm } from './ApiKeySetup';
 import { CHAT_MODELS, MODEL_STORAGE, type ChatModelId } from '../lib/chatModels';
 
-export type TabId = 'home' | 'integrated' | 'evaluation' | 'wiki' | 'dashboard' | 'knowledge';
+export type TabId = 'home' | 'integrated' | 'evaluation' | 'wiki' | 'dashboard' | 'knowledge' | 'admin';
 
 export const TABS: { id: TabId; label: string; shortLabel: string }[] = [
   { id: 'home', label: '메인페이지', shortLabel: '홈' },
@@ -12,6 +12,7 @@ export const TABS: { id: TabId; label: string; shortLabel: string }[] = [
   { id: 'wiki', label: '평가 지침 정리', shortLabel: '지침' },
   { id: 'dashboard', label: '대시보드', shortLabel: '대시' },
   { id: 'knowledge', label: '지식기반', shortLabel: '문서' },
+  { id: 'admin', label: '관리자', shortLabel: '관리' },
 ];
 
 export const MODELS = CHAT_MODELS.map((model) => ({
