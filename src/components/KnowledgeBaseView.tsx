@@ -8,6 +8,7 @@ import {
   type KnowledgeListItem,
   type KnowledgeSource,
 } from '../lib/knowledge';
+import { matchesKnowledgeSearch } from '../lib/knowledgeSearch';
 
 type SourceFilter = 'all' | KnowledgeSource;
 
@@ -64,8 +65,7 @@ export default function KnowledgeBaseView() {
         return true;
       }
 
-      const target = [file.displayTitle, file.name, file.category, file.sourceLabel].join(' ').toLowerCase();
-      return target.includes(query);
+      return matchesKnowledgeSearch(file, query);
     });
   }, [deferredSearch, sourceFilter]);
 

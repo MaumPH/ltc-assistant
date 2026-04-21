@@ -64,6 +64,7 @@ import {
   buildOntologyGraph,
   buildOntologyRows,
   expandDocumentsWithOntology,
+  loadGeneratedOntologyManifest,
   type OntologyGraph,
   type OntologySearchResult,
 } from './ragOntology';
@@ -1194,27 +1195,36 @@ function pruneIrrelevantSupportEvidence(search: SearchRun): SearchRun {
   return filteredEvidence.length > 0 ? { ...search, evidence: filteredEvidence } : search;
 }
 
-function injectEvidenceCandidate(search: SearchRun, candidate: SearchCandidate | null): SearchRun {
-  if (!candidate || search.evidence.some((item) => item.documentId === candidate.documentId)) {
-    return search;
+function injectEvidenceCandidates(search: SearchRun, candidates: Array<SearchCandidate | null>): SearchRun {
+  const uniqueCandidates: SearchCandidate[] = [];
+  const seenDocuments = new Set(search.evidence.map((item) => item.documentId));
+  for (const candidate of candidates) {
+    if (!candidate || seenDocuments.has(candidate.documentId)) continue;
+    uniqueCandidates.push(candidate);
+    seenDocuments.add(candidate.documentId);
+    if (uniqueCandidates.length >= 4) break;
   }
 
-  const topScore = search.fusedCandidates[0]?.rerankScore ?? candidate.rerankScore;
-  const promotedCandidate =
+  if (uniqueCandidates.length === 0) return search;
+
+  const topScore = search.fusedCandidates[0]?.rerankScore ?? uniqueCandidates[0].rerankScore;
+  const promotedCandidates = uniqueCandidates.map((candidate, index) =>
     candidate.sourceRole === 'primary_evaluation' || candidate.sourceRole === 'support_reference'
       ? {
           ...candidate,
-          rerankScore: Math.max(candidate.rerankScore, topScore + 1),
+          rerankScore: Math.max(candidate.rerankScore, topScore + 1 - index * 0.1),
           matchedTerms: Array.from(new Set([...candidate.matchedTerms, 'routing-expanded-primary'])),
         }
-      : candidate;
+      : candidate,
+  );
+  const promotedIds = new Set(promotedCandidates.map((candidate) => candidate.id));
 
   return applyGroundingGate({
     ...search,
-    fusedCandidates: [promotedCandidate, ...search.fusedCandidates.filter((item) => item.id !== candidate.id)]
+    fusedCandidates: [...promotedCandidates, ...search.fusedCandidates.filter((item) => !promotedIds.has(item.id))]
       .sort((left, right) => right.rerankScore - left.rerankScore)
       .slice(0, Math.max(search.fusedCandidates.length, 24)),
-    evidence: [promotedCandidate, ...search.evidence.filter((item) => item.id !== candidate.id)]
+    evidence: [...promotedCandidates, ...search.evidence.filter((item) => !promotedIds.has(item.id))]
       .sort((left, right) => right.rerankScore - left.rerankScore)
       .slice(0, Math.max(search.evidence.length, 12)),
   });
@@ -1386,14 +1396,22 @@ function applyGroundingGate(search: SearchRun): SearchRun {
   };
 }
 
-function applyOriginalFocusGate(search: SearchRun, originalQuery: string): SearchRun {
+function hasRequiredFocusMatches(candidates: SearchCandidate[], focusTerms: string[]): boolean {
+  if (focusTerms.length === 0 || candidates.length === 0) return true;
+  const topCandidates = candidates.slice(0, 5);
+  const matchedFocusTerms = new Set(topCandidates.flatMap((candidate) => getCandidateFocusMatches(candidate, focusTerms)));
+  const requiredMatches = Math.min(2, focusTerms.length);
+  return matchedFocusTerms.size >= requiredMatches;
+}
+
+function applyOriginalFocusGate(search: SearchRun, originalQuery: string, focusAliases: string[] = []): SearchRun {
   const focusTerms = deriveFocusTerms(originalQuery);
   if (focusTerms.length === 0 || search.fusedCandidates.length === 0) return search;
 
-  const topCandidates = search.fusedCandidates.slice(0, 5);
-  const matchedFocusTerms = new Set(topCandidates.flatMap((candidate) => getCandidateFocusMatches(candidate, focusTerms)));
-  const requiredMatches = Math.min(2, focusTerms.length);
-  if (matchedFocusTerms.size >= requiredMatches) return search;
+  if (hasRequiredFocusMatches(search.fusedCandidates, focusTerms)) return search;
+
+  const aliasFocusTerms = uniqueNonEmptyLines(focusAliases.flatMap((alias) => deriveFocusTerms(alias)));
+  if (hasRequiredFocusMatches(search.fusedCandidates, aliasFocusTerms)) return search;
 
   return {
     ...search,
@@ -3123,7 +3141,11 @@ export class NodeRagService {
   }
 
   private rebuildOntologyGraph(): void {
-    this.ontologyGraph = buildOntologyGraph(this.brain, this.getAllSearchChunks());
+    this.ontologyGraph = buildOntologyGraph(
+      this.brain,
+      this.getAllSearchChunks(),
+      loadGeneratedOntologyManifest(this.projectRoot),
+    );
   }
 
   private async loadFallbackChunks(): Promise<void> {
@@ -3509,18 +3531,21 @@ export class NodeRagService {
         }),
         sectionRoutingEnabled,
       ));
-      const promotedPrimaryCandidate = this.store
-        .search(expansionQuery, mode, queryEmbedding, expansionAliases, {
-          allowedDocumentIds: primaryExpansionDocumentIds,
-          documentScoreBoosts,
-          excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
-          lawRefs: options?.queryProfile?.parsedLawRefs,
-          queryType: options?.queryProfile?.queryType,
-        })
-        .fusedCandidates.find((candidate) => candidate.sourceRole !== 'routing_summary') ?? null;
+      const promotedPrimaryCandidates = uniqueDocumentCandidates(
+        this.store
+          .search(expansionQuery, mode, queryEmbedding, expansionAliases, {
+            allowedDocumentIds: primaryExpansionDocumentIds,
+            documentScoreBoosts,
+            excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+            lawRefs: options?.queryProfile?.parsedLawRefs,
+            queryType: options?.queryProfile?.queryType,
+          })
+          .fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
+        4,
+      );
 
         return {
-          search: pruneIrrelevantSupportEvidence(injectEvidenceCandidate(rerankedSearch, promotedPrimaryCandidate)),
+          search: pruneIrrelevantSupportEvidence(injectEvidenceCandidates(rerankedSearch, promotedPrimaryCandidates)),
           scope: {
             routeOnlyDocumentIds,
             primaryExpansionDocumentIds,
@@ -3628,21 +3653,24 @@ export class NodeRagService {
       }),
       sectionRoutingEnabled,
     ));
-    const promotedPrimaryCandidate =
+    const promotedPrimaryCandidates =
       primaryExpansionDocumentIds.size > 0
-        ? this.store
-            .search(expansionQuery, mode, queryEmbedding, expansionAliases, {
-              allowedDocumentIds: primaryExpansionDocumentIds,
-              documentScoreBoosts,
-              excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
-              lawRefs: options?.queryProfile?.parsedLawRefs,
-              queryType: options?.queryProfile?.queryType,
-            })
-            .fusedCandidates.find((candidate) => candidate.sourceRole === 'primary_evaluation') ?? null
-        : null;
+        ? uniqueDocumentCandidates(
+            this.store
+              .search(expansionQuery, mode, queryEmbedding, expansionAliases, {
+                allowedDocumentIds: primaryExpansionDocumentIds,
+                documentScoreBoosts,
+                excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+                lawRefs: options?.queryProfile?.parsedLawRefs,
+                queryType: options?.queryProfile?.queryType,
+              })
+              .fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
+            4,
+          )
+        : [];
 
     return {
-      search: pruneIrrelevantSupportEvidence(injectEvidenceCandidate(baseSearch, promotedPrimaryCandidate)),
+      search: pruneIrrelevantSupportEvidence(injectEvidenceCandidates(baseSearch, promotedPrimaryCandidates)),
       scope: {
         routeOnlyDocumentIds,
         primaryExpansionDocumentIds,
@@ -3981,7 +4009,7 @@ export class NodeRagService {
       }
     }
 
-    search = applyOriginalFocusGate(search, normalized.normalizedQuery);
+    search = applyOriginalFocusGate(search, normalized.normalizedQuery, normalized.aliases);
 
     const evidence = constrainEvidence({
       ...search,

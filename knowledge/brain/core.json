@@ -5,21 +5,21 @@
       "label": "의무판단",
       "preferred_answer_type": "verdict",
       "retrieval_mode": "local",
-      "triggers": ["의무", "법정", "해야 하나", "가능한가", "해도 되나", "금지", "처벌", "제재"]
+      "triggers": ["의무", "법정", "해야 하나", "해야 돼", "가능한가", "가능해", "하면 돼", "해도 되나", "해도 돼", "해도 되는지", "되나요", "금지", "처벌", "제재"]
     },
     {
       "id": "workflow-checklist",
       "label": "업무체크리스트",
       "preferred_answer_type": "checklist",
       "retrieval_mode": "workflow-global",
-      "triggers": ["무엇을 해야", "해야 하는 업무", "해야되는 업무", "체크리스트", "준비", "전체적으로", "정리해줘"]
+      "triggers": ["무엇을 해야", "해야 하는 업무", "해야되는 업무", "뭐 준비", "뭘 준비", "뭐 필요", "준비물", "챙겨야", "확인사항", "체크리스트", "준비", "전체적으로", "정리해줘"]
     },
     {
       "id": "workflow-procedure",
       "label": "업무절차",
       "preferred_answer_type": "procedure",
       "retrieval_mode": "workflow-global",
-      "triggers": ["절차", "순서", "어떻게 진행", "프로세스", "흐름", "단계"]
+      "triggers": ["절차", "순서", "어떻게 진행", "어떻게 해", "어떻게 하면", "어떡해", "방법", "진행 방법", "프로세스", "흐름", "단계"]
     },
     {
       "id": "comparison-difference",
@@ -33,7 +33,7 @@
       "label": "개념정의",
       "preferred_answer_type": "definition",
       "retrieval_mode": "local",
-      "triggers": ["의미", "정의", "무엇인가", "뭐예요", "설명", "개념"]
+      "triggers": ["의미", "정의", "무엇인가", "이게 뭐야", "이거 뭐야", "뭐야", "뭐예요", "무슨 뜻", "설명", "개념"]
     },
     {
       "id": "mixed-general",
@@ -279,6 +279,11 @@
       "term": "주간보호센터",
       "synonyms": ["주간보호", "주야간보호", "주야간보호기관", "주·야간보호기관"],
       "related_terms": ["이용자 35명 이상", "월 120시간 이상", "60개월 이상"]
+    },
+    {
+      "term": "인력기준",
+      "synonyms": ["인력현황", "직원현황", "인력배치", "인력배치기준", "직원배치", "직원배치기준", "인력신고 현황"],
+      "related_terms": ["추가배치", "인력추가배치 가산", "시설기준 및 직원배치기준", "이용자 수 대비 배치기준"]
     }
   ]
 }

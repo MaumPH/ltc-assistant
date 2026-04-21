@@ -1,0 +1,6465 @@
+{
+  "schema_version": 1,
+  "concepts": [
+    {
+      "label": "· 근로계약서에 명시한 금액보다 적은 금액으로 임금을 지급",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "251d397e26ea2d44443e3970a186738f1168d077",
+          "path": "/knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md",
+          "label": "'2026년 장기요양종사자 고충상담 주요 사례집' 게시",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "15d4103fede465aec462c019379207f9bee12429",
+          "path": "/knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md",
+          "label": "(붙임)_2026년_장기요양종사자_고충상담_주요_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "‘장기요양급여 제공기준 및 급여비용 산정방법 등에 관한 고시’ 제49조",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "448c762fede4c615e46e399f50a6f5e25a0e7663",
+          "path": "/knowledge/2026 요양보호사 승급제.md",
+          "label": "2026 요양보호사 승급제",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "cf559c178baffbc4a2eaf1227aa442b349b63749",
+          "path": "/knowledge/(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호).md",
+          "label": "(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "(고시‧세부사항, Q&A) 제도소개 / 급여기준 및 수가 / 급여기준조회",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "d4d2b6eff00f7a65d0884fda42b2ded41351869a",
+          "path": "/knowledge/eval/주요_개정사항_및_개정내용_Q&A.md",
+          "label": "주요_개정사항_및_개정내용_Q&A",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "(고시‧세부사항) 알림ㆍ자료실 / 자료실 / 법령자료실",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "d4d2b6eff00f7a65d0884fda42b2ded41351869a",
+          "path": "/knowledge/eval/주요_개정사항_및_개정내용_Q&A.md",
+          "label": "주요_개정사항_및_개정내용_Q&A",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "(근무인원), 제51조(근무인원수 산정방법)",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "b68915a366882854a971be236eda64002dd11c10",
+          "path": "/knowledge/(3-3)_2026년_1분기_다빈도_부당청구_사례(시설급여).md",
+          "label": "(3-3)_2026년_1분기_다빈도_부당청구_사례(시설급여)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "(급여비용 가산의 유형)",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "2d09c2bcb86166410b39ec98c8120797872e5d88",
+          "path": "/knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md",
+          "label": "(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "(기관포털) 요양자원> 요양보호사 승급교육> 교육신청 및 이수내역조회>",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "448c762fede4c615e46e399f50a6f5e25a0e7663",
+          "path": "/knowledge/2026 요양보호사 승급제.md",
+          "label": "2026 요양보호사 승급제",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "(복지용구 급여기준) ① 복지용구 급여의 범위 및 기준 등은 별표 2와 같다",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "e529e874710c33949eb3288371e330e67df222fe",
+          "path": "/knowledge/복지용구 급여범위 및 급여기준 등에 관한 고시(고시)(제2026-13호)(20260120).md",
+          "label": "복지용구 급여범위 및 급여기준 등에 관한 고시(고시)(제2026-13호)(20260120)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "6a60080e9dcf875d4a52df690e73c07d850817da",
+          "path": "/knowledge/(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종.md",
+          "label": "(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "(붙임)_통합재가서비스_운영_매뉴얼",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "667881939fd36faa5c3304fdcc126c1c97a71b4b",
+          "path": "/knowledge/(붙임)_통합재가서비스_운영_매뉴얼.md",
+          "label": "(붙임)_통합재가서비스_운영_매뉴얼",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "(시행일) 이 고시는 2018년 8월 1일부터 시행한다",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "ff44e5ce7e62d055ccc7c5f40ab0b172d62de84e",
+          "path": "/knowledge/장기요양등급판정기준에 관한 고시(고시)(제2018-146호)(20180801).md",
+          "label": "장기요양등급판정기준에 관한 고시(고시)(제2018-146호)(20180801)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "(인력배치기준 위반 감액)",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "b68915a366882854a971be236eda64002dd11c10",
+          "path": "/knowledge/(3-3)_2026년_1분기_다빈도_부당청구_사례(시설급여).md",
+          "label": "(3-3)_2026년_1분기_다빈도_부당청구_사례(시설급여)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "(인력배치기준), 제49조(월 기준 근무시간)",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "2d09c2bcb86166410b39ec98c8120797872e5d88",
+          "path": "/knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md",
+          "label": "(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여)",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "b68915a366882854a971be236eda64002dd11c10",
+          "path": "/knowledge/(3-3)_2026년_1분기_다빈도_부당청구_사례(시설급여).md",
+          "label": "(3-3)_2026년_1분기_다빈도_부당청구_사례(시설급여)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "(인력배치기준), 제49조(월 기준 근무시간), 제50조(근무인원)",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "cf559c178baffbc4a2eaf1227aa442b349b63749",
+          "path": "/knowledge/(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호).md",
+          "label": "(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "(인력배치기준), 제49조(월 기준 근무시간), 제53조(급여",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "2d09c2bcb86166410b39ec98c8120797872e5d88",
+          "path": "/knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md",
+          "label": "(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "(입소자) 제1항에 따라 급여비용의 가산 또는 감액산정을 위한",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "cf559c178baffbc4a2eaf1227aa442b349b63749",
+          "path": "/knowledge/(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호).md",
+          "label": "(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "(장기요양기관용) 요양보호사 보수교육 다빈도 질의응답",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "e65e73bbe8f1f8408014c07778a94afed90f9af9",
+          "path": "/knowledge/(장기요양기관용) 요양보호사 보수교육 다빈도 질의응답.md",
+          "label": "(장기요양기관용) 요양보호사 보수교육 다빈도 질의응답",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "(장기요양이용자와 계약 시) 장기요양기관장은 계약서에 계약자의",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "(주‧야간보호 급여비용)",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "cf559c178baffbc4a2eaf1227aa442b349b63749",
+          "path": "/knowledge/(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호).md",
+          "label": "(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "(주‧야간보호급여 제공기준)",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "cf559c178baffbc4a2eaf1227aa442b349b63749",
+          "path": "/knowledge/(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호).md",
+          "label": "(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "(주요 개정 Q&A) 알림ㆍ자료실 / 알림방 / 공지사항",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "d4d2b6eff00f7a65d0884fda42b2ded41351869a",
+          "path": "/knowledge/eval/주요_개정사항_및_개정내용_Q&A.md",
+          "label": "주요_개정사항_및_개정내용_Q&A",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "(첨부)_2026년_통합재가서비스_선정기준",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "a2bbcb6e8caefa6da1e34d7dc2e6224c345a08a4",
+          "path": "/knowledge/(첨부)_2026년_통합재가서비스_선정기준.md",
+          "label": "(첨부)_2026년_통합재가서비스_선정기준",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "[별지 제2호서식] 의사소견서(노인장기요양보험법 시행규칙)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "ef727e8c9527f9fbb3a3d85bce117dfb7f1b285a",
+          "path": "/knowledge/[별지 제2호서식] 의사소견서(노인장기요양보험법 시행규칙).md",
+          "label": "[별지 제2호서식] 의사소견서(노인장기요양보험법 시행규칙)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "[별표 11] 행정처분의 기준(제31조제1항 관련)(노인복지법 시행규칙)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "ce2574317dbe511665574f99ddc11579e91db385",
+          "path": "/knowledge/[별표 11] 행정처분의 기준(제31조제1항 관련)(노인복지법 시행규칙).md",
+          "label": "[별표 11] 행정처분의 기준(제31조제1항 관련)(노인복지법 시행규칙)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "[별표 2] 행정처분의 기준(제29조 관련)(노인장기요양보험법 시행규칙)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "bb3d3af0f47ef16438176e99fde7cab1fb591002",
+          "path": "/knowledge/[별표 2] 행정처분의 기준(제29조 관련)(노인장기요양보험법 시행규칙).md",
+          "label": "[별표 2] 행정처분의 기준(제29조 관련)(노인장기요양보험법 시행규칙)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "[붙임1]2026년_장기요양_서비스_모니터링_매뉴얼_기관용",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "796866473208f1fc2be24a4a16923d4ee2399f6e",
+          "path": "/knowledge/[붙임1]2026년_장기요양_서비스_모니터링_매뉴얼_기관용.md",
+          "label": "[붙임1]2026년_장기요양_서비스_모니터링_매뉴얼_기관용",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "「노인복지법」제39조의2제2항에 따른 요양보호사 자격시험에 합격한 지 2년이",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "「노인장기요양보험법」 제31조에 따른 장기요양기관에 근무 중인 요양보호사는",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "「장기요양급여 제공기준 및 급여비용 산정방법 등에 관한 고시」 제16조(재가",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "2137f461e42b50fe2db835a4c2c2100ea279585d",
+          "path": "/knowledge/eval/2026년 주야간보호 평가매뉴얼(26년꺼만).md",
+          "label": "2026년 주야간보호 평가매뉴얼(26년꺼만)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "§ 급여제공계획서 서식",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "b488558777bc8df276b58e8fb0638c11c3044152",
+          "path": "/knowledge/2026년_급여제공계획서_가이드북_ENC(최종게시용).md",
+          "label": "2026년_급여제공계획서_가이드북_ENC(최종게시용)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "/4분기 소득기준을 잠정 적용",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "04ce575bac98e45036c0fb70c726a5dbf08ce55a",
+          "path": "/knowledge/2026 노인복지사업안내(2nd).md",
+          "label": "2026 노인복지사업안내(2nd)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "※ (전산경로) 가산및감액산정 > 수가가산 및 산정비율 > 당월운영선택 >",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "448c762fede4c615e46e399f50a6f5e25a0e7663",
+          "path": "/knowledge/2026 요양보호사 승급제.md",
+          "label": "2026 요양보호사 승급제",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "※ (전산경로) 급여비용청구 > 선임요양보호사 급여비용청구",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "448c762fede4c615e46e399f50a6f5e25a0e7663",
+          "path": "/knowledge/2026 요양보호사 승급제.md",
+          "label": "2026 요양보호사 승급제",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "※ (참고) 홈페이지>알림·자료실>장기요양 기관평가>평가매뉴얼 및 Q&A>",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7f475ff515706c26020e1c95bfd45459c8ec752c",
+          "path": "/knowledge/eval/2.2026년_재가급여_평가매뉴얼_다빈도Q&A_사례집(1차).md",
+          "label": "2.2026년_재가급여_평가매뉴얼_다빈도Q&A_사례집(1차)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "※ (참고) Ⅱ. 매뉴얼 일반사항> 10. 용어설명> 다. 기타> 3) 서명",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "9f43f1951de36e7cff131472fefadd7634672486",
+          "path": "/knowledge/eval/2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A_개정전후_비교표.md",
+          "label": "2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A_개정전후_비교표",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "※ (참고) Ⅱ. 매뉴얼 일반사항> 8. 용어설명> 다. 기타> 3) 서명",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "9f43f1951de36e7cff131472fefadd7634672486",
+          "path": "/knowledge/eval/2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A_개정전후_비교표.md",
+          "label": "2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A_개정전후_비교표",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "073c256d45aade34f27c66f4b50507e532df21d8",
+          "path": "/knowledge/eval/2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A사례집(2차).md",
+          "label": "2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A사례집(2차)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "※ 단, 대표자인 요양보호사는 선임요양보호사로 불인정",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "448c762fede4c615e46e399f50a6f5e25a0e7663",
+          "path": "/knowledge/2026 요양보호사 승급제.md",
+          "label": "2026 요양보호사 승급제",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "※ 선임요양보호사 역할 수행 월 중 타 직종으로 변경 시 수당지급 불가",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "448c762fede4c615e46e399f50a6f5e25a0e7663",
+          "path": "/knowledge/2026 요양보호사 승급제.md",
+          "label": "2026 요양보호사 승급제",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "※ 해당문구가포함된지표명및기준입니다.매뉴얼을반드시확인하시기바랍니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "073c256d45aade34f27c66f4b50507e532df21d8",
+          "path": "/knowledge/eval/2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A사례집(2차).md",
+          "label": "2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A사례집(2차)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "※「통합재가서비스 운영매뉴얼」인력기준 준수 필요 … [별첨] 참조",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "a2bbcb6e8caefa6da1e34d7dc2e6224c345a08a4",
+          "path": "/knowledge/(첨부)_2026년_통합재가서비스_선정기준.md",
+          "label": "(첨부)_2026년_통합재가서비스_선정기준",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "< 재가요양보호사에 대한 폭언, 폭행, 성희롱․성폭력(예시) >",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "■ 노인장기요양보험법 시행규칙 [별표 3] <개정 2021. 6. 30.>",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "ebfc557cdfca3f6d702e6bd31b536ce4d5aad1aa",
+          "path": "/knowledge/[별표 3] 포상금의 지급기준(제43조의2제1항 관련)(노인장기요양보험법 시행규칙).md",
+          "label": "[별표 3] 포상금의 지급기준(제43조의2제1항 관련)(노인장기요양보험법 시행규칙)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "■ 수급자(보호자)가 요양보호사에게 요구해서는 안되는 행위는 다음과 같습니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "251d397e26ea2d44443e3970a186738f1168d077",
+          "path": "/knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md",
+          "label": "'2026년 장기요양종사자 고충상담 주요 사례집' 게시",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "■ 장기요양요원중요양보호사는수급자를위하여아래와같은장기요양급여를제공합니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "251d397e26ea2d44443e3970a186738f1168d077",
+          "path": "/knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md",
+          "label": "'2026년 장기요양종사자 고충상담 주요 사례집' 게시",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "□ 평가기준",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "a2bbcb6e8caefa6da1e34d7dc2e6224c345a08a4",
+          "path": "/knowledge/(첨부)_2026년_통합재가서비스_선정기준.md",
+          "label": "(첨부)_2026년_통합재가서비스_선정기준",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "▷ ’26년 1분기~4분기 → 상·하반기 교육 및 훈련 미실시 예외인정",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "073c256d45aade34f27c66f4b50507e532df21d8",
+          "path": "/knowledge/eval/2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A사례집(2차).md",
+          "label": "2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A사례집(2차)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "▷ ’27년 1분기 → 상반기 교육 및 훈련 실시하여야 인정",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "073c256d45aade34f27c66f4b50507e532df21d8",
+          "path": "/knowledge/eval/2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A사례집(2차).md",
+          "label": "2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A사례집(2차)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "◈ 대응방법",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "6a60080e9dcf875d4a52df690e73c07d850817da",
+          "path": "/knowledge/(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종.md",
+          "label": "(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "◈ 위기대응 매뉴얼 마련 및 고충전담기구 설치",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "◈ 정기적인 위기대응 교육 실시",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "○ (고유업무) … 선임요양보호사로서 수행할 수 있는 업무",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "448c762fede4c615e46e399f50a6f5e25a0e7663",
+          "path": "/knowledge/2026 요양보호사 승급제.md",
+          "label": "2026 요양보호사 승급제",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "○ (공통업무) … 요양보호사로서 필수적으로 수행하는 업무",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "448c762fede4c615e46e399f50a6f5e25a0e7663",
+          "path": "/knowledge/2026 요양보호사 승급제.md",
+          "label": "2026 요양보호사 승급제",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "○ (관리기관) 국민건강보험공단",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "○ (교육과정) 4개 영역",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "○ (교육대상) 장기요양기관에 소속되어 근무하는 요양보호사",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "○ (교육비용) 대면(8h) 36,000원, 대면◯+ 온라인 30,000원",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "○ (교육주기·방법) 매 2년마다 8시간 이상, 대면 교육 또는 온라인 교육",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "○ (선임요양보호사) 1명 당 월 150,000원 산정",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "448c762fede4c615e46e399f50a6f5e25a0e7663",
+          "path": "/knowledge/2026 요양보호사 승급제.md",
+          "label": "2026 요양보호사 승급제",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "○ (월 기준 근무시간 )",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "448c762fede4c615e46e399f50a6f5e25a0e7663",
+          "path": "/knowledge/2026 요양보호사 승급제.md",
+          "label": "2026 요양보호사 승급제",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "○ (청구일자) 선임요양보호사 수당 당월 비용은 익월에 청구 가능",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "448c762fede4c615e46e399f50a6f5e25a0e7663",
+          "path": "/knowledge/2026 요양보호사 승급제.md",
+          "label": "2026 요양보호사 승급제",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "○ 교육의 성격에 따라 근로시간 여부가 달라지는데 법정의무교육은",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "15d4103fede465aec462c019379207f9bee12429",
+          "path": "/knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md",
+          "label": "(붙임)_2026년_장기요양종사자_고충상담_주요_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "○ 급여제공계획서 작성내용 설명",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "b488558777bc8df276b58e8fb0638c11c3044152",
+          "path": "/knowledge/2026년_급여제공계획서_가이드북_ENC(최종게시용).md",
+          "label": "2026년_급여제공계획서_가이드북_ENC(최종게시용)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "○ 월 기준 근무시간은 장기요양급여비용의 가산 또는 감액산정을",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "251d397e26ea2d44443e3970a186738f1168d077",
+          "path": "/knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md",
+          "label": "'2026년 장기요양종사자 고충상담 주요 사례집' 게시",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "15d4103fede465aec462c019379207f9bee12429",
+          "path": "/knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md",
+          "label": "(붙임)_2026년_장기요양종사자_고충상담_주요_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "☞ 출생 연도를 기준으로 홀수년도 출생자는 홀수 연도에, 짝수년도 출생자는",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "❍ 그러나 방문요양에 등록한 가산 인력이 가산을 적용받지 않은 방문",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "❍ 다만, 장기요양급여 제공기준 및 급여비용 산정방법 등에 관한",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "❍ 사설 프로그램이 이에 해당된다면 서류를 꼭 출력하실 필요는",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "❍ 코로나19 관련 장기요양기관 평가지표 한시적 적용방법을 노인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "❍ 평가대상은 전수평가를 원칙으로 하고 있으며, 지표별로 표본을",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "❍ 평가매뉴얼 일반사항 3.평가방법을 보면, ‘마. 전산프로그램을",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "❍ 현장 평가 시 지표적용기간 내 적용하고 있는 유효한 운영규정",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "❍요양보호사 직업윤리 정립 및 전문성과",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "❚ 적용 예시 ’26년도 요양보호사 보수교육 대상자는 짝수년 출생자만 해당",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "❚ 적용예시 ’25년도요양보호사자격시험합격자는’26년, ’27년보수교육 면제",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "❚「노인장기요양보험법시행령」제11조의2(장기요양요원중 요양보호사의보수교육",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "가. 교육대상",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "가산금 사용내역, 이체내역, 영수증",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c1253e9d1d953c5a4d15bbbd5eb74c81d56693b6",
+          "path": "/knowledge/evaluation/01-08-직원권익향상.md",
+          "label": "01-08-직원권익향상",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "가입여부판단기준",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c9c3f42a6f128ce8a7ac33a9048f4dc87ce6b1c4",
+          "path": "/knowledge/급여비용_청구_업무_바로알기(2022.1).md",
+          "label": "급여비용_청구_업무_바로알기(2022.1)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "가지 지침 안내 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "각종 법령 및매뉴얼을 읽고이해하여 자신의것(매뉴얼)으로만드는 것이 중요",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "566a09695498f69211d423b13f0c2bb165019939",
+          "path": "/knowledge/eval/주야간보호_업무의 이해 _2026 (1).md",
+          "label": "주야간보호_업무의 이해 _2026 (1)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "간호비품 소독·멸균 기록지",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "80f76b199fde4ab72268c9d1faa76427fe39f187",
+          "path": "/knowledge/evaluation/02-02-감염관리.md",
+          "label": "02-02-감염관리",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "감염관리",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4f2dfba6b16e56f2ea3ff3fce10497bcb20298f1",
+          "path": "/knowledge/evaluation/02-01-건강검진.md",
+          "label": "02-01-건강검진",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "80f76b199fde4ab72268c9d1faa76427fe39f187",
+          "path": "/knowledge/evaluation/02-02-감염관리.md",
+          "label": "02-02-감염관리",
+          "reason": "document-title"
+        },
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "감염병 발생 또는 유행 시 조치 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "80f76b199fde4ab72268c9d1faa76427fe39f187",
+          "path": "/knowledge/evaluation/02-02-감염관리.md",
+          "label": "02-02-감염관리",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "개인정보 보관함 및 보관기준",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "18042d87e80ac33c61e7d4ee32d42332fea42c62",
+          "path": "/knowledge/evaluation/01-09-안전하고쾌적한환경.md",
+          "label": "01-09-안전하고쾌적한환경",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "개인정보보호법 제29조",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "18042d87e80ac33c61e7d4ee32d42332fea42c62",
+          "path": "/knowledge/evaluation/01-09-안전하고쾌적한환경.md",
+          "label": "01-09-안전하고쾌적한환경",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "개정 여부와 검토 상태를 frontmatter에서 바로 관리합니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "1211ae2c3b6e247fe12a5d92232ac21288a6caaf",
+          "path": "/knowledge/evaluation/index.md",
+          "label": "index",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "검진 결과 수령일을 확인할 수 있는 SMS 또는 이메일 수신자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4f2dfba6b16e56f2ea3ff3fce10497bcb20298f1",
+          "path": "/knowledge/evaluation/02-01-건강검진.md",
+          "label": "02-01-건강검진",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "경영실태조사 자료 제출 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "64824bd71cb2bbd4b4d4d67c92b022ff79c61e4c",
+          "path": "/knowledge/evaluation/01-14-질향상노력.md",
+          "label": "01-14-질향상노력",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "계획 변경 시 변경 이력 또는 보완 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7bdfd9be502b22c03500398e48b0ba266fc6ba75",
+          "path": "/knowledge/evaluation/01-02-사업계획.md",
+          "label": "01-02-사업계획",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "고시 제 57조(방문요양 사회복지사 등 배치 가산)에 따라 방문",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "고시업무의이해(일부)",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "566a09695498f69211d423b13f0c2bb165019939",
+          "path": "/knowledge/eval/주야간보호_업무의 이해 _2026 (1).md",
+          "label": "주야간보호_업무의 이해 _2026 (1)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "고시와 평가기준",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "566a09695498f69211d423b13f0c2bb165019939",
+          "path": "/knowledge/eval/주야간보호_업무의 이해 _2026 (1).md",
+          "label": "주야간보호_업무의 이해 _2026 (1)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "고충처리 절차",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "고충처리: 고충처리지침과 고충처리함, 고충처리대장까지 현장·기록으로 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "12e74c9b54fef23074db7b6a426757f8645fb3e3",
+          "path": "/knowledge/evaluation/01-06-직원교육.md",
+          "label": "01-06-직원교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "고충처리: 직원과 시설장이 고충처리절차를 알고 실제 조치를 받는지 면담 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c1253e9d1d953c5a4d15bbbd5eb74c81d56693b6",
+          "path": "/knowledge/evaluation/01-08-직원권익향상.md",
+          "label": "01-08-직원권익향상",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "고충처리지침, 고충접수·처리 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c1253e9d1d953c5a4d15bbbd5eb74c81d56693b6",
+          "path": "/knowledge/evaluation/01-08-직원권익향상.md",
+          "label": "01-08-직원권익향상",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "공기청정기나 환풍기만으로는 환기 기준을 대신하기 어렵습니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "18042d87e80ac33c61e7d4ee32d42332fea42c62",
+          "path": "/knowledge/evaluation/01-09-안전하고쾌적한환경.md",
+          "label": "01-09-안전하고쾌적한환경",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "관한 것으로 개인정보보호법의 내용 및 기관의 특성을 고려하여",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "교육내용",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "교육대상",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "교육시간",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c9c3f42a6f128ce8a7ac33a9048f4dc87ce6b1c4",
+          "path": "/knowledge/급여비용_청구_업무_바로알기(2022.1).md",
+          "label": "급여비용_청구_업무_바로알기(2022.1)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "교육을 정기적으로 실시",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "교육자료 또는 이수증",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "국민기초생활 보장법 시행규칙(보건복지부령)(제01089호)(20250321)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "ba32b774bd5c66dda78dca7ee4337972658c0cbb",
+          "path": "/knowledge/국민기초생활 보장법 시행규칙(보건복지부령)(제01089호)(20250321).md",
+          "label": "국민기초생활 보장법 시행규칙(보건복지부령)(제01089호)(20250321)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "그밖에 보수교육에상응하는 교육을 받았다고보건복지부 장관이인정하는 사람",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "근무표, 출근부, 인수인계 자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "6f4d6cfb0e4de24e44c3c43df51e16073e0f509f",
+          "path": "/knowledge/evaluation/01-03-인력기준.md",
+          "label": "01-03-인력기준",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "급여비용가산산정원칙",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c9c3f42a6f128ce8a7ac33a9048f4dc87ce6b1c4",
+          "path": "/knowledge/급여비용_청구_업무_바로알기(2022.1).md",
+          "label": "급여비용_청구_업무_바로알기(2022.1)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "급여비용가산유형",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c9c3f42a6f128ce8a7ac33a9048f4dc87ce6b1c4",
+          "path": "/knowledge/급여비용_청구_업무_바로알기(2022.1).md",
+          "label": "급여비용_청구_업무_바로알기(2022.1)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "급여제공계획 작성을 실시한 것은 해당급여 직원이 실시하지 않은",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "급여제공계획서",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "8ee5b834bebc647eb17fe325f4832d7aaefd707d",
+          "path": "/knowledge/evaluation/02-03-소통노력.md",
+          "label": "02-03-소통노력",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "af2d1035c7637d2b2e2abde2e4caeb3a919c1a7a",
+          "path": "/knowledge/evaluation/03-01-욕구사정.md",
+          "label": "03-01-욕구사정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "급여제공계획서 작성 내용",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "b488558777bc8df276b58e8fb0638c11c3044152",
+          "path": "/knowledge/2026년_급여제공계획서_가이드북_ENC(최종게시용).md",
+          "label": "2026년_급여제공계획서_가이드북_ENC(최종게시용)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "급여제공계획서 작성 및 전산등록",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "b488558777bc8df276b58e8fb0638c11c3044152",
+          "path": "/knowledge/2026년_급여제공계획서_가이드북_ENC(최종게시용).md",
+          "label": "2026년_급여제공계획서_가이드북_ENC(최종게시용)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "급여제공계획수립 및 제공",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "af2d1035c7637d2b2e2abde2e4caeb3a919c1a7a",
+          "path": "/knowledge/evaluation/03-01-욕구사정.md",
+          "label": "03-01-욕구사정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "급여제공지침 교육자료 및 참석 서명부",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "12e74c9b54fef23074db7b6a426757f8645fb3e3",
+          "path": "/knowledge/evaluation/01-06-직원교육.md",
+          "label": "01-06-직원교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "급여종류별 적용 시작일 자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "35045aa85d72a10e784edb78c2996cf0d2163aae",
+          "path": "/knowledge/evaluation/01-04-경력직.md",
+          "label": "01-04-경력직",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "기관 급여종류별 평가등급 중 가장 높은 등급을 기준으로 배점",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "a2bbcb6e8caefa6da1e34d7dc2e6224c345a08a4",
+          "path": "/knowledge/(첨부)_2026년_통합재가서비스_선정기준.md",
+          "label": "(첨부)_2026년_통합재가서비스_선정기준",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "기관 내부 게시만으로는 보호자 제공으로 보기 어렵습니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "8ee5b834bebc647eb17fe325f4832d7aaefd707d",
+          "path": "/knowledge/evaluation/02-03-소통노력.md",
+          "label": "02-03-소통노력",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "기관 운영 관련 후속 지표",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7bdfd9be502b22c03500398e48b0ba266fc6ba75",
+          "path": "/knowledge/evaluation/01-02-사업계획.md",
+          "label": "01-02-사업계획",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "기록: 검진일, 발행일, 5개 영역 검사 여부, 결핵검진 포함 여부 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4f2dfba6b16e56f2ea3ff3fce10497bcb20298f1",
+          "path": "/knowledge/evaluation/02-01-건강검진.md",
+          "label": "02-01-건강검진",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "기록: 모든 수급자(보호자)에게 연 1회 이상 안내했는지 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fbdff50d88254617ae6a7d3eb3bfb875668dbc8c",
+          "path": "/knowledge/evaluation/01-07-직원인권보호.md",
+          "label": "01-07-직원인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "기록: 수급자명, 일자, 작성자명, 세부내용이 있는지 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "af2d1035c7637d2b2e2abde2e4caeb3a919c1a7a",
+          "path": "/knowledge/evaluation/03-01-욕구사정.md",
+          "label": "03-01-욕구사정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "기록: 제정일, 개정일, 개정 절차, 최신본 여부 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "기록: 해당 연도 사업계획서 존재 여부 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7bdfd9be502b22c03500398e48b0ba266fc6ba75",
+          "path": "/knowledge/evaluation/01-02-사업계획.md",
+          "label": "01-02-사업계획",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "기준①: 교육일시, 교육내용, 교육방법, 강사명, 참석자명(서명) 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "기준①이 불인정되면 기준②도 연동해 불인정될 수 있습니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "기준⑤: 수급자 면담을 통해 학대 및 부당한 대우 없이 존중받았는지 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "낙상 고위험 대상자 관리자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "aaeba14e7f814b35dcb94f939cc9721ed0dc12f9",
+          "path": "/knowledge/evaluation/01-10-낙상예방.md",
+          "label": "01-10-낙상예방",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "내부 교육자료 또는 포스터",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fbdff50d88254617ae6a7d3eb3bfb875668dbc8c",
+          "path": "/knowledge/evaluation/01-07-직원인권보호.md",
+          "label": "01-07-직원인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "내용: 기관운영, 서비스 제공, 직원 관리 3개 분야 포함 여부 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7bdfd9be502b22c03500398e48b0ba266fc6ba75",
+          "path": "/knowledge/evaluation/01-02-사업계획.md",
+          "label": "01-02-사업계획",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "내용: 평가매뉴얼 기준 11개 항목이 빠짐없이 들어 있는지 항목별 대조",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 재가급여 평가지표 다빈도 Q&A 사례집 (2차)_수정 변경사항 안내",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "9f43f1951de36e7cff131472fefadd7634672486",
+          "path": "/knowledge/eval/2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A_개정전후_비교표.md",
+          "label": "2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A_개정전후_비교표",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "2137f461e42b50fe2db835a4c2c2100ea279585d",
+          "path": "/knowledge/eval/2026년 주야간보호 평가매뉴얼(26년꺼만).md",
+          "label": "2026년 주야간보호 평가매뉴얼(26년꺼만)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 관련근거",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "cdaee580bea603e3369374fa33ffa1947991fd5b",
+          "path": "/knowledge/evaluation/01-12-응급상황대응.md",
+          "label": "01-12-응급상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 급여제공지침 등 12개 항목",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "12e74c9b54fef23074db7b6a426757f8645fb3e3",
+          "path": "/knowledge/evaluation/01-06-직원교육.md",
+          "label": "01-06-직원교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 10 / 낙상예방",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "aaeba14e7f814b35dcb94f939cc9721ed0dc12f9",
+          "path": "/knowledge/evaluation/01-10-낙상예방.md",
+          "label": "01-10-낙상예방",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 11 / 재난상황대응",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "b34f55cb67f0f75ff48b74a17677fd256b55ccac",
+          "path": "/knowledge/evaluation/01-11-재난상황대응.md",
+          "label": "01-11-재난상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 12 / 응급상황대응",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "cdaee580bea603e3369374fa33ffa1947991fd5b",
+          "path": "/knowledge/evaluation/01-12-응급상황대응.md",
+          "label": "01-12-응급상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 13 / 시설안전",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "ea107effe461081475bd7bfd749c9a6b109f4ca8",
+          "path": "/knowledge/evaluation/01-13-시설안전.md",
+          "label": "01-13-시설안전",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 14 / 질향상 노력",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "64824bd71cb2bbd4b4d4d67c92b022ff79c61e4c",
+          "path": "/knowledge/evaluation/01-14-질향상노력.md",
+          "label": "01-14-질향상노력",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 15 / 건강검진",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4f2dfba6b16e56f2ea3ff3fce10497bcb20298f1",
+          "path": "/knowledge/evaluation/02-01-건강검진.md",
+          "label": "02-01-건강검진",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 16 / 감염관리",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "80f76b199fde4ab72268c9d1faa76427fe39f187",
+          "path": "/knowledge/evaluation/02-02-감염관리.md",
+          "label": "02-02-감염관리",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 17 / 소통노력",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "8ee5b834bebc647eb17fe325f4832d7aaefd707d",
+          "path": "/knowledge/evaluation/02-03-소통노력.md",
+          "label": "02-03-소통노력",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 18 / 정보제공",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4f0a190e9e3afd1e73219103b319097821d8daef",
+          "path": "/knowledge/evaluation/02-04-정보제공.md",
+          "label": "02-04-정보제공",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 19 / 노인인권보호",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 20 / 욕구사정",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "af2d1035c7637d2b2e2abde2e4caeb3a919c1a7a",
+          "path": "/knowledge/evaluation/03-01-욕구사정.md",
+          "label": "03-01-욕구사정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 3 / 인력기준",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "6f4d6cfb0e4de24e44c3c43df51e16073e0f509f",
+          "path": "/knowledge/evaluation/01-03-인력기준.md",
+          "label": "01-03-인력기준",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 4 / 경력직",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "35045aa85d72a10e784edb78c2996cf0d2163aae",
+          "path": "/knowledge/evaluation/01-04-경력직.md",
+          "label": "01-04-경력직",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 5 / 보수교육",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 6 / 직원교육",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "12e74c9b54fef23074db7b6a426757f8645fb3e3",
+          "path": "/knowledge/evaluation/01-06-직원교육.md",
+          "label": "01-06-직원교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 7 / 직원인권보호",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fbdff50d88254617ae6a7d3eb3bfb875668dbc8c",
+          "path": "/knowledge/evaluation/01-07-직원인권보호.md",
+          "label": "01-07-직원인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 8 / 직원권익향상",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c1253e9d1d953c5a4d15bbbd5eb74c81d56693b6",
+          "path": "/knowledge/evaluation/01-08-직원권익향상.md",
+          "label": "01-08-직원권익향상",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 주야간보호 9 / 안전하고 쾌적한",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "18042d87e80ac33c61e7d4ee32d42332fea42c62",
+          "path": "/knowledge/evaluation/01-09-안전하고쾌적한환경.md",
+          "label": "01-09-안전하고쾌적한환경",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 확인방법 기준①~③",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fbdff50d88254617ae6a7d3eb3bfb875668dbc8c",
+          "path": "/knowledge/evaluation/01-07-직원인권보호.md",
+          "label": "01-07-직원인권보호",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "64824bd71cb2bbd4b4d4d67c92b022ff79c61e4c",
+          "path": "/knowledge/evaluation/01-14-질향상노력.md",
+          "label": "01-14-질향상노력",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 확인방법 기준①~⑤",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c1253e9d1d953c5a4d15bbbd5eb74c81d56693b6",
+          "path": "/knowledge/evaluation/01-08-직원권익향상.md",
+          "label": "01-08-직원권익향상",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년 주야간보호 평가매뉴얼(26년꺼만).md 확인방법 기준①~⑥",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "aaeba14e7f814b35dcb94f939cc9721ed0dc12f9",
+          "path": "/knowledge/evaluation/01-10-낙상예방.md",
+          "label": "01-10-낙상예방",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년_급여제공계획서_가이드북_ENC(최종게시용)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "b488558777bc8df276b58e8fb0638c11c3044152",
+          "path": "/knowledge/2026년_급여제공계획서_가이드북_ENC(최종게시용).md",
+          "label": "2026년_급여제공계획서_가이드북_ENC(최종게시용)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "년_장기요양기관_재가급여_평가매뉴얼_다빈도_Q&A_사례집(1차)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "2e66cc23e9d4246fbb2ec91c498d7c906359fbd4",
+          "path": "/knowledge/eval/(붙임)1_2024년_장기요양기관_재가급여_평가매뉴얼_다빈도_Q&A_사례집(1차).md",
+          "label": "(붙임)1_2024년_장기요양기관_재가급여_평가매뉴얼_다빈도_Q&A_사례집(1차)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A_개정전후_비교표",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "9f43f1951de36e7cff131472fefadd7634672486",
+          "path": "/knowledge/eval/2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A_개정전후_비교표.md",
+          "label": "2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A_개정전후_비교표",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A사례집(2차)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "073c256d45aade34f27c66f4b50507e532df21d8",
+          "path": "/knowledge/eval/2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A사례집(2차).md",
+          "label": "2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A사례집(2차)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "년_재가급여_평가매뉴얼_다빈도_Q&A_2차_사례집",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "6ce4e9751113dfb5b18f614d351f017a7138fc93",
+          "path": "/knowledge/eval/2019년_재가급여_평가매뉴얼_다빈도_Q&A_2차_사례집.md",
+          "label": "2019년_재가급여_평가매뉴얼_다빈도_Q&A_2차_사례집",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "5750148988f8ade599a03621e3e594838e1641c4",
+          "path": "/knowledge/eval/2019년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2019년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-title"
+        },
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "년_재가급여_평가매뉴얼_다빈도_Q&A_사례집(1차)_게시용",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "8fa24682f40b036b50ecceeadd2ff6e41aae31a0",
+          "path": "/knowledge/eval/(붙임)1_2023년_재가급여_평가매뉴얼_다빈도_Q&A_사례집(1차)_게시용.md",
+          "label": "(붙임)1_2023년_재가급여_평가매뉴얼_다빈도_Q&A_사례집(1차)_게시용",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "년_재가급여_평가매뉴얼_다빈도Q&A_사례집(1차)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "7f475ff515706c26020e1c95bfd45459c8ec752c",
+          "path": "/knowledge/eval/2.2026년_재가급여_평가매뉴얼_다빈도Q&A_사례집(1차).md",
+          "label": "2.2026년_재가급여_평가매뉴얼_다빈도Q&A_사례집(1차)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "년_재가급여_평가매뉴얼_다빈도Q&A_사례집(1차).md 욕구사정 관련 설명",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "af2d1035c7637d2b2e2abde2e4caeb3a919c1a7a",
+          "path": "/knowledge/evaluation/03-01-욕구사정.md",
+          "label": "03-01-욕구사정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년_재가급여_평가매뉴얼_다빈도Q&A_사례집(1차).md Q103~Q106",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "80f76b199fde4ab72268c9d1faa76427fe39f187",
+          "path": "/knowledge/evaluation/02-02-감염관리.md",
+          "label": "02-02-감염관리",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년_재가급여_평가매뉴얼_다빈도Q&A_사례집(1차).md Q32~Q34",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4f2dfba6b16e56f2ea3ff3fce10497bcb20298f1",
+          "path": "/knowledge/evaluation/02-01-건강검진.md",
+          "label": "02-01-건강검진",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "년_재가급여_평가매뉴얼_다빈도Q&A_사례집(1차).md Q80~Q83",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "8ee5b834bebc647eb17fe325f4832d7aaefd707d",
+          "path": "/knowledge/evaluation/02-03-소통노력.md",
+          "label": "02-03-소통노력",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "노인복지 일반현황",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "1ceae6f0e041fb96a71190c9fc9e294eb64138bd",
+          "path": "/knowledge/2026 노인복지사업안내(1st).md",
+          "label": "2026 노인복지사업안내(1st)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "노인복지법 시행규칙 제22조(노인의료복지시설의 시설기준 등)",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "448c762fede4c615e46e399f50a6f5e25a0e7663",
+          "path": "/knowledge/2026 요양보호사 승급제.md",
+          "label": "2026 요양보호사 승급제",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "노인복지법 시행규칙(보건복지부령)(제01143호)(20251229)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "62f6ea7cd8f9c21d16df77c1b3e2885a6c01277e",
+          "path": "/knowledge/노인복지법 시행규칙(보건복지부령)(제01143호)(20251229).md",
+          "label": "노인복지법 시행규칙(보건복지부령)(제01143호)(20251229)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "노인요양공동생활가정, 주‧야간보호, 단기보호 포함",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "71177a05c698d1e2d1a43c830c276ec226d9befc",
+          "path": "/knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md",
+          "label": "(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "노인인권교육 계획 및 결과자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "노인인권보호",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "80f76b199fde4ab72268c9d1faa76427fe39f187",
+          "path": "/knowledge/evaluation/02-02-감염관리.md",
+          "label": "02-02-감염관리",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "8ee5b834bebc647eb17fe325f4832d7aaefd707d",
+          "path": "/knowledge/evaluation/02-03-소통노력.md",
+          "label": "02-03-소통노력",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "노인장기요양보험법 시행규칙(보건복지부령)(제01138호)(20251212)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "e7c382825884702c760a8481542c6800f8ee3437",
+          "path": "/knowledge/노인장기요양보험법 시행규칙(보건복지부령)(제01138호)(20251212).md",
+          "label": "노인장기요양보험법 시행규칙(보건복지부령)(제01138호)(20251212)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "노인장기장기요양급여제공기준및급여비용산정방법등에관한고시시행령",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "566a09695498f69211d423b13f0c2bb165019939",
+          "path": "/knowledge/eval/주야간보호_업무의 이해 _2026 (1).md",
+          "label": "주야간보호_업무의 이해 _2026 (1)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "노인학대신고 안내문 게시 사진",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "단순 계약서 모음이나 홍보물만으로는 운영규정으로 인정받기 어렵습니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "단순 프로그램 계획만 작성한 경우 기관의 사업계획으로 인정되지 않습니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7bdfd9be502b22c03500398e48b0ba266fc6ba75",
+          "path": "/knowledge/evaluation/01-02-사업계획.md",
+          "label": "01-02-사업계획",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "담당역할이 빠진 매뉴얼은 현장 설명 단계에서 취약합니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "cdaee580bea603e3369374fa33ffa1947991fd5b",
+          "path": "/knowledge/evaluation/01-12-응급상황대응.md",
+          "label": "01-12-응급상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "대상자 산정 오류는 교육을 실제로 이수했더라도 점수 설명을 어렵게 만듭니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "등록되어 근무하고 있는 모든 직원(요양보호사, 사회복지사, 간호사",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "맞춤형서비스제공 가산",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "796866473208f1fc2be24a4a16923d4ee2399f6e",
+          "path": "/knowledge/[붙임1]2026년_장기요양_서비스_모니터링_매뉴얼_기관용.md",
+          "label": "[붙임1]2026년_장기요양_서비스_모니터링_매뉴얼_기관용",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "매 2년마다 8시간 이상의 보수교육을 받아야 함",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "매뉴얼 흐름도",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "6a60080e9dcf875d4a52df690e73c07d850817da",
+          "path": "/knowledge/(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종.md",
+          "label": "(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "면담: 직원이 낙상 고위험 대상 기준과 예방 방법을 알고 있는지 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "aaeba14e7f814b35dcb94f939cc9721ed0dc12f9",
+          "path": "/knowledge/evaluation/01-10-낙상예방.md",
+          "label": "01-10-낙상예방",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "면제 대상 증빙이 있는 경우 관련 서류",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "문자, 우편, 이메일 안내도 인정되지만 발송내역이 남아 있어야 합니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fbdff50d88254617ae6a7d3eb3bfb875668dbc8c",
+          "path": "/knowledge/evaluation/01-07-직원인권보호.md",
+          "label": "01-07-직원인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "미충족: 대상자 산정 또는 이수증빙이 불명확하여 기준을 충족하지 못하는 경우",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "반기별 훈련이면 상·하반기 기록이 모두 보여야 합니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "b34f55cb67f0f75ff48b74a17677fd256b55ccac",
+          "path": "/knowledge/evaluation/01-11-재난상황대응.md",
+          "label": "01-11-재난상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "방문요양 사회복지사 등 배치 가산",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "796866473208f1fc2be24a4a16923d4ee2399f6e",
+          "path": "/knowledge/[붙임1]2026년_장기요양_서비스_모니터링_매뉴얼_기관용.md",
+          "label": "[붙임1]2026년_장기요양_서비스_모니터링_매뉴얼_기관용",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "방문요양 사회복지사 등 배치 가산기준 위반",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "2d09c2bcb86166410b39ec98c8120797872e5d88",
+          "path": "/knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md",
+          "label": "(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "방문요양에 등록된 가산 사회복지사는 방문목욕에 겸직으로",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "변경신고는 했더라도 홈페이지 반영이 늦으면 현장 평가에서 취약합니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4f0a190e9e3afd1e73219103b319097821d8daef",
+          "path": "/knowledge/evaluation/02-04-정보제공.md",
+          "label": "02-04-정보제공",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "변경하여 선정 할 수 있으며, 기준에 따라 표본을 달리 정할 수",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "보수교육",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "6f4d6cfb0e4de24e44c3c43df51e16073e0f509f",
+          "path": "/knowledge/evaluation/01-03-인력기준.md",
+          "label": "01-03-인력기준",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "35045aa85d72a10e784edb78c2996cf0d2163aae",
+          "path": "/knowledge/evaluation/01-04-경력직.md",
+          "label": "01-04-경력직",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-title"
+        },
+        {
+          "documentId": "12e74c9b54fef23074db7b6a426757f8645fb3e3",
+          "path": "/knowledge/evaluation/01-06-직원교육.md",
+          "label": "01-06-직원교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "보수교육 대상자 명단",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "보수교육 이수증 또는 전산 이수내역",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "보조도구 사용 안내자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "aaeba14e7f814b35dcb94f939cc9721ed0dc12f9",
+          "path": "/knowledge/evaluation/01-10-낙상예방.md",
+          "label": "01-10-낙상예방",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "복지: 분기별 1회 이상 복지(포상 등) 제공대장과 영수증, 이체내역 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c1253e9d1d953c5a4d15bbbd5eb74c81d56693b6",
+          "path": "/knowledge/evaluation/01-08-직원권익향상.md",
+          "label": "01-08-직원권익향상",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "본 사례집은 아래의 법령, 고시 등을 참고하였습니다",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "7edbc7ea5fba9f367ebd760af5183a9e66aba937",
+          "path": "/knowledge/장기요양기관_부당청구_사례집(2023년)_193p최종수정.md",
+          "label": "장기요양기관_부당청구_사례집(2023년)_193p최종수정",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "부당요구 대응절차",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "사업계획",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "7bdfd9be502b22c03500398e48b0ba266fc6ba75",
+          "path": "/knowledge/evaluation/01-02-사업계획.md",
+          "label": "01-02-사업계획",
+          "reason": "document-title"
+        },
+        {
+          "documentId": "64824bd71cb2bbd4b4d4d67c92b022ff79c61e4c",
+          "path": "/knowledge/evaluation/01-14-질향상노력.md",
+          "label": "01-14-질향상노력",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "4f0a190e9e3afd1e73219103b319097821d8daef",
+          "path": "/knowledge/evaluation/02-04-정보제공.md",
+          "label": "02-04-정보제공",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "사업계획서에 예산 수립 내역이 빠져 있으면 평가매뉴얼 기준 설명이 약해집니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7bdfd9be502b22c03500398e48b0ba266fc6ba75",
+          "path": "/knowledge/evaluation/01-02-사업계획.md",
+          "label": "01-02-사업계획",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "사업장 EDI 확인 자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4f2dfba6b16e56f2ea3ff3fce10497bcb20298f1",
+          "path": "/knowledge/evaluation/02-01-건강검진.md",
+          "label": "02-01-건강검진",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "사전 이수 사례가 있으면 이수일 확인 자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "사회복지사 사례관리 가이드",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "7773372bbbb55847b45c26223f52676ed268616f",
+          "path": "/knowledge/사회복지사 사례관리 가이드.md",
+          "label": "사회복지사 사례관리 가이드",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "사회복지사업법 시행규칙(보건복지부령)(제01159호)(20260304)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "8b33a8e296c27cdd76caa2709969c792fff2eb71",
+          "path": "/knowledge/사회복지사업법 시행규칙(보건복지부령)(제01159호)(20260304).md",
+          "label": "사회복지사업법 시행규칙(보건복지부령)(제01159호)(20260304)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "상담관리, 2) 수급자 욕구평가, 3) 위험도 평가, 4) 급여제공계획",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "상담직원은 관리자 또는 중간관리자급 해당급여 직원인지 설명 가능해야 합니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "8ee5b834bebc647eb17fe325f4832d7aaefd707d",
+          "path": "/knowledge/evaluation/02-03-소통노력.md",
+          "label": "02-03-소통노력",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "상태변화기록지 또는 급여제공기록지",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "8ee5b834bebc647eb17fe325f4832d7aaefd707d",
+          "path": "/knowledge/evaluation/02-03-소통노력.md",
+          "label": "02-03-소통노력",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "선임요양보호사 제도",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "448c762fede4c615e46e399f50a6f5e25a0e7663",
+          "path": "/knowledge/2026 요양보호사 승급제.md",
+          "label": "2026 요양보호사 승급제",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "소모품인 알콜솜, 밴드 등은 일회용 간호비품 관리대장 대상과 구분해야 합니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "80f76b199fde4ab72268c9d1faa76427fe39f187",
+          "path": "/knowledge/evaluation/02-02-감염관리.md",
+          "label": "02-02-감염관리",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "소방시설 설치 및 관리에 관한 법률 제22조",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "ea107effe461081475bd7bfd749c9a6b109f4ca8",
+          "path": "/knowledge/evaluation/01-13-시설안전.md",
+          "label": "01-13-시설안전",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "소화기·경보설비 현장 사진 또는 관리자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "ea107effe461081475bd7bfd749c9a6b109f4ca8",
+          "path": "/knowledge/evaluation/01-13-시설안전.md",
+          "label": "01-13-시설안전",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "소화설비 점검자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "b34f55cb67f0f75ff48b74a17677fd256b55ccac",
+          "path": "/knowledge/evaluation/01-11-재난상황대응.md",
+          "label": "01-11-재난상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "수급자 낙상예방 안내 관련 후속 지표",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "aaeba14e7f814b35dcb94f939cc9721ed0dc12f9",
+          "path": "/knowledge/evaluation/01-10-낙상예방.md",
+          "label": "01-10-낙상예방",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "수급자 또는 보호자 안내자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "수급자·보호자 안내문 또는 발송자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fbdff50d88254617ae6a7d3eb3bfb875668dbc8c",
+          "path": "/knowledge/evaluation/01-07-직원인권보호.md",
+          "label": "01-07-직원인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "시연: 소화기, 소화전 등 소화설비 작동방법 시연 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "b34f55cb67f0f75ff48b74a17677fd256b55ccac",
+          "path": "/knowledge/evaluation/01-11-재난상황대응.md",
+          "label": "01-11-재난상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "식사 제공 유의사항 또는 기피식품 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "af2d1035c7637d2b2e2abde2e4caeb3a919c1a7a",
+          "path": "/knowledge/evaluation/03-01-욕구사정.md",
+          "label": "03-01-욕구사정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "신규직원 교육기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "12e74c9b54fef23074db7b6a426757f8645fb3e3",
+          "path": "/knowledge/evaluation/01-06-직원교육.md",
+          "label": "01-06-직원교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "신규직원 입사일 관리자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4f2dfba6b16e56f2ea3ff3fce10497bcb20298f1",
+          "path": "/knowledge/evaluation/02-01-건강검진.md",
+          "label": "02-01-건강검진",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "신규직원: 급여제공 시작일로부터 7일 이내 교육 여부 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "12e74c9b54fef23074db7b6a426757f8645fb3e3",
+          "path": "/knowledge/evaluation/01-06-직원교육.md",
+          "label": "01-06-직원교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "실제 발생 사례가 있으면 후속조치 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fbdff50d88254617ae6a7d3eb3bfb875668dbc8c",
+          "path": "/knowledge/evaluation/01-07-직원인권보호.md",
+          "label": "01-07-직원인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "안내대장, 상담일지, 급여제공기록지",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fbdff50d88254617ae6a7d3eb3bfb875668dbc8c",
+          "path": "/knowledge/evaluation/01-07-직원인권보호.md",
+          "label": "01-07-직원인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "않아야하는 대상자인데 종사자근무내역조회 화면에서 최초산정연월이",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4ca4c784bfc85af93fb8e7213b2f9849ec35e4a0",
+          "path": "/knowledge/장기근속장려금 청구 전산 문의사항(총정리) 안내.md",
+          "label": "장기근속장려금 청구 전산 문의사항(총정리) 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "연간 예산서 또는 예산 수립 내역",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7bdfd9be502b22c03500398e48b0ba266fc6ba75",
+          "path": "/knowledge/evaluation/01-02-사업계획.md",
+          "label": "01-02-사업계획",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "연동 위험: 기준①이 불인정(N)이면 기준③도 연동하여 불인정(N) 처리됨",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "12e74c9b54fef23074db7b6a426757f8645fb3e3",
+          "path": "/knowledge/evaluation/01-06-직원교육.md",
+          "label": "01-06-직원교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "예산: 사업계획에 따른 예산 수립 내역이 잡혀 있는지 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7bdfd9be502b22c03500398e48b0ba266fc6ba75",
+          "path": "/knowledge/evaluation/01-02-사업계획.md",
+          "label": "01-02-사업계획",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "요양보호사 보수교육 다빈도 Q&A",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "e65e73bbe8f1f8408014c07778a94afed90f9af9",
+          "path": "/knowledge/(장기요양기관용) 요양보호사 보수교육 다빈도 질의응답.md",
+          "label": "(장기요양기관용) 요양보호사 보수교육 다빈도 질의응답",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "요양보호사 보수교육 운영 개요",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "요양보호사 보수교육 운영지침",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "요양보호사 승급제",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "448c762fede4c615e46e399f50a6f5e25a0e7663",
+          "path": "/knowledge/2026 요양보호사 승급제.md",
+          "label": "2026 요양보호사 승급제",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "요양보호사 인력신고 현황",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "요양보호와인권, 노화와건강증진, 요양보호와생활지원, 상황별요양보호기술",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "요양에만 등록되어 있는 가산 인력이 가산을 적용받고 있는 가정",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "운영규정 교육 관련 후속 지표",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "운영규정 교육자료 및 참석 서명부",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "12e74c9b54fef23074db7b6a426757f8645fb3e3",
+          "path": "/knowledge/evaluation/01-06-직원교육.md",
+          "label": "01-06-직원교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "운영규정과 연결되는 이용계약서, 비용안내서, 직원 관련 내부규정",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "운영규정의 개정방법 및 절차",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "운전원 등)이 해당됩니다. 평가매뉴얼 일반사항 10. 용어설명을 참고",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "월 소방점검 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "ea107effe461081475bd7bfd749c9a6b109f4ca8",
+          "path": "/knowledge/evaluation/01-13-시설안전.md",
+          "label": "01-13-시설안전",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "월간 프로그램 계획표",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "8ee5b834bebc647eb17fe325f4832d7aaefd707d",
+          "path": "/knowledge/evaluation/02-03-소통노력.md",
+          "label": "02-03-소통노력",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "월기준근무시간",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c9c3f42a6f128ce8a7ac33a9048f4dc87ce6b1c4",
+          "path": "/knowledge/급여비용_청구_업무_바로알기(2022.1).md",
+          "label": "급여비용_청구_업무_바로알기(2022.1)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "월별 또는 분기별 운영일지, 실행자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7bdfd9be502b22c03500398e48b0ba266fc6ba75",
+          "path": "/knowledge/evaluation/01-02-사업계획.md",
+          "label": "01-02-사업계획",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "위기대응 매뉴얼 마련 및 고충전담기구 설치",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "유리문: 수급자 눈높이 범위에 충돌방지 표시 부착 여부 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "18042d87e80ac33c61e7d4ee32d42332fea42c62",
+          "path": "/knowledge/evaluation/01-09-안전하고쾌적한환경.md",
+          "label": "01-09-안전하고쾌적한환경",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "응급대응 교육자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "cdaee580bea603e3369374fa33ffa1947991fd5b",
+          "path": "/knowledge/evaluation/01-12-응급상황대응.md",
+          "label": "01-12-응급상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "응급벨 또는 인터폰 점검자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "cdaee580bea603e3369374fa33ffa1947991fd5b",
+          "path": "/knowledge/evaluation/01-12-응급상황대응.md",
+          "label": "01-12-응급상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "응급상황 매뉴얼",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "cdaee580bea603e3369374fa33ffa1947991fd5b",
+          "path": "/knowledge/evaluation/01-12-응급상황대응.md",
+          "label": "01-12-응급상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "응급상황 발생 기록 및 후속조치 자료가 있으면 함께 준비",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "cdaee580bea603e3369374fa33ffa1947991fd5b",
+          "path": "/knowledge/evaluation/01-12-응급상황대응.md",
+          "label": "01-12-응급상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "의료급여법 시행규칙(보건복지부령)(제01159호)(20260304)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "1e078834b818756799197d63accdd3cd8caf03c9",
+          "path": "/knowledge/의료급여법 시행규칙(보건복지부령)(제01159호)(20260304).md",
+          "label": "의료급여법 시행규칙(보건복지부령)(제01159호)(20260304)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "이 지침은 요양보호사 보수교육의",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "이 지표는 단순 재직자 수보다 연속근무기간 관리가 핵심입니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "35045aa85d72a10e784edb78c2996cf0d2163aae",
+          "path": "/knowledge/evaluation/01-04-경력직.md",
+          "label": "01-04-경력직",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "이 지표는 복지 제공 사실보다 증빙의 객관성이 더 중요합니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c1253e9d1d953c5a4d15bbbd5eb74c81d56693b6",
+          "path": "/knowledge/evaluation/01-08-직원권익향상.md",
+          "label": "01-08-직원권익향상",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "이 지표는 환경 정비와 직원 기술 시연이 같이 보이는 지표입니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "aaeba14e7f814b35dcb94f939cc9721ed0dc12f9",
+          "path": "/knowledge/evaluation/01-10-낙상예방.md",
+          "label": "01-10-낙상예방",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "이동식 경사로는 기준 충족으로 보기 어렵습니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "aaeba14e7f814b35dcb94f939cc9721ed0dc12f9",
+          "path": "/knowledge/evaluation/01-10-낙상예방.md",
+          "label": "01-10-낙상예방",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "이용료 등 비용 변경 방법 및 절차",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "이용정원 및 모집방법",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "인건비 산출 근거자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "64824bd71cb2bbd4b4d4d67c92b022ff79c61e4c",
+          "path": "/knowledge/evaluation/01-14-질향상노력.md",
+          "label": "01-14-질향상노력",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "인권보호 매뉴얼 재가요양보호사",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "6a60080e9dcf875d4a52df690e73c07d850817da",
+          "path": "/knowledge/(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종.md",
+          "label": "(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "인력관리 규정",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "인력기준",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "6f4d6cfb0e4de24e44c3c43df51e16073e0f509f",
+          "path": "/knowledge/evaluation/01-03-인력기준.md",
+          "label": "01-03-인력기준",
+          "reason": "document-title"
+        },
+        {
+          "documentId": "35045aa85d72a10e784edb78c2996cf0d2163aae",
+          "path": "/knowledge/evaluation/01-04-경력직.md",
+          "label": "01-04-경력직",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "64824bd71cb2bbd4b4d4d67c92b022ff79c61e4c",
+          "path": "/knowledge/evaluation/01-14-질향상노력.md",
+          "label": "01-14-질향상노력",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "4f2dfba6b16e56f2ea3ff3fce10497bcb20298f1",
+          "path": "/knowledge/evaluation/02-01-건강검진.md",
+          "label": "02-01-건강검진",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "인력배치기준 위반",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "cf559c178baffbc4a2eaf1227aa442b349b63749",
+          "path": "/knowledge/(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호).md",
+          "label": "(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "인력배치기준 위반(위반 전부가 고유업무 외 다른 업무 수행으로 인한 것)",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "b68915a366882854a971be236eda64002dd11c10",
+          "path": "/knowledge/(3-3)_2026년_1분기_다빈도_부당청구_사례(시설급여).md",
+          "label": "(3-3)_2026년_1분기_다빈도_부당청구_사례(시설급여)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "인력신고 현황 자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "6f4d6cfb0e4de24e44c3c43df51e16073e0f509f",
+          "path": "/knowledge/evaluation/01-03-인력기준.md",
+          "label": "01-03-인력기준",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "인력추가배치 가산 … 시설급여, 단기보호기관",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "796866473208f1fc2be24a4a16923d4ee2399f6e",
+          "path": "/knowledge/[붙임1]2026년_장기요양_서비스_모니터링_매뉴얼_기관용.md",
+          "label": "[붙임1]2026년_장기요양_서비스_모니터링_매뉴얼_기관용",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "인력추가배치 가산기준 위반(겸직직종 및 고유업무 외 다른 업무 수행 등)",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "b68915a366882854a971be236eda64002dd11c10",
+          "path": "/knowledge/(3-3)_2026년_1분기_다빈도_부당청구_사례(시설급여).md",
+          "label": "(3-3)_2026년_1분기_다빈도_부당청구_사례(시설급여)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "인력추가배치가산 … 주‧야간보호기관",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "796866473208f1fc2be24a4a16923d4ee2399f6e",
+          "path": "/knowledge/[붙임1]2026년_장기요양_서비스_모니터링_매뉴얼_기관용.md",
+          "label": "[붙임1]2026년_장기요양_서비스_모니터링_매뉴얼_기관용",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "인사발령 또는 기관 간 이동 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "35045aa85d72a10e784edb78c2996cf0d2163aae",
+          "path": "/knowledge/evaluation/01-04-경력직.md",
+          "label": "01-04-경력직",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "일상생활기능훈련_매뉴얼 (1)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "855be3f9fb6b7b889daddd1c47bc977096bf909c",
+          "path": "/knowledge/eval/일상생활기능훈련_매뉴얼 (1).md",
+          "label": "일상생활기능훈련_매뉴얼 (1)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "일회용 간호비품 관리대장",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "80f76b199fde4ab72268c9d1faa76427fe39f187",
+          "path": "/knowledge/evaluation/02-02-감염관리.md",
+          "label": "02-02-감염관리",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "임신부 대체검사 자료가 있으면 함께 준비",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4f2dfba6b16e56f2ea3ff3fce10497bcb20298f1",
+          "path": "/knowledge/evaluation/02-01-건강검진.md",
+          "label": "02-01-건강검진",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "입소자수 10인 이상노인요양시설 요양보호사추가배치가산 개정",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c9c3f42a6f128ce8a7ac33a9048f4dc87ce6b1c4",
+          "path": "/knowledge/급여비용_청구_업무_바로알기(2022.1).md",
+          "label": "급여비용_청구_업무_바로알기(2022.1)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "입소자증가로인한 인력배치기준위반 감액산정 특례",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c9c3f42a6f128ce8a7ac33a9048f4dc87ce6b1c4",
+          "path": "/knowledge/급여비용_청구_업무_바로알기(2022.1).md",
+          "label": "급여비용_청구_업무_바로알기(2022.1)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "있습니다. 즉, 지표적용기간동안 퇴소한 수급자와 퇴사한 종사자는",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "잠금장치, 충돌방지 표시, 냉난방·통풍 관련 현장 점검자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "18042d87e80ac33c61e7d4ee32d42332fea42c62",
+          "path": "/knowledge/evaluation/01-09-안전하고쾌적한환경.md",
+          "label": "01-09-안전하고쾌적한환경",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "장기요양 급여제공계획서",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "b488558777bc8df276b58e8fb0638c11c3044152",
+          "path": "/knowledge/2026년_급여제공계획서_가이드북_ENC(최종게시용).md",
+          "label": "2026년_급여제공계획서_가이드북_ENC(최종게시용)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "장기요양 종사자의 인권보호 관련",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "251d397e26ea2d44443e3970a186738f1168d077",
+          "path": "/knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md",
+          "label": "'2026년 장기요양종사자 고충상담 주요 사례집' 게시",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "장기요양_급여제공관리_전산운영_다빈도_질의응답(ver.2)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "c6f1da612c96c75dfe76506fcdd664fb642551be",
+          "path": "/knowledge/장기요양_급여제공관리_전산운영_다빈도_질의응답(ver.2).md",
+          "label": "장기요양_급여제공관리_전산운영_다빈도_질의응답(ver.2)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "장기요양급여 계약서 양식",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4f0a190e9e3afd1e73219103b319097821d8daef",
+          "path": "/knowledge/evaluation/02-04-정보제공.md",
+          "label": "02-04-정보제공",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "장기요양급여 제공기준 및 급여비용 산정방법 등에 관한 세부사항",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "abe9b3d226a6870ce1c36aebf011c53bf4baaeb2",
+          "path": "/knowledge/eval/장기요양급여_제공기준_및_급여비용_산정방법_등에_관한_세부사항_전문.md",
+          "label": "장기요양급여_제공기준_및_급여비용_산정방법_등에_관한_세부사항_전문",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "장기요양급여_제공기준_및_급여비용_산정방법_등에_관한_고시_일부_개정문",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "c28b6889d9ee85931b2e3f058fc7948fddded911",
+          "path": "/knowledge/eval/장기요양급여_제공기준_및_급여비용_산정방법_등에_관한_고시_일부_개정문.md",
+          "label": "장기요양급여_제공기준_및_급여비용_산정방법_등에_관한_고시_일부_개정문",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "장기요양급여_제공기준_및_급여비용_산정방법_등에_관한_고시_전문",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "0d1cd9d70c1658d5721193e6e5bfec92fb3585c2",
+          "path": "/knowledge/eval/장기요양급여_제공기준_및_급여비용_산정방법_등에_관한_고시_전문.md",
+          "label": "장기요양급여_제공기준_및_급여비용_산정방법_등에_관한_고시_전문",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "장기요양급여_제공기준_및_급여비용_산정방법_등에_관한_고시_전문.md 제9조",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "장기요양급여_제공기준_및_급여비용_산정방법_등에_관한_세부사항_전문",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "abe9b3d226a6870ce1c36aebf011c53bf4baaeb2",
+          "path": "/knowledge/eval/장기요양급여_제공기준_및_급여비용_산정방법_등에_관한_세부사항_전문.md",
+          "label": "장기요양급여_제공기준_및_급여비용_산정방법_등에_관한_세부사항_전문",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "장기요양기관 업무용 참고자료 목록",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "c4e00b980f8c3cf1148edd017bc1f6e10e253477",
+          "path": "/knowledge/2026년_장기요양기관_운영_관련_서식_모음집.md",
+          "label": "2026년_장기요양기관_운영_관련_서식_모음집",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "장기요양기관 재가급여제공 매뉴얼 응급대처 예시",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "cdaee580bea603e3369374fa33ffa1947991fd5b",
+          "path": "/knowledge/evaluation/01-12-응급상황대응.md",
+          "label": "01-12-응급상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "장기요양기관 재무ㆍ회계 규칙(보건복지부령)(제00832호)(20210930)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "1fabb14208d14933614fb174e5759b4a858be3dd",
+          "path": "/knowledge/장기요양기관 재무ㆍ회계 규칙(보건복지부령)(제00832호)(20210930).md",
+          "label": "장기요양기관 재무ㆍ회계 규칙(보건복지부령)(제00832호)(20210930)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "장기요양기관별 특성에 맞는 위기대응 매뉴얼을 마련",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "장기요양기관용 표준근로계약서(재가용) 및",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "장기요양기관장(관리책임자 또는 시설장)",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "장기요양기관장은 근로계약 시 근로계약서에 업무내용을 구체적",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "장기요양요원 보호 관련 법령",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "장기요양요원의 대응방법",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "6a60080e9dcf875d4a52df690e73c07d850817da",
+          "path": "/knowledge/(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종.md",
+          "label": "(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "재가요양보호사 인권보호 관련 후속 지표",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fbdff50d88254617ae6a7d3eb3bfb875668dbc8c",
+          "path": "/knowledge/evaluation/01-07-직원인권보호.md",
+          "label": "01-07-직원인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "재가요양보호사 인권보호 매뉴얼 -",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "재난대응훈련 결과 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "b34f55cb67f0f75ff48b74a17677fd256b55ccac",
+          "path": "/knowledge/evaluation/01-11-재난상황대응.md",
+          "label": "01-11-재난상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "재난상황 대응매뉴얼",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "b34f55cb67f0f75ff48b74a17677fd256b55ccac",
+          "path": "/knowledge/evaluation/01-11-재난상황대응.md",
+          "label": "01-11-재난상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "적용기준",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "2d09c2bcb86166410b39ec98c8120797872e5d88",
+          "path": "/knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md",
+          "label": "(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여)",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "cf559c178baffbc4a2eaf1227aa442b349b63749",
+          "path": "/knowledge/(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호).md",
+          "label": "(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호)",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "b68915a366882854a971be236eda64002dd11c10",
+          "path": "/knowledge/(3-3)_2026년_1분기_다빈도_부당청구_사례(시설급여).md",
+          "label": "(3-3)_2026년_1분기_다빈도_부당청구_사례(시설급여)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "적용기준: 2025년도 대상자는 홀수년도 출생자 기준 적용",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "전문소독 계약서, 소독증명서, 지출내역",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "80f76b199fde4ab72268c9d1faa76427fe39f187",
+          "path": "/knowledge/evaluation/02-02-감염관리.md",
+          "label": "02-02-감염관리",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "점검: 점검일자, 점검내용, 점검자명이 있는 월 점검 기록 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "ea107effe461081475bd7bfd749c9a6b109f4ca8",
+          "path": "/knowledge/evaluation/01-13-시설안전.md",
+          "label": "01-13-시설안전",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "정기적인 위기대응 교육 실시",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "정렬은 파일명 기준이므로 숫자 접두어를 0패딩으로 작성",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "1211ae2c3b6e247fe12a5d92232ac21288a6caaf",
+          "path": "/knowledge/evaluation/index.md",
+          "label": "index",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "정원변경 신고자료와 채용자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "35045aa85d72a10e784edb78c2996cf0d2163aae",
+          "path": "/knowledge/evaluation/01-04-경력직.md",
+          "label": "01-04-경력직",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "제1장 운영 매뉴얼",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "667881939fd36faa5c3304fdcc126c1c97a71b4b",
+          "path": "/knowledge/(붙임)_통합재가서비스_운영_매뉴얼.md",
+          "label": "(붙임)_통합재가서비스_운영_매뉴얼",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "제2장 장기요양급여비용 청구방법",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "98f2c4c7d06ffd247a73f6683e5040cde0ea99a3",
+          "path": "/knowledge/장기요양급여비용 청구 및 심사·지급업무 처리기준(고시)(제2025-66호)(20250416).md",
+          "label": "장기요양급여비용 청구 및 심사·지급업무 처리기준(고시)(제2025-66호)(20250416)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "제외대상: 보수교육 면제 대상 여부 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "종사자근무내역조회 화면에서 12개월이 넘었는데 근무내용입력 및",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4ca4c784bfc85af93fb8e7213b2f9849ec35e4a0",
+          "path": "/knowledge/장기근속장려금 청구 전산 문의사항(총정리) 안내.md",
+          "label": "장기근속장려금 청구 전산 문의사항(총정리) 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "종사자근무내역조회 화면에서의 근무 개월 수와 근무내용입력 및 조회",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4ca4c784bfc85af93fb8e7213b2f9849ec35e4a0",
+          "path": "/knowledge/장기근속장려금 청구 전산 문의사항(총정리) 안내.md",
+          "label": "장기근속장려금 청구 전산 문의사항(총정리) 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "종사자근무내역조회화면과 근무내용입력 및조회(2018이후) 화면에서",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4ca4c784bfc85af93fb8e7213b2f9849ec35e4a0",
+          "path": "/knowledge/장기근속장려금 청구 전산 문의사항(총정리) 안내.md",
+          "label": "장기근속장려금 청구 전산 문의사항(총정리) 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "종사자의퇴사로인한 인력배치기준위반 감액산정 특례",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c9c3f42a6f128ce8a7ac33a9048f4dc87ce6b1c4",
+          "path": "/knowledge/급여비용_청구_업무_바로알기(2022.1).md",
+          "label": "급여비용_청구_업무_바로알기(2022.1)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "주 야간보호기관,단기보호기관",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c9c3f42a6f128ce8a7ac33a9048f4dc87ce6b1c4",
+          "path": "/knowledge/급여비용_청구_업무_바로알기(2022.1).md",
+          "label": "급여비용_청구_업무_바로알기(2022.1)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "주방 및 주방집기류 소독 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "80f76b199fde4ab72268c9d1faa76427fe39f187",
+          "path": "/knowledge/evaluation/02-02-감염관리.md",
+          "label": "02-02-감염관리",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "주야간보호 업무",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "566a09695498f69211d423b13f0c2bb165019939",
+          "path": "/knowledge/eval/주야간보호_업무의 이해 _2026 (1).md",
+          "label": "주야간보호_업무의 이해 _2026 (1)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "주야간보호 업무 안내",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "566a09695498f69211d423b13f0c2bb165019939",
+          "path": "/knowledge/eval/주야간보호_업무의 이해 _2026 (1).md",
+          "label": "주야간보호_업무의 이해 _2026 (1)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "주야간보호 평가지표 위키",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "1211ae2c3b6e247fe12a5d92232ac21288a6caaf",
+          "path": "/knowledge/evaluation/index.md",
+          "label": "index",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "주야간보호_업무의 이해 _2026 (1)",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "566a09695498f69211d423b13f0c2bb165019939",
+          "path": "/knowledge/eval/주야간보호_업무의 이해 _2026 (1).md",
+          "label": "주야간보호_업무의 이해 _2026 (1)",
+          "reason": "document-title"
+        }
+      ]
+    },
+    {
+      "label": "주야간보호_업무의 이해 _2026 (1).md 2026년(감염관리)",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "80f76b199fde4ab72268c9d1faa76427fe39f187",
+          "path": "/knowledge/evaluation/02-02-감염관리.md",
+          "label": "02-02-감염관리",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "준비 서류",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "7bdfd9be502b22c03500398e48b0ba266fc6ba75",
+          "path": "/knowledge/evaluation/01-02-사업계획.md",
+          "label": "01-02-사업계획",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "6f4d6cfb0e4de24e44c3c43df51e16073e0f509f",
+          "path": "/knowledge/evaluation/01-03-인력기준.md",
+          "label": "01-03-인력기준",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "35045aa85d72a10e784edb78c2996cf0d2163aae",
+          "path": "/knowledge/evaluation/01-04-경력직.md",
+          "label": "01-04-경력직",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "12e74c9b54fef23074db7b6a426757f8645fb3e3",
+          "path": "/knowledge/evaluation/01-06-직원교육.md",
+          "label": "01-06-직원교육",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "fbdff50d88254617ae6a7d3eb3bfb875668dbc8c",
+          "path": "/knowledge/evaluation/01-07-직원인권보호.md",
+          "label": "01-07-직원인권보호",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "c1253e9d1d953c5a4d15bbbd5eb74c81d56693b6",
+          "path": "/knowledge/evaluation/01-08-직원권익향상.md",
+          "label": "01-08-직원권익향상",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "18042d87e80ac33c61e7d4ee32d42332fea42c62",
+          "path": "/knowledge/evaluation/01-09-안전하고쾌적한환경.md",
+          "label": "01-09-안전하고쾌적한환경",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "aaeba14e7f814b35dcb94f939cc9721ed0dc12f9",
+          "path": "/knowledge/evaluation/01-10-낙상예방.md",
+          "label": "01-10-낙상예방",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "b34f55cb67f0f75ff48b74a17677fd256b55ccac",
+          "path": "/knowledge/evaluation/01-11-재난상황대응.md",
+          "label": "01-11-재난상황대응",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "cdaee580bea603e3369374fa33ffa1947991fd5b",
+          "path": "/knowledge/evaluation/01-12-응급상황대응.md",
+          "label": "01-12-응급상황대응",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "ea107effe461081475bd7bfd749c9a6b109f4ca8",
+          "path": "/knowledge/evaluation/01-13-시설안전.md",
+          "label": "01-13-시설안전",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "64824bd71cb2bbd4b4d4d67c92b022ff79c61e4c",
+          "path": "/knowledge/evaluation/01-14-질향상노력.md",
+          "label": "01-14-질향상노력",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "4f2dfba6b16e56f2ea3ff3fce10497bcb20298f1",
+          "path": "/knowledge/evaluation/02-01-건강검진.md",
+          "label": "02-01-건강검진",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "80f76b199fde4ab72268c9d1faa76427fe39f187",
+          "path": "/knowledge/evaluation/02-02-감염관리.md",
+          "label": "02-02-감염관리",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "8ee5b834bebc647eb17fe325f4832d7aaefd707d",
+          "path": "/knowledge/evaluation/02-03-소통노력.md",
+          "label": "02-03-소통노력",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "4f0a190e9e3afd1e73219103b319097821d8daef",
+          "path": "/knowledge/evaluation/02-04-정보제공.md",
+          "label": "02-04-정보제공",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "af2d1035c7637d2b2e2abde2e4caeb3a919c1a7a",
+          "path": "/knowledge/evaluation/03-01-욕구사정.md",
+          "label": "03-01-욕구사정",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "증빙: 전산 이수내역 우선 확인, 전산 미확인 시 현장 이수증 등으로 보완",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "지자체 신고자료 또는 변경신고 자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4f0a190e9e3afd1e73219103b319097821d8daef",
+          "path": "/knowledge/evaluation/02-04-정보제공.md",
+          "label": "02-04-정보제공",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "지표에서는 해당급여 직원이 실시한 것으로 적용합니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "직원 교육자료 또는 시연 점검자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "aaeba14e7f814b35dcb94f939cc9721ed0dc12f9",
+          "path": "/knowledge/evaluation/01-10-낙상예방.md",
+          "label": "01-10-낙상예방",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "직원 근로계약서 또는 채용자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "6f4d6cfb0e4de24e44c3c43df51e16073e0f509f",
+          "path": "/knowledge/evaluation/01-03-인력기준.md",
+          "label": "01-03-인력기준",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "직원 복지 및 고충처리 관련 후속 지표",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c1253e9d1d953c5a4d15bbbd5eb74c81d56693b6",
+          "path": "/knowledge/evaluation/01-08-직원권익향상.md",
+          "label": "01-08-직원권익향상",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "직원 열람 위치를 확인할 수 있는 비치본 또는 내부 공유자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "직원 인권보호 관련 후속 지표",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "12e74c9b54fef23074db7b6a426757f8645fb3e3",
+          "path": "/knowledge/evaluation/01-06-직원교육.md",
+          "label": "01-06-직원교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "직원교육",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "6f4d6cfb0e4de24e44c3c43df51e16073e0f509f",
+          "path": "/knowledge/evaluation/01-03-인력기준.md",
+          "label": "01-03-인력기준",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "35045aa85d72a10e784edb78c2996cf0d2163aae",
+          "path": "/knowledge/evaluation/01-04-경력직.md",
+          "label": "01-04-경력직",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "12e74c9b54fef23074db7b6a426757f8645fb3e3",
+          "path": "/knowledge/evaluation/01-06-직원교육.md",
+          "label": "01-06-직원교육",
+          "reason": "document-title"
+        },
+        {
+          "documentId": "fbdff50d88254617ae6a7d3eb3bfb875668dbc8c",
+          "path": "/knowledge/evaluation/01-07-직원인권보호.md",
+          "label": "01-07-직원인권보호",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "c1253e9d1d953c5a4d15bbbd5eb74c81d56693b6",
+          "path": "/knowledge/evaluation/01-08-직원권익향상.md",
+          "label": "01-08-직원권익향상",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "4f2dfba6b16e56f2ea3ff3fce10497bcb20298f1",
+          "path": "/knowledge/evaluation/02-01-건강검진.md",
+          "label": "02-01-건강검진",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "직원별 입사일·퇴사일·직종 현황표",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "35045aa85d72a10e784edb78c2996cf0d2163aae",
+          "path": "/knowledge/evaluation/01-04-경력직.md",
+          "label": "01-04-경력직",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "직원을 의미합니다. 예를 들어 급여종류가 주야간보호이면 주야간보호에",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "직원인권보호",
+      "status": "candidate",
+      "confidence": 0.82,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-title",
+      "evidence": [
+        {
+          "documentId": "fbdff50d88254617ae6a7d3eb3bfb875668dbc8c",
+          "path": "/knowledge/evaluation/01-07-직원인권보호.md",
+          "label": "01-07-직원인권보호",
+          "reason": "document-title"
+        },
+        {
+          "documentId": "c1253e9d1d953c5a4d15bbbd5eb74c81d56693b6",
+          "path": "/knowledge/evaluation/01-08-직원권익향상.md",
+          "label": "01-08-직원권익향상",
+          "reason": "document-text"
+        },
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "짝수 연도에 보수교육 이수 대상",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "초기 욕구사정 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "af2d1035c7637d2b2e2abde2e4caeb3a919c1a7a",
+          "path": "/knowledge/evaluation/03-01-욕구사정.md",
+          "label": "03-01-욕구사정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "총평이 포함된 종합사정 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "af2d1035c7637d2b2e2abde2e4caeb3a919c1a7a",
+          "path": "/knowledge/evaluation/03-01-욕구사정.md",
+          "label": "03-01-욕구사정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "최종 패널 선정 안내문 또는 통보자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "64824bd71cb2bbd4b4d4d67c92b022ff79c61e4c",
+          "path": "/knowledge/evaluation/01-14-질향상노력.md",
+          "label": "01-14-질향상노력",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "최초산정연월은 201801로 산정됐으며, 종사자근무내역조회 화면에서",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4ca4c784bfc85af93fb8e7213b2f9849ec35e4a0",
+          "path": "/knowledge/장기근속장려금 청구 전산 문의사항(총정리) 안내.md",
+          "label": "장기근속장려금 청구 전산 문의사항(총정리) 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "추가배치 가산 적용 자료 및 청구내역",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "6f4d6cfb0e4de24e44c3c43df51e16073e0f509f",
+          "path": "/knowledge/evaluation/01-03-인력기준.md",
+          "label": "01-03-인력기준",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "충실하게 포함하고 있으며 주야간보호와 방문요양 급여종류의",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "충족(1점): 대상자의 95% 이상이 보수교육 이수 기준을 충족한 경우",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "충족/미충족 기준",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "7bdfd9be502b22c03500398e48b0ba266fc6ba75",
+          "path": "/knowledge/evaluation/01-02-사업계획.md",
+          "label": "01-02-사업계획",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "6f4d6cfb0e4de24e44c3c43df51e16073e0f509f",
+          "path": "/knowledge/evaluation/01-03-인력기준.md",
+          "label": "01-03-인력기준",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "35045aa85d72a10e784edb78c2996cf0d2163aae",
+          "path": "/knowledge/evaluation/01-04-경력직.md",
+          "label": "01-04-경력직",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "12e74c9b54fef23074db7b6a426757f8645fb3e3",
+          "path": "/knowledge/evaluation/01-06-직원교육.md",
+          "label": "01-06-직원교육",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "fbdff50d88254617ae6a7d3eb3bfb875668dbc8c",
+          "path": "/knowledge/evaluation/01-07-직원인권보호.md",
+          "label": "01-07-직원인권보호",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "c1253e9d1d953c5a4d15bbbd5eb74c81d56693b6",
+          "path": "/knowledge/evaluation/01-08-직원권익향상.md",
+          "label": "01-08-직원권익향상",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "18042d87e80ac33c61e7d4ee32d42332fea42c62",
+          "path": "/knowledge/evaluation/01-09-안전하고쾌적한환경.md",
+          "label": "01-09-안전하고쾌적한환경",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "aaeba14e7f814b35dcb94f939cc9721ed0dc12f9",
+          "path": "/knowledge/evaluation/01-10-낙상예방.md",
+          "label": "01-10-낙상예방",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "b34f55cb67f0f75ff48b74a17677fd256b55ccac",
+          "path": "/knowledge/evaluation/01-11-재난상황대응.md",
+          "label": "01-11-재난상황대응",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "cdaee580bea603e3369374fa33ffa1947991fd5b",
+          "path": "/knowledge/evaluation/01-12-응급상황대응.md",
+          "label": "01-12-응급상황대응",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "ea107effe461081475bd7bfd749c9a6b109f4ca8",
+          "path": "/knowledge/evaluation/01-13-시설안전.md",
+          "label": "01-13-시설안전",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "64824bd71cb2bbd4b4d4d67c92b022ff79c61e4c",
+          "path": "/knowledge/evaluation/01-14-질향상노력.md",
+          "label": "01-14-질향상노력",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "4f2dfba6b16e56f2ea3ff3fce10497bcb20298f1",
+          "path": "/knowledge/evaluation/02-01-건강검진.md",
+          "label": "02-01-건강검진",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "80f76b199fde4ab72268c9d1faa76427fe39f187",
+          "path": "/knowledge/evaluation/02-02-감염관리.md",
+          "label": "02-02-감염관리",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "8ee5b834bebc647eb17fe325f4832d7aaefd707d",
+          "path": "/knowledge/evaluation/02-03-소통노력.md",
+          "label": "02-03-소통노력",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "4f0a190e9e3afd1e73219103b319097821d8daef",
+          "path": "/knowledge/evaluation/02-04-정보제공.md",
+          "label": "02-04-정보제공",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "7a324ba5fffcb76b55318586f058f7d61505d9a9",
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "02-05-노인인권보호",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "af2d1035c7637d2b2e2abde2e4caeb3a919c1a7a",
+          "path": "/knowledge/evaluation/03-01-욕구사정.md",
+          "label": "03-01-욕구사정",
+          "reason": "section-title"
+        },
+        {
+          "documentId": "1211ae2c3b6e247fe12a5d92232ac21288a6caaf",
+          "path": "/knowledge/evaluation/index.md",
+          "label": "index",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "통합재가서비스 운영 매뉴얼",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "667881939fd36faa5c3304fdcc126c1c97a71b4b",
+          "path": "/knowledge/(붙임)_통합재가서비스_운영_매뉴얼.md",
+          "label": "(붙임)_통합재가서비스_운영_매뉴얼",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "퇴직연금 가입서류 또는 기관 명의 퇴직금 통장 자료",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "c1253e9d1d953c5a4d15bbbd5eb74c81d56693b6",
+          "path": "/knowledge/evaluation/01-08-직원권익향상.md",
+          "label": "01-08-직원권익향상",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "파일 배치 규칙",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "1211ae2c3b6e247fe12a5d92232ac21288a6caaf",
+          "path": "/knowledge/evaluation/index.md",
+          "label": "index",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "판단되는 경우 즉시 안전한곳으로 피신하고 경찰에 신고한다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "평가 당일 기록이 없으면 실제 교육을 했더라도 인정받기 어렵습니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "12e74c9b54fef23074db7b6a426757f8645fb3e3",
+          "path": "/knowledge/evaluation/01-06-직원교육.md",
+          "label": "01-06-직원교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "평가매뉴얼 기준으로 특히 바로 확인하기 좋은 항목은 아래 11개입니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "732f5fa19a414d50c41d96907b167bd538ba4f65",
+          "path": "/knowledge/evaluation/01-01-운영규정.md",
+          "label": "01-01-운영규정",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "평가지표를 지표별 1문서로 분리해 탐색과 검색을 쉽게 유지합니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "1211ae2c3b6e247fe12a5d92232ac21288a6caaf",
+          "path": "/knowledge/evaluation/index.md",
+          "label": "index",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "표기 규칙은 숫자영역: 영역명 형식으로 통일합니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "1211ae2c3b6e247fe12a5d92232ac21288a6caaf",
+          "path": "/knowledge/evaluation/index.md",
+          "label": "index",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "표본: 직원 자료 표본 모두 충족 시 3점, 75% 이상 충족 시 2.25점",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "4f2dfba6b16e56f2ea3ff3fce10497bcb20298f1",
+          "path": "/knowledge/evaluation/02-01-건강검진.md",
+          "label": "02-01-건강검진",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "표시 번호는 title에서 전체 지표 순번을 사용합니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "1211ae2c3b6e247fe12a5d92232ac21288a6caaf",
+          "path": "/knowledge/evaluation/index.md",
+          "label": "index",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "필수항목: 안내일자, 안내방법, 안내내용, 수급자명, 보호자명(관계) 확인",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fbdff50d88254617ae6a7d3eb3bfb875668dbc8c",
+          "path": "/knowledge/evaluation/01-07-직원인권보호.md",
+          "label": "01-07-직원인권보호",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "항목의 내용이 주야간보호와 방문요양이 다르게 구성 되어 운영",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "해당 연도 사업계획서",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "7bdfd9be502b22c03500398e48b0ba266fc6ba75",
+          "path": "/knowledge/evaluation/01-02-사업계획.md",
+          "label": "01-02-사업계획",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "해당없음: 지표적용기간 동안 보수교육 대상자가 한 명도 없는 경우",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "312a4714d8ad97a867b29d863795bd4986a0ab43",
+          "path": "/knowledge/evaluation/01-05-보수교육.md",
+          "label": "01-05-보수교육",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "현장에서 1차적으로 어떻게 응대해야 하는지 등을 교육",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "홈페이지, 블로그, 이메일, 우편 발송 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "8ee5b834bebc647eb17fe325f4832d7aaefd707d",
+          "path": "/knowledge/evaluation/02-03-소통노력.md",
+          "label": "02-03-소통노력",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "화재위험 물품 보관관리 기준",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "ea107effe461081475bd7bfd749c9a6b109f4ca8",
+          "path": "/knowledge/evaluation/01-13-시설안전.md",
+          "label": "01-13-시설안전",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "화재의 예방 및 안전관리에 관한 법률 시행규칙 제36조",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "b34f55cb67f0f75ff48b74a17677fd256b55ccac",
+          "path": "/knowledge/evaluation/01-11-재난상황대응.md",
+          "label": "01-11-재난상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "화재의 예방 및 안전관리에 관한 법률 제24조, 제37조",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "b34f55cb67f0f75ff48b74a17677fd256b55ccac",
+          "path": "/knowledge/evaluation/01-11-재난상황대응.md",
+          "label": "01-11-재난상황대응",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "확정 근거와 실무 해석을 분리해 원문 기준과 실무 팁을 섞지 않습니다",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "1211ae2c3b6e247fe12a5d92232ac21288a6caaf",
+          "path": "/knowledge/evaluation/index.md",
+          "label": "index",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "활용하여 자료를 생산·관리하는 경우 개별 아이디 및 비밀번호",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "휴업·업무정지 관련 자료가 있는 경우 해당 기록",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "6f4d6cfb0e4de24e44c3c43df51e16073e0f509f",
+          "path": "/knowledge/evaluation/01-03-인력기준.md",
+          "label": "01-03-인력기준",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "Frontmatter 규칙",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "1211ae2c3b6e247fe12a5d92232ac21288a6caaf",
+          "path": "/knowledge/evaluation/index.md",
+          "label": "index",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "Ⅰ 요양보호사 보수교육 개요",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "f6b757e252610ab14b5adc0f4e6b16f50371cade",
+          "path": "/knowledge/요양보호사_보수교육_운영지침_개정_전문(2026.3.).md",
+          "label": "요양보호사_보수교육_운영지침_개정_전문(2026.3.)",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "Ⅱ. 2026년 가산유형별 점검항목",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "796866473208f1fc2be24a4a16923d4ee2399f6e",
+          "path": "/knowledge/[붙임1]2026년_장기요양_서비스_모니터링_매뉴얼_기관용.md",
+          "label": "[붙임1]2026년_장기요양_서비스_모니터링_매뉴얼_기관용",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "Ⅱ. 매뉴얼 일반사항",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "2137f461e42b50fe2db835a4c2c2100ea279585d",
+          "path": "/knowledge/eval/2026년 주야간보호 평가매뉴얼(26년꺼만).md",
+          "label": "2026년 주야간보호 평가매뉴얼(26년꺼만)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "Ⅱ. 장기요양요원 사전역할 인권보호를 위한 장기요양기관의",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "Ⅱ. 장기요양요원 인권보호를 위한장기요양기관의 사전역할",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "Ⅲ. 주야간보호",
+      "status": "candidate",
+      "confidence": 0.72,
+      "aliases": [],
+      "related_terms": [],
+      "source": "section-title",
+      "evidence": [
+        {
+          "documentId": "2137f461e42b50fe2db835a4c2c2100ea279585d",
+          "path": "/knowledge/eval/2026년 주야간보호 평가매뉴얼(26년꺼만).md",
+          "label": "2026년 주야간보호 평가매뉴얼(26년꺼만)",
+          "reason": "section-title"
+        }
+      ]
+    },
+    {
+      "label": "Ⅲ. 주요 인권침해 상황 대응 방법",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "81760c800e2863e2704020d03f232a9107efb41e",
+          "path": "/knowledge/「재가요양보호사 인권보호 매뉴얼」 활용 안내.md",
+          "label": "「재가요양보호사 인권보호 매뉴얼」 활용 안내",
+          "reason": "document-text"
+        }
+      ]
+    },
+    {
+      "label": "Q2 등록할 수 없습니다. 이런 경우, 가산 사회복지사를 방문목욕의",
+      "status": "candidate",
+      "confidence": 0.74,
+      "aliases": [],
+      "related_terms": [],
+      "source": "document-text",
+      "evidence": [
+        {
+          "documentId": "fde0806554891475a04209f41a780e769d28d204",
+          "path": "/knowledge/eval/2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집.md",
+          "label": "2020년_재가급여_평가매뉴얼_다빈도_Q&A_사례집",
+          "reason": "document-text"
+        }
+      ]
+    }
+  ]
+}
