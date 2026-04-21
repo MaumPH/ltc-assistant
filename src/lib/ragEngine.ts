@@ -21,6 +21,7 @@ export interface RagCorpusIndex {
 export interface SearchOptions {
   allowedDocumentIds?: Set<string>;
   documentScoreBoosts?: Map<string, number>;
+  chunkScoreBoosts?: Map<string, number>;
   excludedEvidenceRoles?: Set<SourceRole>;
   lawRefs?: ParsedLawReference[];
   queryType?: NaturalLanguageQueryType;
@@ -473,11 +474,13 @@ function rerankCandidate(
   options?: SearchOptions,
 ): SearchCandidate {
   const ontologyScore = options?.documentScoreBoosts?.get(candidate.documentId) ?? 0;
+  const chunkScoreBoost = options?.chunkScoreBoosts?.get(candidate.id) ?? 0;
   let score = candidate.fusedScore * 100;
   score += candidate.exactScore * 1.8;
   score += candidate.lexicalScore * 15;
   score += candidate.vectorScore * 30;
   score += ontologyScore;
+  score += chunkScoreBoost;
 
   if (intent === 'legal-exact' && candidate.articleNo) score += 10;
   if (intent === 'legal-exact' && ['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType)) score += 8;
@@ -613,6 +616,32 @@ function inferConfidence(intent: QueryIntent, evidence: SearchCandidate[], misma
   return 'low';
 }
 
+function diversifyCandidatePool(
+  candidates: SearchCandidate[],
+  limit: number,
+  maxPerDocument = 4,
+  maxPerParentSection = 2,
+): SearchCandidate[] {
+  const selected: SearchCandidate[] = [];
+  const documentCounts = new Map<string, number>();
+  const sectionCounts = new Map<string, number>();
+
+  for (const candidate of candidates) {
+    if (selected.length >= limit) break;
+
+    const documentCount = documentCounts.get(candidate.documentId) ?? 0;
+    const sectionKey = `${candidate.documentId}:${candidate.parentSectionId}`;
+    const sectionCount = sectionCounts.get(sectionKey) ?? 0;
+    if (documentCount >= maxPerDocument || sectionCount >= maxPerParentSection) continue;
+
+    selected.push(candidate);
+    documentCounts.set(candidate.documentId, documentCount + 1);
+    sectionCounts.set(sectionKey, sectionCount + 1);
+  }
+
+  return selected;
+}
+
 function buildStageTrace(params: {
   query: string;
   lexicalCandidates: SearchCandidate[];
@@ -683,11 +712,12 @@ export function searchCorpus(params: {
       const scoreDiff = right.exactScore - left.exactScore;
       return scoreDiff !== 0 ? scoreDiff : compareIsoDateDesc(left.effectiveDate, right.effectiveDate);
     })
-    .slice(0, FUSED_TOP_K);
+    .slice(0, FUSED_TOP_K * 4);
+  const diversifiedExactCandidates = diversifyCandidatePool(exactCandidates, FUSED_TOP_K);
 
   const lexicalCandidates = scoreLexical(index, query, mode, options).slice(0, FUSED_TOP_K);
   const vectorCandidates = scoreVector(index, queryEmbedding, mode, options);
-  const fusedCandidates = reciprocalRankFuse([exactCandidates, lexicalCandidates, vectorCandidates])
+  const fusedCandidates = reciprocalRankFuse([diversifiedExactCandidates, lexicalCandidates, vectorCandidates])
     .map((candidate) => rerankCandidate(candidate, intent, mode, options))
     .sort((left, right) => right.rerankScore - left.rerankScore)
     .slice(0, FUSED_TOP_K);
@@ -701,7 +731,7 @@ export function searchCorpus(params: {
     mode,
     intent,
     confidence,
-    exactCandidates,
+    exactCandidates: diversifiedExactCandidates,
     lexicalCandidates,
     vectorCandidates,
     fusedCandidates,

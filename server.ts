@@ -6,6 +6,13 @@ import helmet from 'helmet';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import * as dotenv from 'dotenv';
+import {
+  ADMIN_DASHBOARD_PASSWORD_ENV,
+  AdminSessionStore,
+  extractBearerToken,
+  isAdminPasswordConfigured,
+  verifyAdminPassword,
+} from './src/lib/adminAuth';
 import { buildKnowledgeCategoryCounts } from './src/lib/knowledgeCategories';
 import { NodeRagService } from './src/lib/nodeRagService';
 import { parseServiceScopes } from './src/lib/serviceScopes';
@@ -19,8 +26,11 @@ const PORT = Number(process.env.PORT || 3000);
 const RATE_LIMIT_WINDOW_MS = parsePositiveInteger(process.env.RAG_RATE_LIMIT_WINDOW_MS, 60_000);
 const CHAT_RATE_LIMIT_MAX = parsePositiveInteger(process.env.RAG_CHAT_RATE_LIMIT_MAX, 20);
 const INSPECT_RATE_LIMIT_MAX = parsePositiveInteger(process.env.RAG_INSPECT_RATE_LIMIT_MAX, 20);
+const ADMIN_LOGIN_RATE_LIMIT_MAX = parsePositiveInteger(process.env.ADMIN_DASHBOARD_LOGIN_RATE_LIMIT_MAX, 10);
+const ADMIN_SESSION_TTL_MS = parsePositiveInteger(process.env.ADMIN_DASHBOARD_SESSION_TTL_MS, 8 * 60 * 60 * 1000);
 const API_KEY_RE = /AIza[0-9A-Za-z\-_]+/g;
 const ragService = new NodeRagService(PROJECT_ROOT);
+const adminSessions = new AdminSessionStore({ ttlMs: ADMIN_SESSION_TTL_MS });
 
 const requestQueue: Array<() => Promise<void>> = [];
 let queueRunning = false;
@@ -101,6 +111,25 @@ function createApiRateLimiter(max: number) {
   });
 }
 
+function requireAdminAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (!isAdminPasswordConfigured()) {
+    return res.status(503).json({
+      error: '관리자 비밀번호가 설정되어 있지 않습니다.',
+      details: `서버 환경변수 ${ADMIN_DASHBOARD_PASSWORD_ENV}를 설정한 뒤 다시 시도해 주세요.`,
+    });
+  }
+
+  const token = extractBearerToken(req.headers.authorization);
+  if (!adminSessions.isValid(token)) {
+    return res.status(401).json({
+      error: '관리자 로그인이 필요합니다.',
+      details: '관리자 비밀번호로 다시 로그인해 주세요.',
+    });
+  }
+
+  next();
+}
+
 function applySecurityHeaders(app: express.Express) {
   const connectSources = Array.from(new Set(["'self'", ...parseCspConnectSources()]));
 
@@ -158,14 +187,94 @@ function resolveKnowledgeFilePath(requestedPath: string): string | null {
   return filePath;
 }
 
+async function handleRetrievalInspect(req: express.Request, res: express.Response) {
+  try {
+    const {
+      query,
+      messages,
+      mode = 'integrated',
+      apiKey,
+      serviceScopes,
+      retrievalProfileId,
+    }: {
+      query?: string;
+      messages?: ChatMessage[];
+      mode?: PromptMode;
+      apiKey?: string;
+      serviceScopes?: ServiceScopeId[];
+      retrievalProfileId?: string;
+    } = req.body;
+
+    const hasMessages = Array.isArray(messages) && messages.length > 0;
+    if (!query?.trim() && !hasMessages) {
+      return res.status(400).json({ error: 'query or messages must be provided' });
+    }
+
+    const selectedServiceScopes = parseServiceScopes(serviceScopes);
+    const inspection = await ragService.inspectRetrieval(
+      hasMessages ? messages : (query as string),
+      mode,
+      apiKey,
+      selectedServiceScopes,
+      retrievalProfileId,
+    );
+    res.json(inspection);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('Invalid serviceScopes')) {
+      return res.status(400).json({
+        error: 'Invalid serviceScopes',
+        details: getSafeErrorMessage(error),
+      });
+    }
+    logServerError('retrieval inspect failed', error);
+    res.status(500).json({
+      error: 'Failed to inspect retrieval',
+      details: getSafeErrorMessage(error),
+    });
+  }
+}
+
 async function startServer() {
   const app = express();
   const chatRateLimit = createApiRateLimiter(CHAT_RATE_LIMIT_MAX);
   const inspectRateLimit = createApiRateLimiter(INSPECT_RATE_LIMIT_MAX);
+  const adminLoginRateLimit = createApiRateLimiter(ADMIN_LOGIN_RATE_LIMIT_MAX);
 
   applySecurityHeaders(app);
   applyCors(app);
   app.use(express.json({ limit: '1mb' }));
+
+  app.post('/api/admin/session', adminLoginRateLimit, (req, res) => {
+    if (!isAdminPasswordConfigured()) {
+      return res.status(503).json({
+        error: '관리자 비밀번호가 설정되어 있지 않습니다.',
+        details: `서버 환경변수 ${ADMIN_DASHBOARD_PASSWORD_ENV}를 설정한 뒤 다시 시도해 주세요.`,
+      });
+    }
+
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    if (!verifyAdminPassword(password)) {
+      return res.status(401).json({
+        error: '관리자 비밀번호가 올바르지 않습니다.',
+      });
+    }
+
+    const session = adminSessions.createSession();
+    res.json({
+      authenticated: true,
+      token: session.token,
+      expiresAt: new Date(session.expiresAt).toISOString(),
+    });
+  });
+
+  app.get('/api/admin/session', requireAdminAuth, (_req, res) => {
+    res.json({ authenticated: true });
+  });
+
+  app.delete('/api/admin/session', requireAdminAuth, (req, res) => {
+    adminSessions.revoke(extractBearerToken(req.headers.authorization));
+    res.status(204).send();
+  });
 
   app.get('/api/health', async (_req, res) => {
     try {
@@ -248,7 +357,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/admin/rag/profiles', async (_req, res) => {
+  app.get('/api/admin/rag/profiles', requireAdminAuth, async (_req, res) => {
     try {
       await ragService.initialize();
       res.json(ragService.getAdminProfiles());
@@ -261,7 +370,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/admin/rag/profiles', async (req, res) => {
+  app.post('/api/admin/rag/profiles', requireAdminAuth, async (req, res) => {
     try {
       await ragService.initialize();
       const { activeProfileId, overrides }: { activeProfileId?: string; overrides?: Record<string, boolean> } = req.body ?? {};
@@ -280,7 +389,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/admin/rag/reindex', async (_req, res) => {
+  app.post('/api/admin/rag/reindex', requireAdminAuth, async (_req, res) => {
     try {
       const response = await ragService.requestReindex();
       res.status(202).json(response);
@@ -293,7 +402,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/admin/rag/evals', async (_req, res) => {
+  app.get('/api/admin/rag/evals', requireAdminAuth, async (_req, res) => {
     try {
       await ragService.initialize();
       res.json(ragService.listEvalTrials());
@@ -306,7 +415,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/admin/rag/evals', async (req, res) => {
+  app.post('/api/admin/rag/evals', requireAdminAuth, async (req, res) => {
     try {
       const { profileIds }: { profileIds?: string[] } = req.body ?? {};
       res.json(await ragService.runEvalTrial(Array.isArray(profileIds) && profileIds.length > 0 ? profileIds : undefined));
@@ -319,7 +428,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/admin/rag/health', async (_req, res) => {
+  app.get('/api/admin/rag/health', requireAdminAuth, async (_req, res) => {
     try {
       res.json(await ragService.getAdminHealth());
     } catch (error) {
@@ -329,6 +438,10 @@ async function startServer() {
         details: getSafeErrorMessage(error),
       });
     }
+  });
+
+  app.post('/api/admin/rag/inspect', requireAdminAuth, async (req, res) => {
+    await handleRetrievalInspect(req, res);
   });
 
   app.get('/api/knowledge/file', (req, res) => {
@@ -379,50 +492,7 @@ async function startServer() {
   });
 
   app.post('/api/retrieval/inspect', inspectRateLimit, async (req, res) => {
-    try {
-      const {
-        query,
-        messages,
-        mode = 'integrated',
-        apiKey,
-        serviceScopes,
-        retrievalProfileId,
-      }: {
-        query?: string;
-        messages?: ChatMessage[];
-        mode?: PromptMode;
-        apiKey?: string;
-        serviceScopes?: ServiceScopeId[];
-        retrievalProfileId?: string;
-      } = req.body;
-
-      const hasMessages = Array.isArray(messages) && messages.length > 0;
-      if (!query?.trim() && !hasMessages) {
-        return res.status(400).json({ error: 'query or messages must be provided' });
-      }
-
-      const selectedServiceScopes = parseServiceScopes(serviceScopes);
-      const inspection = await ragService.inspectRetrieval(
-        hasMessages ? messages : (query as string),
-        mode,
-        apiKey,
-        selectedServiceScopes,
-        retrievalProfileId,
-      );
-      res.json(inspection);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('Invalid serviceScopes')) {
-        return res.status(400).json({
-          error: 'Invalid serviceScopes',
-          details: getSafeErrorMessage(error),
-        });
-      }
-      logServerError('retrieval inspect failed', error);
-      res.status(500).json({
-        error: 'Failed to inspect retrieval',
-        details: getSafeErrorMessage(error),
-      });
-    }
+    await handleRetrievalInspect(req, res);
   });
 
   app.post('/api/chat', chatRateLimit, async (req, res) => {
