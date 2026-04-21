@@ -288,8 +288,10 @@ export function buildBrainQueryProfile(brain: DomainBrain, query: string, mode: 
   const workflowEvents = matchWorkflowEvents(brain, query, mode);
   const queryCompact = compact(query);
   const broadWorkflowCue =
-    /무엇|뭐|준비|정리|체크|확인|업무|절차/.test(query) ||
-    ['준비', '정리', '확인', '업무', '평가'].some((term) => queryCompact.includes(compact(term)));
+    /무엇|뭐|준비|정리|체크|확인|업무|절차|방법|필요|챙겨|어떻게|해야|하면/.test(query) ||
+    ['준비', '정리', '확인', '업무', '평가', '방법', '필요', '챙겨'].some((term) =>
+      queryCompact.includes(compact(term)),
+    );
   const recommendedAnswerType =
     workflowEvents.length > 0 && broadWorkflowCue && archetype.preferred_answer_type === 'definition'
       ? 'checklist'

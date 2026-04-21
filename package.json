@@ -17,7 +17,8 @@
     "rag:compiled": "tsx scripts/rag-compiled-pages.ts",
     "rag:bench": "tsx scripts/rag-benchmark.ts",
     "rag:eval": "tsx scripts/rag-eval-trial.ts",
-    "rag:test": "tsx scripts/rag-regression-test.ts"
+    "rag:test": "tsx scripts/rag-regression-test.ts",
+    "ontology:generate": "tsx scripts/ontology-generate.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

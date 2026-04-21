@@ -132,14 +132,89 @@ const QUERY_TERM_EXPANSIONS: Array<{ triggers: string[]; expansions: string[] }>
   },
 ];
 
+const QUESTION_INTENT_EXPANSIONS: Array<{ patterns: RegExp[]; expansions: string[] }> = [
+  {
+    patterns: [/이(?:게|거)\s*뭐/u, /뭐야/u, /무슨\s*뜻/u, /무엇(?:인가|인지)?/u],
+    expansions: ['정의', '개념', '무엇인가'],
+  },
+  {
+    patterns: [/어떻게\s*(?:해|하|하면|진행|처리|준비)?/u, /어떡해/u, /방법/u],
+    expansions: ['절차', '방법', '순서'],
+  },
+  {
+    patterns: [/하면\s*돼/u, /해도\s*(?:돼|되|되나|되나요)/u, /해야\s*(?:돼|되|하나|되나|하나요)/u, /가능(?:해|한가|한지|하나)?/u, /되나요/u],
+    expansions: ['가능 여부', '해도 되는지', '필수', '의무', '기준'],
+  },
+  {
+    patterns: [/뭐\s*(?:준비|필요|챙겨|해야)/u, /뭘\s*(?:준비|필요|챙겨|해야)/u, /무엇을\s*(?:준비|필요|챙겨|해야)/u, /준비물/u, /확인사항/u],
+    expansions: ['체크리스트', '준비', '확인사항'],
+  },
+];
+
+const DOMAIN_CONCEPT_EXPANSIONS: Array<{
+  triggers: string[];
+  expansions: string[];
+  requiresAny?: string[];
+}> = [
+  {
+    triggers: [
+      '인력현황',
+      '인력 현황',
+      '인원현황',
+      '인원 현황',
+      '직원현황',
+      '직원 현황',
+      '근무인력',
+      '근무 인력',
+      '인력배치',
+      '인력 배치',
+      '직원배치',
+      '직원 배치',
+      '배치기준',
+      '배치 기준',
+      '인력기준',
+      '인력 기준',
+      '추가배치',
+      '추가 배치',
+    ],
+    expansions: [
+      '인력기준',
+      '인력배치기준',
+      '직원배치기준',
+      '직원 현황',
+      '인력신고 현황',
+      '인력추가배치 가산',
+      '시설기준 및 직원배치기준',
+    ],
+  },
+  {
+    triggers: ['몇명', '몇 명', '몇명이', '몇 명이', '몇명씩', '몇 명씩', '몇명을', '몇 명을'],
+    requiresAny: ['인력', '인원', '직원', '종사자', '요양보호사', '사회복지사', '간호'],
+    expansions: [
+      '인력기준',
+      '인력배치기준',
+      '직원배치기준',
+      '이용자 수 대비 배치기준',
+      '시설기준 및 직원배치기준',
+    ],
+  },
+];
+
 const QUERY_TYPE_PATTERNS: Array<{ type: NaturalLanguageQueryType; patterns: RegExp[] }> = [
   { type: 'exemption', patterns: [/면제/u, /감면/u, /비과세/u] },
   { type: 'consequence', patterns: [/벌칙/u, /위반/u, /과태료/u, /처벌/u] },
-  { type: 'procedure', patterns: [/절차/u, /방법/u, /어떻게/u, /신청/u, /준비/u, /체크리스트/u] },
   { type: 'comparison', patterns: [/차이/u, /비교/u, /구분/u, /vs/i] },
-  { type: 'requirement', patterns: [/요건/u, /자격/u, /가능/u, /필수/u, /의무/u] },
+  {
+    type: 'checklist',
+    patterns: [/체크리스트/u, /준비물/u, /확인사항/u, /뭐\s*(?:준비|필요|챙겨|해야)/u, /뭘\s*(?:준비|필요|챙겨|해야)/u, /무엇을\s*(?:준비|필요|챙겨|해야)/u],
+  },
+  { type: 'procedure', patterns: [/절차/u, /방법/u, /어떻게\s*(?:해|하|하면|진행|처리|준비)?/u, /어떡해/u, /신청/u, /준비/u, /순서/u, /단계/u] },
+  {
+    type: 'requirement',
+    patterns: [/요건/u, /자격/u, /가능/u, /필수/u, /의무/u, /하면\s*돼/u, /해도\s*(?:돼|되|되나|되나요)/u, /해야\s*(?:돼|되|하나|되나|하나요)/u, /되나요/u],
+  },
   { type: 'scope', patterns: [/세율/u, /얼마/u, /범위/u, /금액/u, /기간/u, /언제까지/u] },
-  { type: 'definition', patterns: [/이란/u, /뜻/u, /정의/u, /무엇/u, /뭐야/u] },
+  { type: 'definition', patterns: [/이(?:게|거)\s*뭐/u, /뭐야/u, /무슨\s*뜻/u, /이란/u, /뜻/u, /정의/u, /무엇/u] },
   { type: 'application', patterns: [/적용/u, /해당/u, /가능한가/u, /되는가/u] },
 ];
 
@@ -342,6 +417,37 @@ function buildSynonymExpansions(query: string): string[] {
   return uniqueStrings(expansions).filter((variant) => variant !== normalizeLawSearchText(query));
 }
 
+function buildQuestionIntentExpansions(query: string): string[] {
+  const normalized = normalizeLawSearchText(query);
+  const expansions: string[] = [];
+
+  for (const group of QUESTION_INTENT_EXPANSIONS) {
+    if (group.patterns.some((pattern) => pattern.test(normalized))) {
+      expansions.push(...group.expansions);
+    }
+  }
+
+  return uniqueStrings(expansions).filter((variant) => normalizeAliasKey(variant) !== normalizeAliasKey(normalized));
+}
+
+function buildDomainConceptExpansions(query: string): string[] {
+  const normalized = normalizeLawSearchText(query);
+  const compact = normalizeAliasKey(normalized);
+  const expansions: string[] = [];
+
+  for (const group of DOMAIN_CONCEPT_EXPANSIONS) {
+    const hasTrigger = group.triggers.some((trigger) => compact.includes(normalizeAliasKey(trigger)));
+    const hasRequiredContext =
+      !group.requiresAny ||
+      group.requiresAny.some((term) => compact.includes(normalizeAliasKey(term)));
+    if (hasTrigger && hasRequiredContext) {
+      expansions.push(...group.expansions);
+    }
+  }
+
+  return uniqueStrings(expansions).filter((variant) => normalizeAliasKey(variant) !== compact);
+}
+
 export function inferNaturalLanguageQueryType(query: string): NaturalLanguageQueryType {
   for (const entry of QUERY_TYPE_PATTERNS) {
     if (entry.patterns.some((pattern) => pattern.test(query))) {
@@ -385,7 +491,11 @@ export function buildNaturalLanguageQueryProfile(query: string): NaturalLanguage
     });
   }
 
-  const synonymExpansions = buildSynonymExpansions(normalizedQuery);
+  const synonymExpansions = uniqueStrings([
+    ...buildSynonymExpansions(normalizedQuery),
+    ...buildQuestionIntentExpansions(normalizedQuery),
+    ...buildDomainConceptExpansions(normalizedQuery),
+  ]);
   if (synonymExpansions.length > 0) {
     normalizationTrace.push({
       step: 'expand-synonyms',
