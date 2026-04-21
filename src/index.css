@@ -15,14 +15,23 @@
 
 :root {
   color-scheme: light;
-  --ltc-font-brand: "MaruBuri", "Nanum Myeongjo", "AppleMyungjo", "Iowan Old Style", serif;
-  --ltc-font-ui: "SUIT", "Pretendard Variable", "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ltc-font-brand: "Noto Serif KR", "MaruBuri", "Nanum Myeongjo", "AppleMyungjo", "Iowan Old Style", serif;
+  --ltc-font-ui: "Noto Sans KR", "SUIT", "Pretendard Variable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --ltc-ink: #0f172a;
   --ltc-muted: #475569;
+  --ltc-subtle: #94a3b8;
   --ltc-shell: #f8fbff;
-  --ltc-line: #cbd5e1;
+  --ltc-line: #e2e8f0;
   --ltc-accent: #2563eb;
   --ltc-accent-soft: #dbeafe;
+  --ltc-accent-pale: #eff6ff;
+  --ltc-nav-bg: #0f172a;
+  --ltc-radius-xl: 28px;
+  --ltc-radius-lg: 20px;
+  --ltc-radius-md: 16px;
+  --ltc-radius-sm: 10px;
+  --ltc-shadow-card: 0 18px 45px -28px rgba(15, 23, 42, 0.24);
+  --ltc-shadow-hover: 0 24px 60px -30px rgba(37, 99, 235, 0.24);
 }
 
 html,
@@ -42,6 +51,7 @@ body {
     radial-gradient(circle at top, rgba(37, 99, 235, 0.12), transparent 30%),
     radial-gradient(circle at bottom right, rgba(14, 165, 233, 0.08), transparent 26%),
     linear-gradient(180deg, #f8fbff 0%, #eef4ff 54%, #f8fafc 100%);
+  background-attachment: fixed;
 }
 
 .app-shell,
@@ -71,6 +81,16 @@ body {
 
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
 }
 
 .prose {

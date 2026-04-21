@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowRight,
   BookOpenText,
   Bot,
   Files,
@@ -29,6 +30,11 @@ interface ActionCardDefinition {
   eyebrow: string;
   description: string;
   icon: React.ComponentType<{ className?: string }>;
+  eyebrowClass: string;
+  hoverClass: string;
+  iconClass: string;
+  arrowClass: string;
+  ctaClass: string;
 }
 
 const ACTION_CARDS: ActionCardDefinition[] = [
@@ -38,6 +44,11 @@ const ACTION_CARDS: ActionCardDefinition[] = [
     eyebrow: 'Grounded Chat',
     description: '법령, 평가, 실무 문서를 함께 묶어 한 번에 질의합니다.',
     icon: Bot,
+    eyebrowClass: 'text-blue-700',
+    hoverClass: 'hover:border-blue-200 hover:bg-blue-50/25 hover:shadow-[0_24px_60px_-30px_rgba(29,78,216,0.24)]',
+    iconClass: 'border-blue-100 bg-blue-50 text-blue-700',
+    arrowClass: 'bg-blue-50 text-blue-700 group-hover:bg-blue-700 group-hover:text-white',
+    ctaClass: 'group-hover:bg-blue-700 group-hover:text-white',
   },
   {
     id: 'evaluation',
@@ -45,6 +56,11 @@ const ACTION_CARDS: ActionCardDefinition[] = [
     eyebrow: 'Evaluation Focus',
     description: '평가 대응 질문에 맞춰 근거와 준비 포인트를 빠르게 찾습니다.',
     icon: Files,
+    eyebrowClass: 'text-violet-700',
+    hoverClass: 'hover:border-violet-200 hover:bg-violet-50/25 hover:shadow-[0_24px_60px_-30px_rgba(124,58,237,0.24)]',
+    iconClass: 'border-violet-100 bg-violet-50 text-violet-700',
+    arrowClass: 'bg-violet-50 text-violet-700 group-hover:bg-violet-700 group-hover:text-white',
+    ctaClass: 'group-hover:bg-violet-700 group-hover:text-white',
   },
   {
     id: 'wiki',
@@ -52,6 +68,11 @@ const ACTION_CARDS: ActionCardDefinition[] = [
     eyebrow: 'Guideline Notes',
     description: '정리된 평가 문서를 탐색하며 기준과 주의점을 읽습니다.',
     icon: BookOpenText,
+    eyebrowClass: 'text-cyan-700',
+    hoverClass: 'hover:border-cyan-200 hover:bg-cyan-50/25 hover:shadow-[0_24px_60px_-30px_rgba(8,145,178,0.24)]',
+    iconClass: 'border-cyan-100 bg-cyan-50 text-cyan-700',
+    arrowClass: 'bg-cyan-50 text-cyan-700 group-hover:bg-cyan-700 group-hover:text-white',
+    ctaClass: 'group-hover:bg-cyan-700 group-hover:text-white',
   },
   {
     id: 'dashboard',
@@ -59,6 +80,11 @@ const ACTION_CARDS: ActionCardDefinition[] = [
     eyebrow: 'Operations Board',
     description: '주기별 준비 현황과 체크리스트 진척도를 한눈에 확인합니다.',
     icon: LayoutDashboard,
+    eyebrowClass: 'text-emerald-700',
+    hoverClass: 'hover:border-emerald-200 hover:bg-emerald-50/25 hover:shadow-[0_24px_60px_-30px_rgba(5,150,105,0.24)]',
+    iconClass: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+    arrowClass: 'bg-emerald-50 text-emerald-700 group-hover:bg-emerald-700 group-hover:text-white',
+    ctaClass: 'group-hover:bg-emerald-700 group-hover:text-white',
   },
   {
     id: 'knowledge',
@@ -66,6 +92,11 @@ const ACTION_CARDS: ActionCardDefinition[] = [
     eyebrow: 'Knowledge Base',
     description: '로컬 문서를 제목과 분류 기준으로 탐색합니다.',
     icon: LibraryBig,
+    eyebrowClass: 'text-amber-700',
+    hoverClass: 'hover:border-amber-200 hover:bg-amber-50/25 hover:shadow-[0_24px_60px_-30px_rgba(217,119,6,0.24)]',
+    iconClass: 'border-amber-100 bg-amber-50 text-amber-700',
+    arrowClass: 'bg-amber-50 text-amber-700 group-hover:bg-amber-600 group-hover:text-white',
+    ctaClass: 'group-hover:bg-amber-600 group-hover:text-white',
   },
   {
     id: 'settings',
@@ -73,6 +104,11 @@ const ACTION_CARDS: ActionCardDefinition[] = [
     eyebrow: 'Workspace Setup',
     description: '답변 키와 모델 선택 상태를 확인하고 바로 조정합니다.',
     icon: Settings2,
+    eyebrowClass: 'text-slate-500',
+    hoverClass: 'hover:border-slate-300 hover:bg-slate-50/70 hover:shadow-[0_24px_60px_-30px_rgba(100,116,139,0.24)]',
+    iconClass: 'border-slate-200 bg-slate-50 text-slate-500',
+    arrowClass: 'bg-slate-100 text-slate-500 group-hover:bg-slate-700 group-hover:text-white',
+    ctaClass: 'group-hover:bg-slate-700 group-hover:text-white',
   },
 ];
 
@@ -178,27 +214,39 @@ function ActionCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.36, delay: 0.1 + index * 0.06, ease: 'easeOut' }}
       onClick={onClick}
-      className="group relative overflow-hidden rounded-[28px] border border-slate-200 bg-white/94 p-5 text-left shadow-[0_18px_45px_-28px_rgba(15,23,42,0.24)] transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_24px_60px_-30px_rgba(37,99,235,0.24)]"
+      className={`group relative flex min-h-[184px] flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white/94 p-5 text-left shadow-[0_18px_45px_-28px_rgba(15,23,42,0.24)] transition-all hover:-translate-y-0.5 ${card.hoverClass}`}
     >
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent opacity-80" />
       <div className="flex items-start justify-between gap-4">
-        <div className="space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-700">{card.eyebrow}</p>
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight text-slate-900">{card.title}</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">{card.description}</p>
-          </div>
-        </div>
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-blue-100 bg-blue-50 text-blue-700 transition-colors group-hover:bg-blue-100">
+        <span
+          className={`flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-[14px] border transition-colors ${card.iconClass}`}
+        >
           <Icon className="h-5 w-5" />
+        </span>
+
+        <span
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors ${card.arrowClass}`}
+          aria-hidden="true"
+        >
+          <ArrowRight className="h-3.5 w-3.5" />
         </span>
       </div>
 
-      <div className="mt-5 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
-        <span className="text-sm font-medium text-slate-700">{meta}</span>
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500 transition-colors group-hover:bg-blue-600 group-hover:text-white">
-          바로 이동
-        </span>
+      <div className="mt-4 flex flex-1 flex-col">
+        <div>
+          <p className={`text-[10px] font-bold uppercase tracking-[0.2em] ${card.eyebrowClass}`}>{card.eyebrow}</p>
+          <div>
+            <h2 className="mt-1 text-[17px] font-bold tracking-[-0.02em] text-slate-900">{card.title}</h2>
+            <p className="mt-1.5 text-[13px] leading-6 text-slate-600">{card.description}</p>
+          </div>
+        </div>
+
+        <div className="mt-auto flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
+          <span className="min-w-0 text-xs font-medium text-slate-500">{meta}</span>
+          <span className={`shrink-0 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-500 transition-colors ${card.ctaClass}`}>
+            바로 이동
+          </span>
+        </div>
       </div>
     </motion.button>
   );
@@ -237,19 +285,19 @@ function HomeOverviewStats({
 
   return (
     <div className="rounded-[30px] border border-blue-100/70 bg-white/82 px-5 py-5 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.22)] backdrop-blur sm:px-6">
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="flex flex-wrap gap-2.5">
         {items.map((item, index) => (
           <motion.div
             key={item.label}
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.32, delay: 0.22 + index * 0.05, ease: 'easeOut' }}
-            className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3"
+            className="flex min-w-[152px] flex-1 items-center gap-2.5 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-2.5"
           >
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-500" />
+            <span className="h-2 w-2 shrink-0 rounded-full bg-blue-600" />
             <div className="min-w-0">
-              <p className="text-xs font-medium text-slate-500">{item.label}</p>
-              <p className="mt-1 truncate text-sm font-semibold text-slate-900">
+              <p className="text-[11px] font-medium text-slate-500">{item.label}</p>
+              <p className="mt-0.5 truncate text-[13px] font-bold text-slate-900">
                 {isLoading ? '불러오는 중...' : item.value}
               </p>
             </div>
@@ -263,20 +311,20 @@ function HomeOverviewStats({
           <p className="mt-1 text-xs text-slate-500">지식 파일 개수를 분류 기준별로 보여줍니다.</p>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+        <div className="flex flex-wrap gap-2">
           {categoryItems.map((item, index) => (
             <motion.div
               key={item.category}
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.38 + index * 0.04, ease: 'easeOut' }}
-              className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3"
+              className="min-w-20 rounded-[14px] border border-slate-100 bg-slate-50 px-3.5 py-2.5"
             >
               <div className="flex items-center gap-2">
-                <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${CATEGORY_DOT_STYLES[item.category]}`} />
-                <p className="min-w-0 truncate text-xs font-medium text-slate-500">{item.category}</p>
+                <span className={`h-2 w-2 shrink-0 rounded-full ${CATEGORY_DOT_STYLES[item.category]}`} />
+                <p className="min-w-0 truncate text-[11px] font-semibold text-slate-500">{item.category}</p>
               </div>
-              <p className="mt-2 text-base font-semibold text-slate-900">
+              <p className="mt-1.5 text-lg font-bold text-slate-900">
                 {isLoading ? '집계 중...' : formatNumber(item.count)}
               </p>
             </motion.div>
@@ -336,32 +384,51 @@ export default function HomeView({
   const readinessClass = getReadinessBadge(overview?.retrievalReadiness ?? capabilities?.retrievalReadiness);
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.12),transparent_32%),linear-gradient(180deg,#f8fbff_0%,#eff5ff_48%,#f8fafc_100%)] px-4 py-6 sm:px-6 md:px-8">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6 md:gap-8">
+    <div className="flex-1 overflow-y-auto px-4 py-7 sm:px-6 md:px-8">
+      <div className="mx-auto flex max-w-[1080px] flex-col gap-6">
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.42, ease: 'easeOut' }}
           className="overflow-hidden rounded-[36px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,251,255,0.98),rgba(255,255,255,0.92))] shadow-[0_24px_80px_-48px_rgba(15,23,42,0.28)]"
         >
-          <div className="relative px-6 py-10 sm:px-8 md:px-12 md:py-14">
+          <div className="relative bg-[radial-gradient(ellipse_at_top,rgba(37,99,235,0.06),transparent_60%)] px-5 py-8 text-center sm:px-8 md:px-12 md:py-10">
             <div className="absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-[#60a5fa] to-transparent" />
             <div className="mx-auto max-w-3xl text-center">
-              <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50/90 px-4 py-1.5 text-sm text-blue-700 shadow-sm">
+              <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50/90 px-4 py-1.5 text-sm text-blue-700 shadow-sm">
                 <Scale className="h-4 w-4" />
                 <span className="font-medium">로컬 인덱스 + 온톨로지 기반</span>
               </div>
 
               <div className="mt-6">
-                <p className="font-brand text-3xl tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
+                <p className="font-brand text-[28px] font-bold leading-tight tracking-[-0.025em] text-slate-900 sm:text-4xl md:text-[40px]">
                   장기요양 물어보세요
                 </p>
-                <p className="mt-4 text-base leading-8 text-slate-600 sm:text-lg">
+                <p className="mx-auto mt-3 max-w-[520px] text-[15px] leading-8 text-slate-600">
                   통합채팅, 평가채팅, 정리지식, 운영 대시보드를 한 곳에서 오가며 근거 중심으로 답을 찾는 업무 홈입니다.
                 </p>
               </div>
 
-              <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+              <div className="mt-7 flex flex-wrap items-center justify-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => onTabChange('integrated')}
+                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_4px_14px_rgba(37,99,235,0.35)] transition-colors hover:bg-blue-700"
+                >
+                  <Bot className="h-4 w-4" />
+                  통합채팅 시작하기
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onTabChange('evaluation')}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-5 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:border-blue-300 hover:text-blue-700"
+                >
+                  <Files className="h-4 w-4" />
+                  평가채팅 바로가기
+                </button>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
                 <span className={`rounded-full border px-4 py-2 text-sm font-medium ${readinessClass}`}>
                   {getReadinessLabel(overview?.retrievalReadiness ?? capabilities?.retrievalReadiness)}
                 </span>

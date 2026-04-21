@@ -148,64 +148,64 @@ export default function KnowledgeBaseView() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-50 p-4 sm:p-6 md:p-8">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-6 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Knowledge Base</p>
-          <div className="mt-2 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div className="flex-1 overflow-y-auto px-4 py-7 sm:px-6 md:px-8">
+      <div className="mx-auto max-w-[860px]">
+        <div className="mb-6">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Knowledge Base</p>
+          <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-slate-900">지식베이스 문서 목록</h1>
-              <p className="mt-2 text-sm leading-6 text-slate-500">
-                제목과 분류 중심으로 문서를 탐색할 수 있습니다. 이 탭에서는 본문과 파일 크기를 노출하지 않습니다.
+              <h1 className="text-2xl font-bold tracking-[-0.02em] text-slate-900">지식베이스 문서 목록</h1>
+              <p className="mt-1 text-sm leading-6 text-slate-500">
+                제목과 분류 유형으로 문서를 찾을 수 있습니다.
               </p>
             </div>
-            <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600">
+            <div className="w-fit rounded-full border border-blue-200 bg-blue-50 px-4 py-1.5 text-xs font-bold text-blue-700">
               {filteredCountText}
             </div>
           </div>
+        </div>
 
-          <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="문서 제목이나 분류를 검색하세요"
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-10 text-base text-slate-900 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 sm:text-sm"
-              />
-              {search && (
+        <div className="mb-5 flex flex-wrap gap-2.5">
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="문서 제목이나 분류를 검색하세요"
+              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-10 text-sm text-slate-900 outline-none transition focus:border-blue-500"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                aria-label="검색어 지우기"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {SOURCE_FILTERS.map((filter) => {
+              const isActive = sourceFilter === filter.id;
+
+              return (
                 <button
+                  key={filter.id}
                   type="button"
-                  onClick={() => setSearch('')}
-                  aria-label="검색어 지우기"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                  onClick={() => setSourceFilter(filter.id)}
+                  className={`rounded-[10px] border px-3.5 py-2 text-xs font-medium transition-colors ${
+                    isActive
+                      ? 'border-blue-600 bg-blue-600 text-white'
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                  }`}
                 >
-                  <X className="h-4 w-4" />
+                  {filter.label}
                 </button>
-              )}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {SOURCE_FILTERS.map((filter) => {
-                const isActive = sourceFilter === filter.id;
-
-                return (
-                  <button
-                    key={filter.id}
-                    type="button"
-                    onClick={() => setSourceFilter(filter.id)}
-                    className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                      isActive
-                        ? 'bg-slate-900 text-white'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    {filter.label}
-                  </button>
-                );
-              })}
-            </div>
+              );
+            })}
           </div>
         </div>
 

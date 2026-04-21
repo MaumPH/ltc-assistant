@@ -100,8 +100,8 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-50 p-4 sm:p-6 md:p-8">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
+    <div className="flex-1 overflow-y-auto px-4 py-7 sm:px-6 md:px-8">
+      <div className="mx-auto flex max-w-[960px] flex-col gap-4">
         <section className="overflow-hidden rounded-[28px] bg-slate-900 text-white shadow-xl">
           <div className="bg-[radial-gradient(circle_at_top_right,_rgba(96,165,250,0.24),_transparent_38%),linear-gradient(135deg,_rgba(30,41,59,1),_rgba(15,23,42,1))] p-5 sm:p-6 md:p-8">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">

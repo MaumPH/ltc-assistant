@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, Loader2, Scale, Send } from 'lucide-react';
+import { Check, Loader2, Scale, Send, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { MODELS, type ModelId } from './TopNav';
 import ExpertAnswerCard from './ExpertAnswerCard';
@@ -113,9 +113,9 @@ function ServiceScopeSelector({
   const selected = new Set(selectedScopes);
 
   return (
-    <div className="mb-2">
-      <div className="mb-1 px-1 text-xs font-semibold text-slate-500">적용 급여유형</div>
-      <div className="flex flex-wrap gap-1.5 sm:gap-2">
+    <div>
+      <div className="mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">적용 급여유형</div>
+      <div className="flex flex-wrap gap-1.5">
         {SERVICE_SCOPE_OPTIONS.map((option) => {
           const checked = selected.has(option.id);
           return (
@@ -124,10 +124,10 @@ function ServiceScopeSelector({
               type="button"
               aria-pressed={checked}
               onClick={() => onToggle(option.id)}
-              className={`inline-flex h-8 max-w-full items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition sm:h-9 sm:px-3 sm:text-sm ${
+              className={`inline-flex h-8 max-w-full items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition ${
                 checked
                   ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
-                  : 'border-slate-300 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:bg-blue-50'
               }`}
             >
               <span
@@ -394,7 +394,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
         {message.answer ? (
           <ExpertAnswerCard answer={message.answer} />
         ) : (
-          <div className="rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-3 text-slate-800 shadow-sm sm:px-5 sm:py-4">
+          <div className="rounded-[20px] rounded-tl px-4 py-3 text-slate-800 shadow-[0_2px_12px_rgba(15,23,42,0.08),0_0_0_1px_#f1f5f9] sm:px-5 sm:py-4">
             <div className="prose prose-sm max-w-none break-words prose-headings:font-semibold prose-p:leading-relaxed prose-a:text-blue-600 md:prose-base">
               <ReactMarkdown>{message.text}</ReactMarkdown>
             </div>
@@ -409,19 +409,26 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex-1 overflow-y-auto px-3 pb-6 pt-4 sm:p-4 md:px-8 md:pb-8 md:pt-6 lg:px-10">
-        <div className="mx-auto max-w-5xl space-y-4 sm:space-y-6 md:space-y-8">
-          {requiresUserKey && !apiKey && (
-            <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-              개인 Gemini API 키를 등록하면 이 채팅창에서 바로 답변 생성을 시작할 수 있습니다.
-            </div>
-          )}
+    <div className="mx-auto flex min-h-0 w-full max-w-[860px] flex-1 flex-col px-3 sm:px-5">
+      <div className="shrink-0 pb-1 pt-3">
+        <ServiceScopeSelector selectedScopes={selectedServiceScopes} onToggle={handleServiceScopeToggle} />
+      </div>
 
+      {requiresUserKey && !apiKey && (
+        <div className="mb-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          개인 Gemini API 키를 등록하면 이 채팅창에서 바로 답변 생성을 시작할 수 있습니다.
+        </div>
+      )}
+
+      <div className="min-h-0 flex-1 overflow-y-auto py-3">
+        <div className="space-y-4">
           {messages.map((message) => (
-            <div key={message.id} className={`flex gap-3 sm:gap-4 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              key={message.id}
+              className={`flex items-end gap-2.5 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
               {message.role === 'model' && (
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 shadow-sm">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-700 shadow-[0_4px_12px_rgba(29,78,216,0.3)]">
                   <Scale className="h-4 w-4 text-white" />
                 </div>
               )}
@@ -429,17 +436,17 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
               <div
                 className={`flex flex-col ${
                   message.role === 'user'
-                    ? 'max-w-[92%] items-end sm:max-w-[85%] md:max-w-[74%] lg:max-w-[70%]'
-                    : 'max-w-[97%] items-start sm:max-w-[95%] md:max-w-[92%] lg:max-w-[90%] xl:max-w-[88%]'
+                    ? 'max-w-[82%] items-end sm:max-w-[74%] lg:max-w-[70%]'
+                    : 'max-w-[92%] items-start sm:max-w-[88%]'
                 }`}
               >
                 {message.role === 'user' ? (
                   <>
-                    <div className="rounded-2xl rounded-tr-sm bg-blue-600 px-4 py-3 text-white shadow-sm sm:px-5 sm:py-4">
-                      <p className="whitespace-pre-wrap text-[15px] leading-relaxed sm:text-base">{message.text}</p>
+                    <div className="rounded-[20px] rounded-br bg-blue-600 px-4 py-3 text-white shadow-sm">
+                      <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{message.text}</p>
                     </div>
                     {message.serviceScopes && (
-                      <span className="mt-1 max-w-full truncate px-1 text-[11px] font-medium text-slate-500 sm:text-xs">
+                      <span className="mt-1 max-w-full truncate px-1 text-[11px] font-medium text-slate-500">
                         적용 급여유형: {getServiceScopeLabelText(message.serviceScopes)}
                       </span>
                     )}
@@ -451,19 +458,27 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
                   </>
                 )}
               </div>
+
+              {message.role === 'user' && (
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+                  <User className="h-4 w-4" />
+                </div>
+              )}
             </div>
           ))}
 
           {isLoading && (
-            <div className="flex justify-start gap-3 sm:gap-4">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 shadow-sm">
+            <div className="flex items-end justify-start gap-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-700 shadow-[0_4px_12px_rgba(29,78,216,0.3)]">
                 <Scale className="h-4 w-4 text-white" />
               </div>
-              <div className="flex items-center gap-3 rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5 sm:py-4">
-                <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                <span className="text-sm font-medium text-slate-500">
-                  구조화된 근거를 검색하고 답변을 검증하는 중입니다...
-                </span>
+              <div className="rounded-[20px] rounded-tl bg-white px-4 py-3 shadow-[0_2px_12px_rgba(15,23,42,0.08),0_0_0_1px_#f1f5f9]">
+                <div className="flex items-center gap-3">
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                  <span className="text-sm font-medium text-slate-500">
+                    구조화된 근거를 검색하고 답변을 검증하는 중입니다...
+                  </span>
+                </div>
               </div>
             </div>
           )}
@@ -472,46 +487,40 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
         </div>
       </div>
 
-      <div
-        className="shrink-0 border-t border-slate-200 bg-white/95 px-3 pt-3 shadow-[0_-4px_20px_-15px_rgba(0,0,0,0.1)] backdrop-blur sm:px-4 md:px-6"
-        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
-      >
-        <div className="mx-auto max-w-5xl">
-          <ServiceScopeSelector selectedScopes={selectedServiceScopes} onToggle={handleServiceScopeToggle} />
-          <form onSubmit={handleSubmit} className="relative flex items-end gap-2 sm:gap-3">
-            <div className="relative flex-1 rounded-2xl border border-slate-300 bg-slate-50 shadow-sm transition-all focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
-              <textarea
-                value={input}
-                rows={1}
-                style={{ height: 'auto' }}
-                placeholder="질문을 입력해 주세요. (Shift+Enter: 줄바꿈)"
-                aria-label="질문 입력"
-                className="max-h-48 min-h-[52px] w-full resize-none bg-transparent px-4 py-3 text-base text-slate-800 placeholder:text-slate-400 focus:ring-0 sm:min-h-[56px] sm:text-[15px]"
-                onChange={(event) => {
-                  setInput(event.target.value);
-                  resizeTextarea(event.target);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault();
-                    void submitCurrentMessage();
-                    resizeTextarea(event.currentTarget);
-                  }
-                }}
-              />
-            </div>
+      <div className="shrink-0 pt-2" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}>
+        <form
+          onSubmit={handleSubmit}
+          className="flex items-end rounded-2xl border border-slate-200 bg-white shadow-[0_-2px_8px_rgba(15,23,42,0.03),0_4px_16px_rgba(15,23,42,0.06)] transition focus-within:border-blue-600"
+        >
+          <textarea
+            value={input}
+            rows={1}
+            style={{ height: 'auto' }}
+            placeholder="질문을 입력해 주세요. (Shift+Enter: 줄바꿈)"
+            aria-label="질문 입력"
+            className="max-h-48 min-h-[56px] flex-1 resize-none bg-transparent px-4 py-3.5 text-[15px] leading-6 text-slate-800 outline-none placeholder:text-slate-400"
+            onChange={(event) => {
+              setInput(event.target.value);
+              resizeTextarea(event.target);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                void submitCurrentMessage();
+                resizeTextarea(event.currentTarget);
+              }
+            }}
+          />
 
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-sm transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:h-14 sm:w-14"
-              aria-label="메시지 보내기"
-            >
-              <Send className="ml-0.5 h-5 w-5" />
-            </button>
-          </form>
-
-        </div>
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="m-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-[0_4px_12px_rgba(37,99,235,0.35)] transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+            aria-label="메시지 보내기"
+          >
+            <Send className="ml-0.5 h-4 w-4" />
+          </button>
+        </form>
       </div>
     </div>
   );

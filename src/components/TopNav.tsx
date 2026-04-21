@@ -214,25 +214,37 @@ export default function TopNav({
   const isChat = CHAT_TABS.includes(activeTab);
 
   return (
-    <header className="z-20 shrink-0 bg-slate-900 text-white shadow-lg">
-      <div className="flex h-14 items-center gap-3 px-3 sm:gap-4 sm:px-4">
-        <div className="flex shrink-0 items-center gap-2">
-          <Scale className="h-5 w-5 text-blue-400" />
-          <span className="hidden whitespace-nowrap text-sm font-semibold sm:block font-brand">장기요양 물어보세요</span>
-        </div>
+    <header
+      className="z-20 shrink-0 bg-[var(--ltc-nav-bg)] text-white"
+      style={{ boxShadow: '0 1px 0 rgba(255,255,255,0.06), 0 4px 16px rgba(0,0,0,0.3)' }}
+    >
+      <div className="flex h-14 items-center gap-1 px-3 sm:px-4">
+        <button
+          type="button"
+          onClick={() => onTabChange('home')}
+          className="mr-2 flex shrink-0 items-center gap-2 rounded-lg px-1.5 py-1 transition-opacity hover:opacity-80 sm:mr-4"
+          aria-label="메인페이지로 이동"
+        >
+          <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[9px] bg-blue-700">
+            <Scale className="h-4 w-4 text-white" />
+          </span>
+          <span className="hidden whitespace-nowrap text-sm font-bold tracking-[-0.01em] sm:block font-brand">
+            장기요양 물어보세요
+          </span>
+        </button>
 
-        <div className="hidden h-6 w-px shrink-0 bg-slate-700 sm:block" />
+        <div className="hidden h-[22px] w-px shrink-0 bg-white/10 sm:block" />
 
-        <nav className="scrollbar-hide flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        <nav className="scrollbar-hide flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
           {TABS.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => onTabChange(tab.id)}
-              className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+              className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] transition-colors ${
                 activeTab === tab.id
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-400 hover:bg-slate-700 hover:text-white'
+                  ? 'bg-blue-700 font-semibold text-white'
+                  : 'font-normal text-white/50 hover:bg-white/5 hover:text-white/85'
               }`}
             >
               <span className="hidden md:inline">{tab.label}</span>
@@ -247,7 +259,7 @@ export default function TopNav({
               <select
                 value={selectedModel}
                 onChange={(event) => onModelChange(event.target.value as ModelId)}
-                className="cursor-pointer appearance-none rounded-lg border border-slate-700 bg-slate-800 py-1.5 pl-3 pr-7 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="cursor-pointer appearance-none rounded-lg border border-white/10 bg-white/[0.07] py-1.5 pl-3 pr-7 text-xs text-white/70 outline-none transition focus:border-blue-400 focus:ring-1 focus:ring-blue-500"
               >
                 {MODELS.map((model) => (
                   <option key={model.id} value={model.id}>
@@ -262,7 +274,7 @@ export default function TopNav({
           <button
             type="button"
             onClick={onApiKeyClick}
-            className="hidden items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-slate-400 transition-colors hover:bg-slate-700 hover:text-white sm:flex"
+            className="hidden items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.07] px-3 py-1.5 text-xs text-white/60 transition-colors hover:bg-white/10 hover:text-white sm:flex"
           >
             <Key className="h-3.5 w-3.5" />
             <span>개인 키</span>
@@ -271,7 +283,7 @@ export default function TopNav({
           <button
             type="button"
             onClick={onMobileSettingsClick}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors hover:bg-slate-700 sm:hidden"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.07] px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors hover:bg-white/10 sm:hidden"
           >
             <Settings2 className="h-3.5 w-3.5" />
             <span>설정</span>
