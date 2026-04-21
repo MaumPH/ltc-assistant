@@ -50,6 +50,30 @@ interface InspectResponse {
     retrievalMs: number;
   };
   cacheHits: Record<string, boolean>;
+  semanticFrame: {
+    primaryIntent: string;
+    secondaryIntents: string[];
+    canonicalTerms: string[];
+    assumptions: string[];
+    missingCriticalSlots: string[];
+    riskLevel: string;
+    slots: Record<string, Array<{ canonical: string }>>;
+    relationRequests: Array<{ relation: string; reason: string }>;
+  };
+  assumptions: string[];
+  usedPromotedConcepts: string[];
+  usedValidatedConcepts: string[];
+  validationIssues: Array<{
+    code: string;
+    severity: string;
+    message: string;
+  }>;
+  claimCoverage: {
+    totalClaims: number;
+    supportedClaims: number;
+    partiallySupportedClaims: number;
+    unsupportedClaims: number;
+  };
   sectionRouting: {
     enabled: boolean;
     strategy: string;
@@ -68,6 +92,21 @@ interface InspectResponse {
     source: string;
     cached: boolean;
   }>;
+}
+
+interface OntologyReviewResponse {
+  concepts: Array<{
+    source: 'generated' | 'curated';
+    label: string;
+    entityType?: string;
+    status: string;
+    confidence?: number;
+    aliases: string[];
+    slotHints: string[];
+    relationCount: number;
+    statusReason?: string;
+  }>;
+  updatedAt: string;
 }
 
 class AdminAuthError extends Error {}
@@ -227,12 +266,13 @@ export default function RagAdminPanel({ authToken, onAuthExpired }: RagAdminPane
   const [health, setHealth] = useState<AdminHealthResponse | null>(null);
   const [profiles, setProfiles] = useState<AdminProfilesResponse | null>(null);
   const [trials, setTrials] = useState<EvalTrialReport[]>([]);
+  const [ontologyReview, setOntologyReview] = useState<OntologyReviewResponse | null>(null);
   const [inspectQuery, setInspectQuery] = useState('');
   const [inspectMode, setInspectMode] = useState<PromptMode>('integrated');
   const [inspectProfileId, setInspectProfileId] = useState<string>('');
   const [inspectResult, setInspectResult] = useState<InspectResponse | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [busyAction, setBusyAction] = useState<'profiles' | 'reindex' | 'eval' | 'inspect' | null>(null);
+  const [busyAction, setBusyAction] = useState<'profiles' | 'reindex' | 'eval' | 'inspect' | 'ontology' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -256,14 +296,16 @@ export default function RagAdminPanel({ authToken, onAuthExpired }: RagAdminPane
     setIsRefreshing(true);
     setError(null);
     try {
-      const [nextHealth, nextProfiles, nextTrials] = await Promise.all([
+      const [nextHealth, nextProfiles, nextTrials, nextOntologyReview] = await Promise.all([
         requestJson<AdminHealthResponse>('/api/admin/rag/health'),
         requestJson<AdminProfilesResponse>('/api/admin/rag/profiles'),
         requestJson<EvalTrialReport[]>('/api/admin/rag/evals'),
+        requestJson<OntologyReviewResponse>('/api/admin/rag/ontology'),
       ]);
       setHealth(nextHealth);
       setProfiles(nextProfiles);
       setTrials(nextTrials);
+      setOntologyReview(nextOntologyReview);
       setInspectProfileId((current) => current || nextProfiles.activeProfileId);
     } catch (loadError) {
       setError(describeError(loadError, 'RAG 관리자 데이터를 불러오지 못했습니다.'));
@@ -368,6 +410,33 @@ export default function RagAdminPanel({ authToken, onAuthExpired }: RagAdminPane
       setInspectResult(result);
     } catch (inspectError) {
       setError(describeError(inspectError, '검색 경로를 점검하지 못했습니다.'));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleOntologyReview = async (
+    source: 'generated' | 'curated',
+    label: string,
+    status: 'validated' | 'promoted' | 'rejected',
+  ) => {
+    setBusyAction('ontology');
+    setError(null);
+    setNotice(null);
+    try {
+      const nextReview = await requestJson<OntologyReviewResponse>('/api/admin/rag/ontology/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source,
+          label,
+          status,
+        }),
+      });
+      setOntologyReview(nextReview);
+      setNotice(`온톨로지 상태를 업데이트했습니다: ${label} -> ${status}`);
+    } catch (reviewError) {
+      setError(describeError(reviewError, '온톨로지 상태를 업데이트하지 못했습니다.'));
     } finally {
       setBusyAction(null);
     }
@@ -623,6 +692,45 @@ export default function RagAdminPanel({ authToken, onAuthExpired }: RagAdminPane
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                <p className="text-sm font-semibold text-slate-900">질문 해석</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  primary {inspectResult.semanticFrame.primaryIntent}, risk {inspectResult.semanticFrame.riskLevel}
+                </p>
+                {inspectResult.semanticFrame.secondaryIntents.length > 0 && (
+                  <p className="mt-1 text-sm text-slate-600">
+                    secondary {inspectResult.semanticFrame.secondaryIntents.join(', ')}
+                  </p>
+                )}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {inspectResult.semanticFrame.canonicalTerms.slice(0, 8).map((term) => (
+                    <span key={term} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
+                      {term}
+                    </span>
+                  ))}
+                </div>
+                {Object.entries(inspectResult.semanticFrame.slots).length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {Object.entries(inspectResult.semanticFrame.slots).flatMap(([slot, values]) =>
+                      values.map((value) => (
+                        <span key={`${slot}-${value.canonical}`} className="rounded-full bg-blue-50 px-3 py-1 text-xs text-blue-700">
+                          {slot}: {value.canonical}
+                        </span>
+                      )),
+                    )}
+                  </div>
+                )}
+                {inspectResult.assumptions.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {inspectResult.assumptions.map((assumption) => (
+                      <div key={assumption} className="rounded-2xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        {assumption}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
                 <p className="text-sm font-semibold text-slate-900">섹션 라우팅</p>
                 <p className="mt-1 text-sm text-slate-600">{inspectResult.sectionRouting.detail}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -698,9 +806,113 @@ export default function RagAdminPanel({ authToken, onAuthExpired }: RagAdminPane
                   )}
                 </div>
               </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                <p className="text-sm font-semibold text-slate-900">검증 상태</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  claim coverage {inspectResult.claimCoverage.supportedClaims}/{inspectResult.claimCoverage.totalClaims}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {inspectResult.usedPromotedConcepts.map((label) => (
+                    <span key={`promoted-${label}`} className="rounded-full bg-emerald-50 px-3 py-1 text-xs text-emerald-700">
+                      promoted {label}
+                    </span>
+                  ))}
+                  {inspectResult.usedValidatedConcepts.map((label) => (
+                    <span key={`validated-${label}`} className="rounded-full bg-sky-50 px-3 py-1 text-xs text-sky-700">
+                      validated {label}
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-3 space-y-2">
+                  {inspectResult.validationIssues.length > 0 ? (
+                    inspectResult.validationIssues.map((issue) => (
+                      <div key={`${issue.code}-${issue.message}`} className="rounded-2xl bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                        {issue.severity} / {issue.code}: {issue.message}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-500">검증 경고가 없습니다.</div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
+      </section>
+
+      <section className="mt-4 rounded-[24px] border border-slate-200 bg-slate-50/70 p-4">
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+          <Database className="h-4 w-4 text-sky-600" />
+          온톨로지 후보 검토
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {ontologyReview?.concepts.slice(0, 12).map((concept) => (
+            <div key={`${concept.source}-${concept.label}`} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {concept.label} <span className="text-slate-400">({concept.source}/{concept.status})</span>
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    entity {concept.entityType || 'concept'}, relation {concept.relationCount}, confidence{' '}
+                    {typeof concept.confidence === 'number' ? concept.confidence.toFixed(2) : 'n/a'}
+                  </p>
+                  {concept.aliases.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {concept.aliases.slice(0, 4).map((alias) => (
+                        <span key={alias} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
+                          {alias}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {concept.slotHints.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {concept.slotHints.map((slotHint) => (
+                        <span key={slotHint} className="rounded-full bg-blue-50 px-3 py-1 text-xs text-blue-700">
+                          {slotHint}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={busyAction !== null}
+                    onClick={() => void handleOntologyReview(concept.source, concept.label, 'validated')}
+                    className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-200 disabled:opacity-60"
+                  >
+                    validated
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyAction !== null}
+                    onClick={() => void handleOntologyReview(concept.source, concept.label, 'promoted')}
+                    className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-200 disabled:opacity-60"
+                  >
+                    promoted
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyAction !== null}
+                    onClick={() => void handleOntologyReview(concept.source, concept.label, 'rejected')}
+                    className="rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700 transition hover:bg-rose-200 disabled:opacity-60"
+                  >
+                    rejected
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {!ontologyReview || ontologyReview.concepts.length === 0 ? (
+            <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-500">검토할 온톨로지 후보가 없습니다.</div>
+          ) : null}
+        </div>
       </section>
     </section>
   );

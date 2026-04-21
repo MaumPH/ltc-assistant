@@ -22,6 +22,20 @@ async function main() {
   let expectedEvidenceHits = 0;
   let forbiddenEvidencePasses = 0;
   let requiredCitationHits = 0;
+  let normalizationChecks = 0;
+  let normalizationHits = 0;
+  let intentChecks = 0;
+  let intentHits = 0;
+  let relationChecks = 0;
+  let relationHits = 0;
+  let validationChecks = 0;
+  let validationHits = 0;
+  let missingSlotChecks = 0;
+  let missingSlotHits = 0;
+  let riskChecks = 0;
+  let riskHits = 0;
+  let claimCoverageChecks = 0;
+  let claimCoverageHits = 0;
 
   for (const testCase of cases) {
     const inspection = await service.inspectRetrieval(
@@ -45,6 +59,36 @@ async function main() {
       !testCase.forbiddenEvidenceDocs || testCase.forbiddenEvidenceDocs.every((doc) => !matchesAnyEvidence(doc));
     const requiredCitationHit =
       !testCase.requiredCitationDocs || testCase.requiredCitationDocs.every((doc) => matchesAnyEvidence(doc));
+    const validationCodes = inspection.validationIssues.map((issue) => issue.code);
+    const relationCodes = inspection.semanticFrame.relationRequests.map((request) => request.relation);
+    const missingCriticalSlots = inspection.semanticFrame.missingCriticalSlots;
+    const normalizationPass =
+      !testCase.expectedCanonicalTerms || testCase.expectedCanonicalTerms.length === 0
+        ? null
+        : testCase.expectedCanonicalTerms.every((term) => inspection.semanticFrame.canonicalTerms.includes(term));
+    const intentPass = !testCase.expectedPrimaryIntent
+      ? null
+      : inspection.semanticFrame.primaryIntent === testCase.expectedPrimaryIntent;
+    const relationPass =
+      !testCase.expectedRelationRequests || testCase.expectedRelationRequests.length === 0
+        ? null
+        : testCase.expectedRelationRequests.every((relation) => relationCodes.includes(relation));
+    const validationPass =
+      !testCase.expectedValidationCodes || testCase.expectedValidationCodes.length === 0
+        ? null
+        : testCase.expectedValidationCodes.every((code) => validationCodes.includes(code));
+    const missingSlotPass =
+      !testCase.expectedMissingCriticalSlots || testCase.expectedMissingCriticalSlots.length === 0
+        ? null
+        : testCase.expectedMissingCriticalSlots.every((slot) => missingCriticalSlots.includes(slot));
+    const riskPass = !testCase.expectedRiskLevel ? null : inspection.semanticFrame.riskLevel === testCase.expectedRiskLevel;
+    const claimCoveragePass =
+      typeof testCase.minSupportedClaims !== 'number' && typeof testCase.maxUnsupportedClaims !== 'number'
+        ? null
+        : (typeof testCase.minSupportedClaims !== 'number' ||
+            inspection.claimCoverage.supportedClaims >= testCase.minSupportedClaims) &&
+          (typeof testCase.maxUnsupportedClaims !== 'number' ||
+            inspection.claimCoverage.unsupportedClaims <= testCase.maxUnsupportedClaims);
 
     if (top3Hit) top3Hits += 1;
     if (top5Hit) top5Hits += 1;
@@ -52,6 +96,34 @@ async function main() {
     if (expectedEvidenceHit) expectedEvidenceHits += 1;
     if (forbiddenEvidencePass) forbiddenEvidencePasses += 1;
     if (requiredCitationHit) requiredCitationHits += 1;
+    if (normalizationPass !== null) {
+      normalizationChecks += 1;
+      if (normalizationPass) normalizationHits += 1;
+    }
+    if (intentPass !== null) {
+      intentChecks += 1;
+      if (intentPass) intentHits += 1;
+    }
+    if (relationPass !== null) {
+      relationChecks += 1;
+      if (relationPass) relationHits += 1;
+    }
+    if (validationPass !== null) {
+      validationChecks += 1;
+      if (validationPass) validationHits += 1;
+    }
+    if (missingSlotPass !== null) {
+      missingSlotChecks += 1;
+      if (missingSlotPass) missingSlotHits += 1;
+    }
+    if (riskPass !== null) {
+      riskChecks += 1;
+      if (riskPass) riskHits += 1;
+    }
+    if (claimCoveragePass !== null) {
+      claimCoverageChecks += 1;
+      if (claimCoveragePass) claimCoverageHits += 1;
+    }
 
     results.push({
       id: testCase.id,
@@ -74,6 +146,23 @@ async function main() {
       expectedEvidenceHit,
       forbiddenEvidencePass,
       requiredCitationHit,
+      normalizationPass,
+      intentPass,
+      relationPass,
+      validationPass,
+      missingSlotPass,
+      riskPass,
+      claimCoveragePass,
+      semanticFrame: {
+        primaryIntent: inspection.semanticFrame.primaryIntent,
+        secondaryIntents: inspection.semanticFrame.secondaryIntents,
+        riskLevel: inspection.semanticFrame.riskLevel,
+        canonicalTerms: inspection.semanticFrame.canonicalTerms,
+        relationRequests: relationCodes,
+        missingCriticalSlots,
+      },
+      validationCodes,
+      claimCoverage: inspection.claimCoverage,
       evidenceDocs,
       evidencePaths,
       top3: top3.map((candidate) => ({
@@ -99,6 +188,13 @@ async function main() {
     expectedEvidencePassRate: cases.length > 0 ? Number((expectedEvidenceHits / cases.length).toFixed(4)) : 0,
     forbiddenEvidencePassRate: cases.length > 0 ? Number((forbiddenEvidencePasses / cases.length).toFixed(4)) : 0,
     requiredCitationPassRate: cases.length > 0 ? Number((requiredCitationHits / cases.length).toFixed(4)) : 0,
+    normalizationPassRate: normalizationChecks > 0 ? Number((normalizationHits / normalizationChecks).toFixed(4)) : null,
+    intentPassRate: intentChecks > 0 ? Number((intentHits / intentChecks).toFixed(4)) : null,
+    relationPassRate: relationChecks > 0 ? Number((relationHits / relationChecks).toFixed(4)) : null,
+    validationSignalPassRate: validationChecks > 0 ? Number((validationHits / validationChecks).toFixed(4)) : null,
+    missingCriticalSlotPassRate: missingSlotChecks > 0 ? Number((missingSlotHits / missingSlotChecks).toFixed(4)) : null,
+    riskPassRate: riskChecks > 0 ? Number((riskHits / riskChecks).toFixed(4)) : null,
+    claimCoveragePassRate: claimCoverageChecks > 0 ? Number((claimCoverageHits / claimCoverageChecks).toFixed(4)) : null,
     abstainAcceptRate: cases.filter((item) => item.acceptableAbstain).length > 0
       ? Number((abstainAccepts / cases.filter((item) => item.acceptableAbstain).length).toFixed(4))
       : null,
@@ -113,6 +209,27 @@ async function main() {
   console.log(`Expected evidence pass: ${(payload.expectedEvidencePassRate * 100).toFixed(1)}%`);
   console.log(`Forbidden evidence pass: ${(payload.forbiddenEvidencePassRate * 100).toFixed(1)}%`);
   console.log(`Required citation pass: ${(payload.requiredCitationPassRate * 100).toFixed(1)}%`);
+  if (payload.normalizationPassRate !== null) {
+    console.log(`Normalization pass: ${(payload.normalizationPassRate * 100).toFixed(1)}%`);
+  }
+  if (payload.intentPassRate !== null) {
+    console.log(`Intent pass: ${(payload.intentPassRate * 100).toFixed(1)}%`);
+  }
+  if (payload.relationPassRate !== null) {
+    console.log(`Relation pass: ${(payload.relationPassRate * 100).toFixed(1)}%`);
+  }
+  if (payload.validationSignalPassRate !== null) {
+    console.log(`Validation signal pass: ${(payload.validationSignalPassRate * 100).toFixed(1)}%`);
+  }
+  if (payload.missingCriticalSlotPassRate !== null) {
+    console.log(`Missing critical slot pass: ${(payload.missingCriticalSlotPassRate * 100).toFixed(1)}%`);
+  }
+  if (payload.riskPassRate !== null) {
+    console.log(`Risk pass: ${(payload.riskPassRate * 100).toFixed(1)}%`);
+  }
+  if (payload.claimCoveragePassRate !== null) {
+    console.log(`Claim coverage pass: ${(payload.claimCoveragePassRate * 100).toFixed(1)}%`);
+  }
 }
 
 main().catch((error) => {

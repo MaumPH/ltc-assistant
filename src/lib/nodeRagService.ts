@@ -65,10 +65,18 @@ import {
   buildOntologyGraph,
   buildOntologyRows,
   expandDocumentsWithOntology,
+  loadCuratedOntologyManifest,
   loadGeneratedOntologyManifest,
+  writeCuratedOntologyManifest,
+  writeGeneratedOntologyManifest,
   type OntologyGraph,
   type OntologySearchResult,
 } from './ragOntology';
+import {
+  buildClaimPlan,
+  evaluateRetrievalValidation,
+  validateAnswerEnvelope,
+} from './ragSemanticValidation';
 import {
   applyRetrievalFeatureOverrides,
   getRetrievalFeatureFlags,
@@ -90,6 +98,7 @@ import type {
   CacheHitSummary,
   BenchmarkCase,
   CandidateDiagnostic,
+  ClaimCoverage,
   ExpertAnswerEnvelope,
   ChatCapabilities,
   ChatMessage,
@@ -122,6 +131,7 @@ import type {
   RecentRetrievalMatch,
   SearchCandidate,
   SearchRun,
+  ValidationIssue,
   SectionRoutingDecision,
   StageLatencyBreakdown,
   SourceRole,
@@ -250,14 +260,37 @@ export interface RetrievalInspectionResponse {
   normalizationTrace: RetrievalDiagnostics['normalizationTrace'];
   aliasResolutions: RetrievalDiagnostics['aliasResolutions'];
   parsedLawRefs: RetrievalDiagnostics['parsedLawRefs'];
+  semanticFrame: RetrievalDiagnostics['semanticFrame'];
+  assumptions: RetrievalDiagnostics['assumptions'];
   ontologyHits: RetrievalDiagnostics['ontologyHits'];
+  usedPromotedConcepts: RetrievalDiagnostics['usedPromotedConcepts'];
+  usedValidatedConcepts: RetrievalDiagnostics['usedValidatedConcepts'];
   graphExpansionTrace: RetrievalDiagnostics['graphExpansionTrace'];
+  validationIssues: RetrievalDiagnostics['validationIssues'];
+  claimCoverage: RetrievalDiagnostics['claimCoverage'];
   fallbackTriggered: RetrievalDiagnostics['fallbackTriggered'];
   fallbackSources: RetrievalDiagnostics['fallbackSources'];
   guardrails: RetrievalDiagnostics['guardrails'];
   latency: RetrievalDiagnostics['latency'];
   sectionRouting: RetrievalDiagnostics['sectionRouting'];
   cacheHits: RetrievalDiagnostics['cacheHits'];
+}
+
+export interface AdminOntologyConceptRecord {
+  source: 'generated' | 'curated';
+  label: string;
+  entityType?: string;
+  status: string;
+  confidence?: number;
+  aliases: string[];
+  slotHints: string[];
+  relationCount: number;
+  statusReason?: string;
+}
+
+export interface AdminOntologyReviewResponse {
+  concepts: AdminOntologyConceptRecord[];
+  updatedAt: string;
 }
 
 interface RagStore {
@@ -849,6 +882,12 @@ function buildNormalizedRetrievalQuery(messages: ChatMessage[]): {
   const aliases = uniqueNonEmptyLines([
     ...buildRetrievalAliases(combinedQuery),
     ...queryProfile.searchVariants.filter((variant) => variant !== queryProfile.normalizedQuery),
+    ...queryProfile.semanticFrame.canonicalTerms,
+    ...queryProfile.semanticFrame.entityRefs.map((entity) => entity.canonical),
+    ...queryProfile.semanticFrame.relationRequests.flatMap((request) => [request.relation, request.reason]),
+    ...Object.values(queryProfile.semanticFrame.slots).flatMap((values) =>
+      (values ?? []).flatMap((value) => [value.canonical, value.value]),
+    ),
     ...queryProfile.aliasResolutions.flatMap((item) => [item.canonical, ...item.alternatives]),
     ...queryProfile.parsedLawRefs.flatMap((item) => [
       item.canonicalLawName,
@@ -859,6 +898,7 @@ function buildNormalizedRetrievalQuery(messages: ChatMessage[]): {
     ? uniqueNonEmptyLines([
         ...(previous && isFollowUpQuery(latest) ? [previous, latest] : [latest]),
         ...queryProfile.searchVariants,
+        ...queryProfile.semanticFrame.canonicalTerms,
       ])
     : [];
 
@@ -933,6 +973,8 @@ interface RetrievalPlanResult {
   search: SearchRun;
   scope: RetrievalScopeContext;
   evidence: SearchRun['evidence'];
+  claimCoverage: ClaimCoverage;
+  validationIssues: ValidationIssue[];
   workflowBriefs: WorkflowBrief[];
   knowledgeContext: string;
   basisCoverage: Record<'legal' | 'evaluation' | 'practical', number>;
@@ -1566,7 +1608,11 @@ function buildRetrievalDiagnostics(
     normalizationTrace?: RetrievalDiagnostics['normalizationTrace'];
     aliasResolutions?: LawAliasResolution[];
     parsedLawRefs?: RetrievalDiagnostics['parsedLawRefs'];
+    semanticFrame?: RetrievalDiagnostics['semanticFrame'];
+    assumptions?: RetrievalDiagnostics['assumptions'];
     ontologyHits?: OntologyHit[];
+    validationIssues?: ValidationIssue[];
+    claimCoverage?: ClaimCoverage;
     graphExpansionTrace?: GraphExpansionTrace[];
     fallbackTriggered?: boolean;
     fallbackSources?: LawFallbackSource[];
@@ -1586,6 +1632,16 @@ function buildRetrievalDiagnostics(
       confidence: search.confidence,
       evidenceCount: search.evidence.length,
     });
+  const usedPromotedConcepts = uniqueNonEmptyLines(
+    (extras?.ontologyHits ?? [])
+      .filter((hit) => hit.status === 'promoted')
+      .map((hit) => hit.label),
+  );
+  const usedValidatedConcepts = uniqueNonEmptyLines(
+    (extras?.ontologyHits ?? [])
+      .filter((hit) => hit.status === 'validated')
+      .map((hit) => hit.label),
+  );
 
   return {
     normalizedQuery,
@@ -1621,8 +1677,29 @@ function buildRetrievalDiagnostics(
     normalizationTrace: extras?.normalizationTrace ?? [],
     aliasResolutions: extras?.aliasResolutions ?? [],
     parsedLawRefs: extras?.parsedLawRefs ?? [],
+    semanticFrame: extras?.semanticFrame ?? {
+      primaryIntent: 'compliance',
+      secondaryIntents: [],
+      canonicalTerms: [],
+      entityRefs: [],
+      relationRequests: [],
+      slots: {},
+      assumptions: [],
+      missingCriticalSlots: [],
+      riskLevel: 'low',
+    },
+    assumptions: extras?.assumptions ?? [],
     ontologyHits: extras?.ontologyHits ?? [],
+    usedPromotedConcepts,
+    usedValidatedConcepts,
     graphExpansionTrace: extras?.graphExpansionTrace ?? [],
+    validationIssues: extras?.validationIssues ?? [],
+    claimCoverage: extras?.claimCoverage ?? {
+      totalClaims: 0,
+      supportedClaims: 0,
+      partiallySupportedClaims: 0,
+      unsupportedClaims: 0,
+    },
     fallbackTriggered: extras?.fallbackTriggered ?? false,
     fallbackSources: extras?.fallbackSources ?? [],
     guardrails: extras?.guardrails ?? [],
@@ -2771,6 +2848,76 @@ export class NodeRagService {
     return this.getAdminProfiles();
   }
 
+  getAdminOntologyReview(): AdminOntologyReviewResponse {
+    const manifests = [
+      {
+        source: 'generated' as const,
+        manifest: loadGeneratedOntologyManifest(this.projectRoot),
+      },
+      {
+        source: 'curated' as const,
+        manifest: loadCuratedOntologyManifest(this.projectRoot),
+      },
+    ];
+
+    const concepts = manifests.flatMap(({ source, manifest }) =>
+      manifest.concepts.map((concept) => ({
+        source,
+        label: concept.label,
+        entityType: concept.entity_type,
+        status: concept.status ?? 'candidate',
+        confidence: concept.confidence,
+        aliases: concept.aliases ?? [],
+        slotHints: concept.slot_hints ?? [],
+        relationCount: concept.relations?.length ?? 0,
+        statusReason: concept.status_reason,
+      })),
+    );
+
+    return {
+      concepts: concepts.sort((left, right) => {
+        if (left.status !== right.status) {
+          return left.status.localeCompare(right.status);
+        }
+        return left.label.localeCompare(right.label, 'ko');
+      }),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  updateOntologyConceptReview(params: {
+    source: 'generated' | 'curated';
+    label: string;
+    status: 'candidate' | 'validated' | 'promoted' | 'rejected';
+    statusReason?: string;
+  }): AdminOntologyReviewResponse {
+    const sourceManifest =
+      params.source === 'curated'
+        ? loadCuratedOntologyManifest(this.projectRoot)
+        : loadGeneratedOntologyManifest(this.projectRoot);
+
+    const nextManifest = {
+      ...sourceManifest,
+      concepts: sourceManifest.concepts.map((concept) =>
+        concept.label === params.label
+          ? {
+              ...concept,
+              status: params.status,
+              status_reason: params.statusReason ?? concept.status_reason,
+            }
+          : concept,
+      ),
+    };
+
+    if (params.source === 'curated') {
+      writeCuratedOntologyManifest(this.projectRoot, nextManifest);
+    } else {
+      writeGeneratedOntologyManifest(this.projectRoot, nextManifest);
+    }
+    this.rebuildOntologyGraph();
+    return this.getAdminOntologyReview();
+  }
+
   private async rebuildRuntimeState(): Promise<void> {
     try {
       await this.store.initialize(this.embeddingAi);
@@ -2919,7 +3066,14 @@ export class NodeRagService {
   private async performReindex(): Promise<void> {
     const files = await loadKnowledgeFilesForIndex(this.projectRoot);
     const structuredChunks = buildStructuredChunks(files);
-    const ontologyRows = buildOntologyRows(buildOntologyGraph(this.brain, structuredChunks));
+    const ontologyRows = buildOntologyRows(
+      buildOntologyGraph(
+        this.brain,
+        structuredChunks,
+        loadGeneratedOntologyManifest(this.projectRoot),
+        loadCuratedOntologyManifest(this.projectRoot),
+      ),
+    );
     const documentVersionRows = buildDocumentVersionRows(files);
     const sectionRows = buildSectionRows(files);
     const chunkRows = buildChunkRows(files);
@@ -3147,6 +3301,7 @@ export class NodeRagService {
       this.brain,
       this.getAllSearchChunks(),
       loadGeneratedOntologyManifest(this.projectRoot),
+      loadCuratedOntologyManifest(this.projectRoot),
     );
   }
 
@@ -3367,6 +3522,7 @@ export class NodeRagService {
       options: {
         lawRefs: queryProfile.parsedLawRefs,
         queryType: queryProfile.queryType,
+        semanticFrame: queryProfile.semanticFrame,
       },
     });
 
@@ -3472,6 +3628,7 @@ export class NodeRagService {
           chunkScoreBoosts: options?.additionalChunkScoreBoosts,
           lawRefs: options?.queryProfile?.parsedLawRefs,
           queryType: options?.queryProfile?.queryType,
+          semanticFrame: options?.queryProfile?.semanticFrame,
         },
       ),
         sectionRoutingEnabled,
@@ -3532,6 +3689,7 @@ export class NodeRagService {
           excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
           lawRefs: options?.queryProfile?.parsedLawRefs,
           queryType: options?.queryProfile?.queryType,
+          semanticFrame: options?.queryProfile?.semanticFrame,
         }),
         sectionRoutingEnabled,
       ));
@@ -3544,6 +3702,7 @@ export class NodeRagService {
             excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
             lawRefs: options?.queryProfile?.parsedLawRefs,
             queryType: options?.queryProfile?.queryType,
+            semanticFrame: options?.queryProfile?.semanticFrame,
           })
           .fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
         4,
@@ -3584,6 +3743,7 @@ export class NodeRagService {
       chunkScoreBoosts: options?.additionalChunkScoreBoosts,
       lawRefs: options?.queryProfile?.parsedLawRefs,
       queryType: options?.queryProfile?.queryType,
+      semanticFrame: options?.queryProfile?.semanticFrame,
     }), sectionRoutingEnabled);
     const ontologyResult =
       this.ontologyGraph && options?.queryProfile
@@ -3614,6 +3774,7 @@ export class NodeRagService {
               chunkScoreBoosts: options?.additionalChunkScoreBoosts,
               lawRefs: options?.queryProfile?.parsedLawRefs,
               queryType: options?.queryProfile?.queryType,
+              semanticFrame: options?.queryProfile?.semanticFrame,
             }),
           )
         : new Set<string>();
@@ -3658,6 +3819,7 @@ export class NodeRagService {
         excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
         lawRefs: options?.queryProfile?.parsedLawRefs,
         queryType: options?.queryProfile?.queryType,
+        semanticFrame: options?.queryProfile?.semanticFrame,
       }),
       sectionRoutingEnabled,
     ));
@@ -3672,6 +3834,7 @@ export class NodeRagService {
                 excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
                 lawRefs: options?.queryProfile?.parsedLawRefs,
                 queryType: options?.queryProfile?.queryType,
+                semanticFrame: options?.queryProfile?.semanticFrame,
               })
               .fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
             4,
@@ -4035,6 +4198,26 @@ export class NodeRagService {
       ...search,
       evidence: expandEvidenceWithNeighbors(search.evidence, allSearchChunks),
     });
+    const retrievalValidation = evaluateRetrievalValidation({
+      semanticFrame: queryProfile.semanticFrame,
+      evidence,
+      projectRoot: this.projectRoot,
+      claimPlan: buildClaimPlan({
+        question: normalized.normalizedQuery,
+        semanticFrame: queryProfile.semanticFrame,
+        evidence,
+      }),
+    });
+    if (retrievalValidation.validationIssues.some((issue) => issue.severity === 'block')) {
+      search = {
+        ...search,
+        confidence: 'low',
+        mismatchSignals: Array.from(
+          new Set([...(search.mismatchSignals ?? []), 'semantic-validation-failed']),
+        ),
+        groundingGatePassed: false,
+      };
+    }
     const basisCoverage = buildBasisCoverage(evidence);
     const knowledgeContext = [
       serviceScopeContext,
@@ -4052,6 +4235,13 @@ export class NodeRagService {
     plannerTrace.push({
       step: 'basis-coverage',
       detail: `legal=${basisCoverage.legal}, evaluation=${basisCoverage.evaluation}, practical=${basisCoverage.practical}`,
+    });
+    plannerTrace.push({
+      step: 'semantic-validation',
+      detail:
+        retrievalValidation.validationIssues.length > 0
+          ? retrievalValidation.validationIssues.map((issue) => `${issue.severity}:${issue.code}`).join(', ')
+          : 'clean',
     });
 
     const result: RetrievalPlanResult = {
@@ -4072,6 +4262,8 @@ export class NodeRagService {
       search,
       scope,
       evidence,
+      claimCoverage: retrievalValidation.claimCoverage,
+      validationIssues: retrievalValidation.validationIssues,
       workflowBriefs,
       knowledgeContext,
       basisCoverage,
@@ -4140,7 +4332,11 @@ export class NodeRagService {
         normalizationTrace: planned.queryProfile.normalizationTrace,
         aliasResolutions: planned.queryProfile.aliasResolutions,
         parsedLawRefs: planned.queryProfile.parsedLawRefs,
+        semanticFrame: planned.queryProfile.semanticFrame,
+        assumptions: planned.queryProfile.semanticFrame.assumptions,
         ontologyHits: planned.ontologyHits,
+        validationIssues: planned.validationIssues,
+        claimCoverage: planned.claimCoverage,
         graphExpansionTrace: planned.graphExpansionTrace,
         fallbackTriggered: planned.fallbackTriggered,
         fallbackSources: planned.fallbackSources,
@@ -4184,8 +4380,14 @@ export class NodeRagService {
       normalizationTrace: retrieval.normalizationTrace,
       aliasResolutions: retrieval.aliasResolutions,
       parsedLawRefs: retrieval.parsedLawRefs,
+      semanticFrame: retrieval.semanticFrame,
+      assumptions: retrieval.assumptions,
       ontologyHits: retrieval.ontologyHits,
+      usedPromotedConcepts: retrieval.usedPromotedConcepts,
+      usedValidatedConcepts: retrieval.usedValidatedConcepts,
       graphExpansionTrace: retrieval.graphExpansionTrace,
+      validationIssues: retrieval.validationIssues,
+      claimCoverage: retrieval.claimCoverage,
       fallbackTriggered: retrieval.fallbackTriggered,
       fallbackSources: retrieval.fallbackSources,
       guardrails: retrieval.guardrails,
@@ -4282,7 +4484,11 @@ export class NodeRagService {
         normalizationTrace: planned.queryProfile.normalizationTrace,
         aliasResolutions: planned.queryProfile.aliasResolutions,
         parsedLawRefs: planned.queryProfile.parsedLawRefs,
+        semanticFrame: planned.queryProfile.semanticFrame,
+        assumptions: planned.queryProfile.semanticFrame.assumptions,
         ontologyHits: planned.ontologyHits,
+        validationIssues: planned.validationIssues,
+        claimCoverage: planned.claimCoverage,
         graphExpansionTrace: planned.graphExpansionTrace,
         fallbackTriggered: planned.fallbackTriggered,
         fallbackSources: planned.fallbackSources,
@@ -4397,11 +4603,17 @@ export class NodeRagService {
       evidence: planned.evidence,
       knowledgeContext: planned.knowledgeContext,
     });
+    const claimPlan = buildClaimPlan({
+      question,
+      semanticFrame: planned.queryProfile.semanticFrame,
+      evidence: planned.evidence,
+    });
     latency.planningMs = Date.now() - planningStartedAt;
     retrieval.plannerTrace = [
       ...retrieval.plannerTrace,
       { step: 'planner-answer-type', detail: answerPlan.recommendedAnswerType },
       { step: 'planner-tasks', detail: answerPlan.taskCandidates.map((task) => task.title).join(', ') || 'none' },
+      { step: 'planner-claims', detail: claimPlan.claims.map((claim) => `${claim.canonicalSubject}:${claim.predicate}`).join(', ') || 'none' },
     ];
 
     const answerStartedAt = Date.now();
@@ -4425,23 +4637,52 @@ export class NodeRagService {
             : 'not_enough',
       confidence: planned.search.confidence,
       keyIssueDate,
+      claimPlan,
+      semanticFrame: planned.queryProfile.semanticFrame,
     });
     latency.answerMs = Date.now() - answerStartedAt;
     const answerEvidenceIds = new Set(answer.citations.map((item) => item.evidenceId));
     const resolvedCitations = citations.filter((item) => answerEvidenceIds.has(item.id));
     const finalCitations = resolvedCitations.length > 0 ? resolvedCitations : citations.slice(0, 4);
-    let finalAnswer = planned.profile.guardrails.piiMasking ? applyPiiMasking(answer) : answer;
+    const validatedAnswer = validateAnswerEnvelope({
+      answer,
+      semanticFrame: planned.queryProfile.semanticFrame,
+      citations: finalCitations,
+      evidence: planned.evidence,
+      projectRoot: this.projectRoot,
+      claimPlan,
+    });
+    retrieval.validationIssues = validatedAnswer.validationIssues;
+    retrieval.claimCoverage = validatedAnswer.claimCoverage;
+    let finalAnswer = validatedAnswer.answer;
+    if (validatedAnswer.shouldAbstain) {
+      retrieval.agentDecision = 'abstain';
+      retrieval.plannerTrace = [
+        ...retrieval.plannerTrace,
+        { step: 'agent-decision', detail: 'abstain: answer validation detected a blocking contradiction' },
+      ];
+      finalAnswer = createExpertAbstainAnswer({
+        question,
+        confidence: 'low',
+        evidenceState: 'not_enough',
+        keyIssueDate,
+        evidence: finalCitations,
+      });
+    }
+    finalAnswer = planned.profile.guardrails.piiMasking ? applyPiiMasking(finalAnswer) : finalAnswer;
     if (planned.profile.guardrails.citationWarning) {
       guardrails.push(buildCitationWarning(finalAnswer, finalCitations));
     }
     if (planned.profile.guardrails.hallucinationSignal) {
       guardrails.push(buildHallucinationSignal(finalAnswer, finalCitations));
     }
-    retrieval.agentDecision = 'answer';
-    retrieval.plannerTrace = [
-      ...retrieval.plannerTrace,
-      { step: 'agent-decision', detail: 'answer: evidence passed grounding and clarification gates' },
-    ];
+    if (retrieval.agentDecision !== 'abstain') {
+      retrieval.agentDecision = 'answer';
+      retrieval.plannerTrace = [
+        ...retrieval.plannerTrace,
+        { step: 'agent-decision', detail: 'answer: evidence passed grounding, clarification, and validation gates' },
+      ];
+    }
     retrieval.guardrails = guardrails;
     latency.totalMs = Date.now() - startedAt;
     retrieval.latency = latency;

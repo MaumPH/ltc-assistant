@@ -444,6 +444,55 @@ async function startServer() {
     await handleRetrievalInspect(req, res);
   });
 
+  app.get('/api/admin/rag/ontology', requireAdminAuth, async (_req, res) => {
+    try {
+      await ragService.initialize();
+      res.json(ragService.getAdminOntologyReview());
+    } catch (error) {
+      logServerError('admin rag ontology list failed', error);
+      res.status(500).json({
+        error: 'Failed to load ontology review data',
+        details: getSafeErrorMessage(error),
+      });
+    }
+  });
+
+  app.post('/api/admin/rag/ontology/review', requireAdminAuth, async (req, res) => {
+    try {
+      await ragService.initialize();
+      const {
+        source,
+        label,
+        status,
+        statusReason,
+      }: {
+        source?: 'generated' | 'curated';
+        label?: string;
+        status?: 'candidate' | 'validated' | 'promoted' | 'rejected';
+        statusReason?: string;
+      } = req.body ?? {};
+
+      if (!source || !label || !status) {
+        return res.status(400).json({ error: 'source, label, and status are required' });
+      }
+
+      res.json(
+        ragService.updateOntologyConceptReview({
+          source,
+          label,
+          status,
+          statusReason,
+        }),
+      );
+    } catch (error) {
+      logServerError('admin rag ontology review failed', error);
+      res.status(500).json({
+        error: 'Failed to update ontology review status',
+        details: getSafeErrorMessage(error),
+      });
+    }
+  });
+
   app.get('/api/knowledge/file', (req, res) => {
     const requestedPath = typeof req.query.path === 'string' ? req.query.path : '';
     const filePath = resolveKnowledgeFilePath(requestedPath);
@@ -575,8 +624,14 @@ async function startServer() {
             normalizationTrace: response.retrieval.normalizationTrace,
             aliasResolutions: response.retrieval.aliasResolutions,
             parsedLawRefs: response.retrieval.parsedLawRefs,
+            semanticFrame: response.retrieval.semanticFrame,
+            assumptions: response.retrieval.assumptions,
             ontologyHits: response.retrieval.ontologyHits,
+            usedPromotedConcepts: response.retrieval.usedPromotedConcepts,
+            usedValidatedConcepts: response.retrieval.usedValidatedConcepts,
             graphExpansionTrace: response.retrieval.graphExpansionTrace,
+            validationIssues: response.retrieval.validationIssues,
+            claimCoverage: response.retrieval.claimCoverage,
             fallbackTriggered: response.retrieval.fallbackTriggered,
             fallbackSources: response.retrieval.fallbackSources,
             profile: response.retrieval.profile,

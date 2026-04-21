@@ -68,6 +68,17 @@ function profile(query: string): NaturalLanguageQueryProfile {
     synonymExpansions: [],
     searchVariants: [query],
     normalizationTrace: [],
+    semanticFrame: {
+      primaryIntent: 'compliance',
+      secondaryIntents: [],
+      canonicalTerms: [query],
+      entityRefs: [],
+      relationRequests: [],
+      slots: {},
+      assumptions: [],
+      missingCriticalSlots: [],
+      riskLevel: 'low',
+    },
   };
 }
 
@@ -183,6 +194,8 @@ test('generated ontology builder preserves reviewed statuses and appends new can
   assert.equal(rejected?.status, 'rejected');
   assert.equal(candidate?.status, 'candidate');
   assert.equal(candidate?.evidence?.[0]?.documentId, 'doc-staffing');
+  assert.equal(candidate?.entity_type, 'condition');
+  assert.ok((candidate?.relations?.length ?? 0) >= 1);
 });
 
 test('generated ontology writer persists manifest in the expected store path', () => {

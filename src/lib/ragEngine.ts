@@ -5,6 +5,7 @@ import type {
   ParsedLawReference,
   PromptMode,
   QueryIntent,
+  SemanticFrame,
   RetrievalStageTrace,
   SearchCandidate,
   SearchRun,
@@ -25,6 +26,7 @@ export interface SearchOptions {
   excludedEvidenceRoles?: Set<SourceRole>;
   lawRefs?: ParsedLawReference[];
   queryType?: NaturalLanguageQueryType;
+  semanticFrame?: SemanticFrame;
 }
 
 const VECTOR_TOP_K = 36;
@@ -475,12 +477,14 @@ function rerankCandidate(
 ): SearchCandidate {
   const ontologyScore = options?.documentScoreBoosts?.get(candidate.documentId) ?? 0;
   const chunkScoreBoost = options?.chunkScoreBoosts?.get(candidate.id) ?? 0;
+  const semanticScore = scoreSemanticAlignment(candidate, options?.semanticFrame);
   let score = candidate.fusedScore * 100;
   score += candidate.exactScore * 1.8;
   score += candidate.lexicalScore * 15;
   score += candidate.vectorScore * 30;
   score += ontologyScore;
   score += chunkScoreBoost;
+  score += semanticScore;
 
   if (intent === 'legal-exact' && candidate.articleNo) score += 10;
   if (intent === 'legal-exact' && ['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType)) score += 8;
@@ -515,8 +519,69 @@ function rerankCandidate(
   return {
     ...candidate,
     rerankScore: score,
-    ontologyScore,
+    ontologyScore: ontologyScore + semanticScore,
   };
+}
+
+function scoreSemanticAlignment(candidate: SearchCandidate, semanticFrame: SemanticFrame | undefined): number {
+  if (!semanticFrame) return 0;
+
+  const haystack = `${candidate.docTitle} ${candidate.parentSectionTitle} ${candidate.searchText}`.toLowerCase();
+  let score = 0;
+
+  for (const term of semanticFrame.canonicalTerms.slice(0, 12)) {
+    if (term && haystack.includes(term.toLowerCase())) {
+      score += 2.5;
+    }
+  }
+
+  for (const values of Object.values(semanticFrame.slots)) {
+    for (const value of values ?? []) {
+      if (value.canonical && haystack.includes(value.canonical.toLowerCase())) {
+        score += 4;
+      }
+    }
+  }
+
+  for (const request of semanticFrame.relationRequests) {
+    switch (request.relation) {
+      case 'eligible-for':
+      case 'not-eligible-for':
+        if (/(대상|가능|불가|제외|조건)/u.test(candidate.searchText)) score += 5 * request.weight;
+        break;
+      case 'has-cost':
+        if (/(비용|본인부담|금액|산정)/u.test(candidate.searchText)) score += 5 * request.weight;
+        break;
+      case 'uses-document':
+        if (/(서류|문서|서식|작성|제출)/u.test(candidate.searchText)) score += 4.5 * request.weight;
+        break;
+      case 'exception-of':
+      case 'not-applies-to':
+        if (/(예외|감경|면제|제외|단서)/u.test(candidate.searchText)) score += 5 * request.weight;
+        break;
+      case 'follows-step':
+      case 'requires':
+        if (/(절차|순서|작성|제출|신청|신고|청구|필수)/u.test(candidate.searchText)) score += 4 * request.weight;
+        break;
+      case 'applies-to':
+      case 'limited-by':
+        if (/(적용|기준|제한|상한|조건)/u.test(candidate.searchText)) score += 4 * request.weight;
+        break;
+      case 'conflicts-with':
+        if (/(위반|제재|처분|주의)/u.test(candidate.searchText)) score += 4.5 * request.weight;
+        break;
+      case 'belongs-to':
+      case 'same-as':
+      case 'alias-of':
+        if (/(분류|정의|개념|동일|같은)/u.test(candidate.searchText)) score += 3.5 * request.weight;
+        break;
+      case 'evidenced-by':
+        if (/(증빙|근거|증거)/u.test(candidate.searchText)) score += 3 * request.weight;
+        break;
+    }
+  }
+
+  return score;
 }
 
 function isAdjacentWindow(left: SearchCandidate, right: SearchCandidate): boolean {

@@ -20,6 +20,7 @@ import type {
   AnswerPlanTaskCandidate,
   BasisBucketKey,
   ChatMessage,
+  ClaimPlan,
   ConfidenceLevel,
   EvidenceState,
   ExpertAnswerBlock,
@@ -28,6 +29,7 @@ import type {
   ExpertAnswerType,
   PromptMode,
   RetrievalMode,
+  SemanticFrame,
   StructuredChunk,
 } from './ragTypes';
 
@@ -1025,6 +1027,8 @@ function normalizeExpertAnswer(
 function buildSynthesisPrompt(params: {
   question: string;
   plan: AnswerPlan;
+  claimPlan?: ClaimPlan;
+  semanticFrame?: SemanticFrame;
   evidenceState: EvidenceState;
   confidence: ConfidenceLevel;
   keyIssueDate?: string;
@@ -1036,6 +1040,12 @@ function buildSynthesisPrompt(params: {
     '',
     'Planner output:',
     JSON.stringify(params.plan, null, 2),
+    '',
+    'Claim plan:',
+    JSON.stringify(params.claimPlan ?? { claims: [] }, null, 2),
+    '',
+    'Semantic frame:',
+    JSON.stringify(params.semanticFrame ?? {}, null, 2),
     '',
     `Evidence state: ${params.evidenceState}`,
     `Confidence: ${params.confidence}`,
@@ -1061,6 +1071,8 @@ export async function synthesizeExpertAnswer(params: {
   evidenceState: EvidenceState;
   confidence: ConfidenceLevel;
   keyIssueDate?: string;
+  claimPlan?: ClaimPlan;
+  semanticFrame?: SemanticFrame;
 }): Promise<ExpertAnswerEnvelope> {
   const selectedEvidence = params.evidence.filter((item) => params.plan.selectedEvidenceIds.includes(item.id));
   const citations = selectedEvidence.length > 0 ? selectedEvidence : params.evidence.slice(0, 6);
@@ -1089,6 +1101,7 @@ export async function synthesizeExpertAnswer(params: {
       'Do not emit presentation markdown, HTML, or numbered headings.',
       'Prefer checklist or procedure blocks for broad operational questions.',
       'Citations and basis entries must use only the provided evidence ids.',
+      'If the semantic frame contains assumptions, reflect them conservatively in scope or caveat-like wording.',
     ],
   });
 
@@ -1103,6 +1116,8 @@ export async function synthesizeExpertAnswer(params: {
               text: buildSynthesisPrompt({
                 question: params.question,
                 plan: params.plan,
+                claimPlan: params.claimPlan,
+                semanticFrame: params.semanticFrame,
                 evidenceState: params.evidenceState,
                 confidence: params.confidence,
                 keyIssueDate: params.keyIssueDate,

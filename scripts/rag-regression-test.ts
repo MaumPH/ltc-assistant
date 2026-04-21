@@ -3,7 +3,9 @@ import { buildEvidenceBalance, describeHybridReadiness, inferAgentDecision } fro
 import { compareIndexStatus } from '../src/lib/ragIndex';
 import { buildRagCorpusIndex, searchCorpus } from '../src/lib/ragEngine';
 import { detectPromptInjectionSignals } from '../src/lib/ragGuardrails';
+import { buildNaturalLanguageQueryProfile } from '../src/lib/ragNaturalQuery';
 import { applyRetrievalFeatureOverrides, getRetrievalFeatureFlags, getRetrievalProfile } from '../src/lib/ragProfiles';
+import { evaluateRetrievalValidation } from '../src/lib/ragSemanticValidation';
 import { buildPlannerSystemInstruction } from '../src/lib/promptAssembly';
 import { buildServiceScopeDocumentBoosts, parseServiceScopes } from '../src/lib/serviceScopes';
 import type { StructuredChunk } from '../src/lib/ragTypes';
@@ -283,6 +285,38 @@ function testPromptInjectionGuardrailDetectsOverrideAttempts() {
   assert.equal(result.type, 'prompt_injection');
 }
 
+function testSemanticQueryFrameBuildsIntentRelationsAndSlots() {
+  const profile = buildNaturalLanguageQueryProfile('주야간보호 3등급 본인부담금 얼마야?');
+
+  assert.equal(profile.semanticFrame.primaryIntent, 'cost');
+  assert.ok(profile.semanticFrame.canonicalTerms.includes('주야간보호'));
+  assert.ok(profile.semanticFrame.canonicalTerms.includes('본인부담금'));
+  assert.ok(profile.semanticFrame.relationRequests.some((request) => request.relation === 'has-cost'));
+  assert.ok(
+    (profile.semanticFrame.slots.recipient_grade ?? []).some((value) => value.canonical === '장기요양 3등급'),
+  );
+}
+
+function testSemanticValidationFlagsMissingLegalBasisForHighRiskCostQuestion() {
+  const profile = buildNaturalLanguageQueryProfile('주야간보호 3등급 본인부담금 얼마야?');
+  const evidence = [
+    makeChunk('manual-cost', {
+      docTitle: '주야간보호 운영 안내',
+      searchText: '주야간보호 본인부담금 안내와 실무 운영 설명',
+      text: '실무적으로 주야간보호 본인부담금을 안내한다.',
+      sourceType: 'manual',
+    }),
+  ];
+
+  const summary = evaluateRetrievalValidation({
+    semanticFrame: profile.semanticFrame,
+    evidence,
+  });
+
+  assert.ok(summary.validationIssues.some((issue) => issue.code === 'basis-confusion' && issue.severity === 'block'));
+  assert.equal(summary.claimCoverage.totalClaims >= 1, true);
+}
+
 testHybridReadinessReason();
 testEvidenceBalanceAndAgentDecision();
 testShortKoreanQueryFallback();
@@ -295,5 +329,7 @@ testServiceScopeBoostsFacilityEvidence();
 testRetrievalProfilesExposeExpectedDefaults();
 testRetrievalFeatureOverridesDisableSubsystems();
 testPromptInjectionGuardrailDetectsOverrideAttempts();
+testSemanticQueryFrameBuildsIntentRelationsAndSlots();
+testSemanticValidationFlagsMissingLegalBasisForHighRiskCostQuestion();
 
 console.log('RAG regression tests passed.');

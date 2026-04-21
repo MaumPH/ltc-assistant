@@ -6,6 +6,10 @@
     "expectedDoc": "노인장기요양보험법",
     "expectedSection": "제2조",
     "acceptableAbstain": false,
+    "expectedPrimaryIntent": "eligibility",
+    "expectedRelationRequests": ["eligible-for"],
+    "expectedMissingCriticalSlots": ["service_scope", "institution_type", "recipient_grade"],
+    "expectedRiskLevel": "high",
     "notes": "직접 법 조문 회수 여부 확인"
   },
   {
@@ -14,7 +18,11 @@
     "question": "주야간보호 급여비용은 어떤 고시를 기준으로 봐야 하나요?",
     "expectedDoc": "장기요양급여비용",
     "expectedSection": "",
-    "acceptableAbstain": false
+    "acceptableAbstain": false,
+    "expectedPrimaryIntent": "cost",
+    "expectedCanonicalTerms": ["주야간보호"],
+    "expectedRelationRequests": ["has-cost"],
+    "minSupportedClaims": 1
   },
   {
     "id": "integrated-workforce-standard",
@@ -22,7 +30,10 @@
     "question": "재가장기요양기관의 시설 인력기준은 어느 별표를 보면 되나요?",
     "expectedDoc": "재가장기요양기관의 시설·인력기준",
     "expectedSection": "별표 1의3",
-    "acceptableAbstain": false
+    "acceptableAbstain": false,
+    "expectedPrimaryIntent": "compliance",
+    "expectedRelationRequests": ["requires"],
+    "minSupportedClaims": 1
   },
   {
     "id": "integrated-payroll-ratio-qa",
@@ -145,6 +156,9 @@
     "expectedDoc": "노인장기요양보험법",
     "expectedSection": "",
     "acceptableAbstain": true,
+    "expectedPrimaryIntent": "cost",
+    "expectedRelationRequests": ["has-cost"],
+    "expectedValidationCodes": ["basis-confusion"],
     "notes": "관련 근거가 없으면 회피 허용"
   },
   {

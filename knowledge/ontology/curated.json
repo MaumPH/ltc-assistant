@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "concepts": [
+    {
+      "label": "시설급여",
+      "entity_type": "benefit",
+      "status": "promoted",
+      "confidence": 0.99,
+      "aliases": ["요양원 입소", "시설 서비스"],
+      "slot_hints": ["service_scope", "benefit_type"],
+      "relations": [
+        {
+          "relation": "applies-to",
+          "target_label": "노인요양시설",
+          "target_entity_type": "institution",
+          "weight": 1.2,
+          "reason": "시설급여는 노인요양시설 맥락과 직접 연결됩니다."
+        },
+        {
+          "relation": "requires",
+          "target_label": "장기요양등급",
+          "target_entity_type": "grade",
+          "weight": 1.05,
+          "reason": "시설급여는 수급자 등급 조건과 함께 해석됩니다."
+        }
+      ],
+      "status_reason": "seed",
+      "source": "curated-seed"
+    },
+    {
+      "label": "주야간보호",
+      "entity_type": "service",
+      "status": "promoted",
+      "confidence": 0.99,
+      "aliases": ["데이케어", "주간보호"],
+      "slot_hints": ["service_scope"],
+      "relations": [
+        {
+          "relation": "applies-to",
+          "target_label": "주야간보호기관",
+          "target_entity_type": "institution",
+          "weight": 1.15,
+          "reason": "주야간보호 질문은 기관유형과 함께 해석해야 합니다."
+        },
+        {
+          "relation": "uses-document",
+          "target_label": "급여제공계획서",
+          "target_entity_type": "document",
+          "weight": 0.9,
+          "reason": "서비스 제공 근거 문서와 함께 검색합니다."
+        }
+      ],
+      "status_reason": "seed",
+      "source": "curated-seed"
+    },
+    {
+      "label": "방문요양",
+      "entity_type": "service",
+      "status": "promoted",
+      "confidence": 0.99,
+      "aliases": ["재가요양"],
+      "slot_hints": ["service_scope"],
+      "relations": [
+        {
+          "relation": "applies-to",
+          "target_label": "재가장기요양기관",
+          "target_entity_type": "institution",
+          "weight": 1.15,
+          "reason": "방문요양은 재가 기관 기준과 묶여야 합니다."
+        }
+      ],
+      "status_reason": "seed",
+      "source": "curated-seed"
+    },
+    {
+      "label": "본인부담금",
+      "entity_type": "cost_item",
+      "status": "promoted",
+      "confidence": 0.98,
+      "aliases": ["자부담"],
+      "slot_hints": ["cost_topic"],
+      "relations": [
+        {
+          "relation": "has-cost",
+          "target_label": "장기요양급여",
+          "target_entity_type": "benefit",
+          "weight": 1.15,
+          "reason": "비용 질문은 급여 관계와 연결해야 합니다."
+        },
+        {
+          "relation": "exception-of",
+          "target_label": "본인부담금 감경",
+          "target_entity_type": "exception",
+          "weight": 1.05,
+          "reason": "감경/예외 여부를 함께 탐색해야 합니다."
+        }
+      ],
+      "status_reason": "seed",
+      "source": "curated-seed"
+    },
+    {
+      "label": "본인부담금 감경",
+      "entity_type": "exception",
+      "status": "promoted",
+      "confidence": 0.97,
+      "aliases": ["감경", "본인부담 감경"],
+      "slot_hints": ["exception_context", "cost_topic"],
+      "relations": [
+        {
+          "relation": "exception-of",
+          "target_label": "본인부담금",
+          "target_entity_type": "cost_item",
+          "weight": 1.2,
+          "reason": "예외 관계를 직접 연결합니다."
+        },
+        {
+          "relation": "limited-by",
+          "target_label": "의료급여 수급권자",
+          "target_entity_type": "condition",
+          "weight": 0.9,
+          "reason": "감경은 대상 조건과 함께 검색해야 합니다."
+        }
+      ],
+      "status_reason": "seed",
+      "source": "curated-seed"
+    },
+    {
+      "label": "급여제공계획서",
+      "entity_type": "document",
+      "status": "promoted",
+      "confidence": 0.97,
+      "aliases": ["케어플랜"],
+      "slot_hints": ["document_type"],
+      "relations": [
+        {
+          "relation": "uses-document",
+          "target_label": "급여제공계획 수립",
+          "target_entity_type": "workflow",
+          "weight": 1.0,
+          "reason": "계획서 질문은 업무 흐름과 함께 검색합니다."
+        }
+      ],
+      "status_reason": "seed",
+      "source": "curated-seed"
+    },
+    {
+      "label": "인력기준",
+      "entity_type": "condition",
+      "status": "promoted",
+      "confidence": 0.97,
+      "aliases": ["인력현황", "인력배치기준", "직원배치기준"],
+      "slot_hints": ["institution_type"],
+      "relations": [
+        {
+          "relation": "applies-to",
+          "target_label": "주야간보호기관",
+          "target_entity_type": "institution",
+          "weight": 1.05,
+          "reason": "기관유형에 따라 인력기준이 달라집니다."
+        },
+        {
+          "relation": "applies-to",
+          "target_label": "노인요양시설",
+          "target_entity_type": "institution",
+          "weight": 1.05,
+          "reason": "시설 질문과도 직접 연결됩니다."
+        }
+      ],
+      "status_reason": "seed",
+      "source": "curated-seed"
+    }
+  ]
+}

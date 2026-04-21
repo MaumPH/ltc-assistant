@@ -1,0 +1,266 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "expression": "요양원",
+      "canonical": "노인요양시설",
+      "entity_type": "institution",
+      "slot_hint": "institution_type",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.98,
+      "status": "promoted"
+    },
+    {
+      "expression": "시설급여",
+      "canonical": "시설급여",
+      "entity_type": "benefit",
+      "slot_hint": "benefit_type",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.96,
+      "status": "promoted"
+    },
+    {
+      "expression": "주야간보호",
+      "canonical": "주야간보호",
+      "entity_type": "service",
+      "slot_hint": "service_scope",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.98,
+      "status": "promoted"
+    },
+    {
+      "expression": "데이케어",
+      "canonical": "주야간보호",
+      "entity_type": "service",
+      "slot_hint": "service_scope",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.92,
+      "status": "promoted"
+    },
+    {
+      "expression": "방문요양",
+      "canonical": "방문요양",
+      "entity_type": "service",
+      "slot_hint": "service_scope",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.98,
+      "status": "promoted"
+    },
+    {
+      "expression": "방문목욕",
+      "canonical": "방문목욕",
+      "entity_type": "service",
+      "slot_hint": "service_scope",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.96,
+      "status": "promoted"
+    },
+    {
+      "expression": "방문간호",
+      "canonical": "방문간호",
+      "entity_type": "service",
+      "slot_hint": "service_scope",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.96,
+      "status": "promoted"
+    },
+    {
+      "expression": "통합재가서비스",
+      "canonical": "통합재가서비스",
+      "entity_type": "service",
+      "slot_hint": "service_scope",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.94,
+      "status": "validated"
+    },
+    {
+      "expression": "복지용구",
+      "canonical": "복지용구",
+      "entity_type": "service",
+      "slot_hint": "service_scope",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.95,
+      "status": "promoted"
+    },
+    {
+      "expression": "1등급",
+      "canonical": "장기요양 1등급",
+      "entity_type": "grade",
+      "slot_hint": "recipient_grade",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.99,
+      "status": "promoted"
+    },
+    {
+      "expression": "2등급",
+      "canonical": "장기요양 2등급",
+      "entity_type": "grade",
+      "slot_hint": "recipient_grade",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.99,
+      "status": "promoted"
+    },
+    {
+      "expression": "3등급",
+      "canonical": "장기요양 3등급",
+      "entity_type": "grade",
+      "slot_hint": "recipient_grade",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.99,
+      "status": "promoted"
+    },
+    {
+      "expression": "4등급",
+      "canonical": "장기요양 4등급",
+      "entity_type": "grade",
+      "slot_hint": "recipient_grade",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.99,
+      "status": "promoted"
+    },
+    {
+      "expression": "5등급",
+      "canonical": "장기요양 5등급",
+      "entity_type": "grade",
+      "slot_hint": "recipient_grade",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.99,
+      "status": "promoted"
+    },
+    {
+      "expression": "인지지원등급",
+      "canonical": "인지지원등급",
+      "entity_type": "grade",
+      "slot_hint": "recipient_grade",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.99,
+      "status": "promoted"
+    },
+    {
+      "expression": "본인부담금",
+      "canonical": "본인부담금",
+      "entity_type": "cost_item",
+      "slot_hint": "cost_topic",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.97,
+      "status": "promoted"
+    },
+    {
+      "expression": "감경",
+      "canonical": "본인부담금 감경",
+      "entity_type": "exception",
+      "slot_hint": "exception_context",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.94,
+      "status": "promoted"
+    },
+    {
+      "expression": "가산",
+      "canonical": "가산",
+      "entity_type": "cost_item",
+      "slot_hint": "cost_topic",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.9,
+      "status": "validated"
+    },
+    {
+      "expression": "의사소견서",
+      "canonical": "의사소견서",
+      "entity_type": "form",
+      "slot_hint": "document_type",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.98,
+      "status": "promoted"
+    },
+    {
+      "expression": "급여제공계획서",
+      "canonical": "급여제공계획서",
+      "entity_type": "document",
+      "slot_hint": "document_type",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.97,
+      "status": "promoted"
+    },
+    {
+      "expression": "케어플랜",
+      "canonical": "급여제공계획서",
+      "entity_type": "document",
+      "slot_hint": "document_type",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.9,
+      "status": "validated"
+    },
+    {
+      "expression": "요양보호사",
+      "canonical": "요양보호사",
+      "entity_type": "actor",
+      "slot_hint": "actor_role",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.99,
+      "status": "promoted"
+    },
+    {
+      "expression": "사회복지사",
+      "canonical": "사회복지사",
+      "entity_type": "actor",
+      "slot_hint": "actor_role",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.99,
+      "status": "promoted"
+    },
+    {
+      "expression": "시설장",
+      "canonical": "시설장",
+      "entity_type": "actor",
+      "slot_hint": "actor_role",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.98,
+      "status": "promoted"
+    },
+    {
+      "expression": "신고",
+      "canonical": "신고",
+      "entity_type": "procedure_step",
+      "slot_hint": "legal_action",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.91,
+      "status": "validated"
+    },
+    {
+      "expression": "청구",
+      "canonical": "청구",
+      "entity_type": "procedure_step",
+      "slot_hint": "legal_action",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.93,
+      "status": "validated"
+    },
+    {
+      "expression": "제출",
+      "canonical": "제출",
+      "entity_type": "procedure_step",
+      "slot_hint": "legal_action",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.9,
+      "status": "validated"
+    },
+    {
+      "expression": "평가",
+      "canonical": "평가",
+      "entity_type": "quality_indicator",
+      "slot_hint": "time_scope",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.86,
+      "status": "validated"
+    },
+    {
+      "expression": "입소 초기",
+      "canonical": "입소 초기",
+      "entity_type": "workflow",
+      "slot_hint": "time_scope",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.88,
+      "status": "validated"
+    }
+  ]
+}

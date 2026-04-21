@@ -4,7 +4,12 @@ import * as dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { loadDomainBrain } from '../src/lib/brain';
 import { buildKnowledgeDoctorIssues } from '../src/lib/ragIndex';
-import { buildOntologyGraph, buildOntologyRows, loadGeneratedOntologyManifest } from '../src/lib/ragOntology';
+import {
+  buildOntologyGraph,
+  buildOntologyRows,
+  loadCuratedOntologyManifest,
+  loadGeneratedOntologyManifest,
+} from '../src/lib/ragOntology';
 import { buildStructuredChunks } from '../src/lib/ragStructured';
 import {
   buildChunkRows,
@@ -71,7 +76,12 @@ async function main() {
   const files = await loadKnowledgeFilesForIndex(projectRoot);
   const structuredChunks = buildStructuredChunks(files);
   const brain = loadDomainBrain(projectRoot);
-  const ontologyGraph = buildOntologyGraph(brain, structuredChunks, loadGeneratedOntologyManifest(projectRoot));
+  const ontologyGraph = buildOntologyGraph(
+    brain,
+    structuredChunks,
+    loadGeneratedOntologyManifest(projectRoot),
+    loadCuratedOntologyManifest(projectRoot),
+  );
   const ontologyRows = buildOntologyRows(ontologyGraph);
   const documentVersionRows = buildDocumentVersionRows(files);
   const sectionRows = buildSectionRows(files);

@@ -315,6 +315,53 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
                     </div>
                   </div>
                 )}
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Semantic Frame</p>
+                  <div className="mt-2 space-y-2">
+                    <div className="rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                      <p className="font-semibold text-slate-900">
+                        {retrieval.semanticFrame.primaryIntent}
+                        {retrieval.semanticFrame.secondaryIntents.length > 0
+                          ? ` / ${retrieval.semanticFrame.secondaryIntents.join(', ')}`
+                          : ''}
+                      </p>
+                      <p className="mt-1">Risk {retrieval.semanticFrame.riskLevel}</p>
+                      <p className="mt-1">Terms {retrieval.semanticFrame.canonicalTerms.slice(0, 8).join(', ') || 'none'}</p>
+                    </div>
+
+                    {Object.entries(retrieval.semanticFrame.slots).length > 0 && (
+                      <div className="rounded-2xl bg-slate-50 px-3 py-3">
+                        <p className="text-sm font-semibold text-slate-900">Slots</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {Object.entries(retrieval.semanticFrame.slots).flatMap(([slot, values]) =>
+                            (values ?? []).map((value) => (
+                              <span
+                                key={`${slot}-${value.canonical}`}
+                                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600"
+                              >
+                                {slot}: {value.canonical}
+                              </span>
+                            )),
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {retrieval.assumptions.length > 0 && (
+                      <div className="rounded-2xl bg-amber-50 px-3 py-3">
+                        <p className="text-sm font-semibold text-slate-900">Assumptions</p>
+                        <div className="mt-2 space-y-2">
+                          {retrieval.assumptions.map((assumption) => (
+                            <p key={assumption} className="text-sm leading-6 text-slate-600">
+                              {assumption}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </SectionShell>
 
@@ -340,6 +387,48 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
                     <p className="text-sm text-slate-500">No final evidence documents were selected.</p>
                   )}
                 </div>
+
+                <div className="rounded-2xl bg-slate-50 px-3 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Claim Coverage</p>
+                  <div className="mt-2 grid gap-2 text-sm text-slate-600">
+                    <div>total {retrieval.claimCoverage.totalClaims}</div>
+                    <div>supported {retrieval.claimCoverage.supportedClaims}</div>
+                    <div>partial {retrieval.claimCoverage.partiallySupportedClaims}</div>
+                    <div>unsupported {retrieval.claimCoverage.unsupportedClaims}</div>
+                  </div>
+                </div>
+
+                {retrieval.validationIssues.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Validation Warnings</p>
+                    {retrieval.validationIssues.map((issue, index) => (
+                      <div key={`${issue.code}-${index}`} className="rounded-2xl bg-rose-50 px-3 py-3 text-sm text-slate-700">
+                        <p className="font-semibold text-slate-900">
+                          {issue.severity} / {issue.code}
+                        </p>
+                        <p className="mt-1 leading-6 text-slate-600">{issue.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {(retrieval.usedPromotedConcepts.length > 0 || retrieval.usedValidatedConcepts.length > 0) && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Ontology Status Hits</p>
+                    <div className="flex flex-wrap gap-2">
+                      {retrieval.usedPromotedConcepts.map((label) => (
+                        <span key={`promoted-${label}`} className="rounded-full bg-emerald-50 px-3 py-1 text-xs text-emerald-700">
+                          promoted: {label}
+                        </span>
+                      ))}
+                      {retrieval.usedValidatedConcepts.map((label) => (
+                        <span key={`validated-${label}`} className="rounded-full bg-sky-50 px-3 py-1 text-xs text-sky-700">
+                          validated: {label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </SectionShell>
           </div>

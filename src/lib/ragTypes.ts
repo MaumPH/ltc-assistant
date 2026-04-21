@@ -33,6 +33,50 @@ export type NaturalLanguageQueryType =
   | 'exemption'
   | 'application';
 
+export type SemanticPrimaryIntent =
+  | 'eligibility'
+  | 'compliance'
+  | 'cost'
+  | 'document'
+  | 'workflow'
+  | 'comparison'
+  | 'definition'
+  | 'exception'
+  | 'sanction';
+
+export type SemanticRiskLevel = 'low' | 'medium' | 'high';
+
+export type SemanticSlotKey =
+  | 'service_scope'
+  | 'institution_type'
+  | 'benefit_type'
+  | 'recipient_grade'
+  | 'actor_role'
+  | 'document_type'
+  | 'cost_topic'
+  | 'time_scope'
+  | 'legal_action'
+  | 'exception_context';
+
+export type OntologyConceptStatus = 'candidate' | 'validated' | 'promoted' | 'rejected';
+
+export type OntologyRelationType =
+  | 'alias-of'
+  | 'requires'
+  | 'eligible-for'
+  | 'not-eligible-for'
+  | 'applies-to'
+  | 'not-applies-to'
+  | 'belongs-to'
+  | 'uses-document'
+  | 'has-cost'
+  | 'limited-by'
+  | 'exception-of'
+  | 'conflicts-with'
+  | 'evidenced-by'
+  | 'follows-step'
+  | 'same-as';
+
 export type RetrievalReadiness = 'lexical_only' | 'hybrid_partial' | 'hybrid_ready';
 
 export type GenerationMode = 'user' | 'server';
@@ -186,6 +230,43 @@ export interface ParsedLawReference {
   matchedAlias?: string;
 }
 
+export interface SemanticSlotValue {
+  value: string;
+  canonical: string;
+  confidence: number;
+  source: 'query' | 'heuristic' | 'lexicon' | 'ontology';
+  entityType?: string;
+  status?: Exclude<OntologyConceptStatus, 'rejected'>;
+}
+
+export interface SemanticEntityRef {
+  label: string;
+  canonical: string;
+  entityType: string;
+  confidence: number;
+  source: 'query' | 'heuristic' | 'lexicon' | 'ontology' | 'brain';
+  status?: Exclude<OntologyConceptStatus, 'rejected'>;
+}
+
+export interface SemanticRelationRequest {
+  relation: OntologyRelationType;
+  weight: number;
+  reason: string;
+  source: 'intent' | 'slot' | 'entity';
+}
+
+export interface SemanticFrame {
+  primaryIntent: SemanticPrimaryIntent;
+  secondaryIntents: SemanticPrimaryIntent[];
+  canonicalTerms: string[];
+  entityRefs: SemanticEntityRef[];
+  relationRequests: SemanticRelationRequest[];
+  slots: Partial<Record<SemanticSlotKey, SemanticSlotValue[]>>;
+  assumptions: string[];
+  missingCriticalSlots: SemanticSlotKey[];
+  riskLevel: SemanticRiskLevel;
+}
+
 export interface NaturalLanguageQueryProfile {
   originalQuery: string;
   normalizedQuery: string;
@@ -195,6 +276,7 @@ export interface NaturalLanguageQueryProfile {
   synonymExpansions: string[];
   searchVariants: string[];
   normalizationTrace: QueryNormalizationTraceEntry[];
+  semanticFrame: SemanticFrame;
 }
 
 export interface OntologyEntity {
@@ -216,7 +298,7 @@ export interface OntologyEdge {
   id: string;
   fromEntityId: string;
   toEntityId: string;
-  relation: string;
+  relation: OntologyRelationType | string;
   weight: number;
   metadata?: Record<string, unknown>;
 }
@@ -229,6 +311,7 @@ export interface OntologyHit {
   score: number;
   documentIds: string[];
   depth: number;
+  status?: Exclude<OntologyConceptStatus, 'rejected'>;
 }
 
 export interface GraphExpansionTrace {
@@ -354,6 +437,45 @@ export interface SearchRun {
   stageTrace?: RetrievalStageTrace[];
 }
 
+export interface ClaimPlanItem {
+  id: string;
+  claimType: SemanticPrimaryIntent | 'workflow_step' | 'assumption';
+  canonicalSubject: string;
+  predicate: string;
+  object?: string;
+  requiredEvidenceTypes: string[];
+  supportingEvidenceIds: string[];
+  assumptions: string[];
+}
+
+export interface ClaimPlan {
+  claims: ClaimPlanItem[];
+}
+
+export interface ClaimCoverage {
+  totalClaims: number;
+  supportedClaims: number;
+  partiallySupportedClaims: number;
+  unsupportedClaims: number;
+}
+
+export interface ValidationIssue {
+  code:
+    | 'unsupported-claim'
+    | 'stale-priority'
+    | 'mixed-service-scope'
+    | 'grade-benefit-mismatch'
+    | 'institution-scope-mismatch'
+    | 'ungrounded-cost-number'
+    | 'missing-exception'
+    | 'basis-confusion'
+    | 'insufficient-evidence-composition';
+  severity: 'info' | 'warning' | 'block';
+  message: string;
+  claimId?: string;
+  evidenceIds?: string[];
+}
+
 export interface CompiledPage {
   id: string;
   pageType: 'document-summary' | 'issue-map' | 'comparison-card' | 'evaluation-card';
@@ -468,6 +590,14 @@ export interface BenchmarkCase {
   forbiddenEvidenceDocs?: string[];
   requiredCitationDocs?: string[];
   serviceScopes?: ServiceScopeId[];
+  expectedPrimaryIntent?: SemanticPrimaryIntent;
+  expectedCanonicalTerms?: string[];
+  expectedRelationRequests?: OntologyRelationType[];
+  expectedValidationCodes?: ValidationIssue['code'][];
+  expectedMissingCriticalSlots?: SemanticSlotKey[];
+  expectedRiskLevel?: SemanticRiskLevel;
+  minSupportedClaims?: number;
+  maxUnsupportedClaims?: number;
 }
 
 export interface GroundedAnswer {
@@ -616,8 +746,14 @@ export interface RetrievalDiagnostics {
   normalizationTrace: QueryNormalizationTraceEntry[];
   aliasResolutions: LawAliasResolution[];
   parsedLawRefs: ParsedLawReference[];
+  semanticFrame: SemanticFrame;
+  assumptions: string[];
   ontologyHits: OntologyHit[];
+  usedPromotedConcepts: string[];
+  usedValidatedConcepts: string[];
   graphExpansionTrace: GraphExpansionTrace[];
+  validationIssues: ValidationIssue[];
+  claimCoverage: ClaimCoverage;
   fallbackTriggered: boolean;
   fallbackSources: LawFallbackSource[];
   guardrails: GuardrailResult[];

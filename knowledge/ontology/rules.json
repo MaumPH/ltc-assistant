@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "eligibility-core-evidence",
+      "description": "가능 여부 질문은 법적 근거와 운영 근거 조합을 요구합니다.",
+      "primary_intents": ["eligibility", "compliance"],
+      "required_slots": ["service_scope", "institution_type", "recipient_grade"],
+      "required_evidence": {
+        "legal": 1,
+        "practical": 1
+      }
+    },
+    {
+      "id": "cost-core-evidence",
+      "description": "비용 질문은 법적 근거가 우선되어야 하며 숫자는 직접 근거가 있어야 합니다.",
+      "primary_intents": ["cost"],
+      "required_slots": ["service_scope", "recipient_grade"],
+      "required_evidence": {
+        "legal": 1
+      }
+    },
+    {
+      "id": "exception-needs-qualifier",
+      "description": "예외 질문은 제한조건 또는 단서 근거가 같이 필요합니다.",
+      "primary_intents": ["exception"],
+      "required_slots": ["exception_context"],
+      "required_relations": ["exception-of", "limited-by"]
+    }
+  ]
+}

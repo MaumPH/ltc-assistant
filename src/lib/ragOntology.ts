@@ -4,9 +4,12 @@ import type {
   GraphExpansionTrace,
   NaturalLanguageQueryProfile,
   OntologyAlias,
+  OntologyConceptStatus,
   OntologyEdge,
   OntologyEntity,
   OntologyHit,
+  OntologyRelationType,
+  SemanticSlotKey,
   StructuredChunk,
 } from './ragTypes';
 import type { DomainBrain } from './brain';
@@ -25,7 +28,7 @@ interface GeneratedConceptCandidate {
   confidence: number;
 }
 
-export type GeneratedOntologyStatus = 'candidate' | 'validated' | 'promoted' | 'rejected';
+export type GeneratedOntologyStatus = OntologyConceptStatus;
 
 export interface GeneratedOntologyEvidence {
   documentId?: string;
@@ -34,14 +37,26 @@ export interface GeneratedOntologyEvidence {
   reason?: string;
 }
 
+export interface GeneratedOntologyRelation {
+  relation: OntologyRelationType;
+  target_label: string;
+  target_entity_type?: string;
+  weight?: number;
+  reason?: string;
+}
+
 export interface GeneratedOntologyConcept {
   label: string;
   status?: GeneratedOntologyStatus;
   confidence?: number;
+  entity_type?: string;
   aliases?: string[];
   related_terms?: string[];
+  slot_hints?: SemanticSlotKey[];
+  relations?: GeneratedOntologyRelation[];
   source?: string;
   evidence?: GeneratedOntologyEvidence[];
+  status_reason?: string;
 }
 
 export interface GeneratedOntologyManifest {
@@ -144,9 +159,25 @@ function safeGeneratedOntologyConcepts(value: unknown): GeneratedOntologyConcept
       label: typeof item.label === 'string' ? item.label : '',
       status: normalizeGeneratedStatusValue(item.status),
       confidence: typeof item.confidence === 'number' ? item.confidence : undefined,
+      entity_type: typeof item.entity_type === 'string' ? item.entity_type : undefined,
       aliases: Array.isArray(item.aliases) ? item.aliases.filter((alias): alias is string => typeof alias === 'string') : [],
       related_terms: Array.isArray(item.related_terms)
         ? item.related_terms.filter((term): term is string => typeof term === 'string')
+        : [],
+      slot_hints: Array.isArray(item.slot_hints)
+        ? item.slot_hints.filter((slot): slot is SemanticSlotKey => typeof slot === 'string')
+        : [],
+      relations: Array.isArray(item.relations)
+        ? item.relations
+            .filter((relation): relation is Record<string, unknown> => Boolean(relation) && typeof relation === 'object')
+            .map((relation) => ({
+              relation: typeof relation.relation === 'string' ? (relation.relation as OntologyRelationType) : 'same-as',
+              target_label: typeof relation.target_label === 'string' ? relation.target_label : '',
+              target_entity_type: typeof relation.target_entity_type === 'string' ? relation.target_entity_type : undefined,
+              weight: typeof relation.weight === 'number' ? relation.weight : undefined,
+              reason: typeof relation.reason === 'string' ? relation.reason : undefined,
+            }))
+            .filter((relation) => relation.target_label.trim().length > 0)
         : [],
       source: typeof item.source === 'string' ? item.source : undefined,
       evidence: Array.isArray(item.evidence)
@@ -159,6 +190,7 @@ function safeGeneratedOntologyConcepts(value: unknown): GeneratedOntologyConcept
               reason: typeof evidence.reason === 'string' ? evidence.reason : undefined,
             }))
         : [],
+      status_reason: typeof item.status_reason === 'string' ? item.status_reason : undefined,
     }))
     .filter((item) => item.label.trim().length > 0);
 }
@@ -170,7 +202,15 @@ function normalizeGeneratedStatusValue(value: unknown): GeneratedOntologyStatus 
 }
 
 export function loadGeneratedOntologyManifest(projectRoot: string): GeneratedOntologyManifest {
-  const manifestPath = path.join(projectRoot, 'knowledge', 'ontology', 'generated.json');
+  return loadOntologyManifest(projectRoot, 'generated.json');
+}
+
+export function loadCuratedOntologyManifest(projectRoot: string): GeneratedOntologyManifest {
+  return loadOntologyManifest(projectRoot, 'curated.json');
+}
+
+function loadOntologyManifest(projectRoot: string, fileName: string): GeneratedOntologyManifest {
+  const manifestPath = path.join(projectRoot, 'knowledge', 'ontology', fileName);
   if (!fs.existsSync(manifestPath)) {
     return { ...EMPTY_GENERATED_ONTOLOGY, concepts: [] };
   }
@@ -248,6 +288,99 @@ function extractDocumentConceptCandidates(
   }
 
   return Array.from(candidates.values()).slice(0, 24);
+}
+
+function guessConceptEntityType(label: string): string | undefined {
+  if (/등급/u.test(label)) return 'grade';
+  if (/기준|현황|조건|평가/u.test(label)) return 'condition';
+  if (/본인부담|비용|가산|감경/u.test(label)) return 'cost_item';
+  if (/예외|단서/u.test(label)) return 'exception';
+  if (/서식|서류|계획서/u.test(label)) return 'document';
+  if (/요양보호사|사회복지사|시설장/u.test(label)) return 'actor';
+  if (/기관|시설|요양원/u.test(label)) return 'institution';
+  if (/주야간보호|방문요양|방문목욕|방문간호|복지용구/u.test(label)) return 'service';
+  if (/절차|방법|신고|청구|작성|제출/u.test(label)) return 'procedure_step';
+  return undefined;
+}
+
+function guessSlotHints(label: string): SemanticSlotKey[] {
+  const hints = new Set<SemanticSlotKey>();
+  if (/주야간보호|방문요양|방문목욕|방문간호|복지용구|시설급여/u.test(label)) {
+    hints.add('service_scope');
+  }
+  if (/요양원|시설|기관/u.test(label)) {
+    hints.add('institution_type');
+  }
+  if (/등급/u.test(label)) {
+    hints.add('recipient_grade');
+  }
+  if (/의사소견서|급여제공계획서|케어플랜|서류|문서/u.test(label)) {
+    hints.add('document_type');
+  }
+  if (/본인부담|비용|감경|가산/u.test(label)) {
+    hints.add('cost_topic');
+  }
+  if (/예외|단서|감경/u.test(label)) {
+    hints.add('exception_context');
+  }
+  return Array.from(hints);
+}
+
+function extractGeneratedRelationCandidates(
+  label: string,
+  representative: StructuredChunk,
+  chunks: StructuredChunk[],
+): GeneratedOntologyRelation[] {
+  const compactText = compactQueryText(
+    [representative.docTitle, representative.parentSectionTitle, ...chunks.slice(0, 6).map((chunk) => chunk.searchText)].join(' '),
+  );
+  const relations: GeneratedOntologyRelation[] = [];
+
+  const addRelation = (
+    relation: OntologyRelationType,
+    targetLabel: string,
+    targetEntityType: string,
+    weight: number,
+    reason: string,
+  ) => {
+    const key = `${relation}:${compactQueryText(targetLabel)}`;
+    if (relations.some((item) => `${item.relation}:${compactQueryText(item.target_label)}` === key)) return;
+    relations.push({
+      relation,
+      target_label: targetLabel,
+      target_entity_type: targetEntityType,
+      weight,
+      reason,
+    });
+  };
+
+  if (/인력기준|인력배치|직원배치|인력/u.test(label)) {
+    addRelation('same-as', '직원배치기준', 'condition', 0.9, '인력 관련 후보는 배치기준 개념과 연결합니다.');
+    if (compactText.includes(compactQueryText('주야간보호'))) {
+      addRelation('applies-to', '주야간보호기관', 'institution', 1.05, '인력기준은 주야간보호기관 맥락에서 자주 나타납니다.');
+    }
+    if (compactText.includes(compactQueryText('노인요양시설')) || compactText.includes(compactQueryText('요양원'))) {
+      addRelation('applies-to', '노인요양시설', 'institution', 1.05, '인력기준은 시설 유형과 함께 해석됩니다.');
+    }
+  }
+
+  if (/계획|계획서|케어플랜/u.test(label)) {
+    addRelation('uses-document', '급여제공계획서', 'document', 0.95, '계획 관련 개념은 계획서 문서와 직접 연결됩니다.');
+  }
+
+  if (/본인부담|비용/u.test(label)) {
+    addRelation('has-cost', '장기요양급여', 'benefit', 1.0, '비용 개념은 급여와 함께 탐색해야 합니다.');
+  }
+
+  if (/감경|예외/u.test(label)) {
+    addRelation('exception-of', '본인부담금', 'cost_item', 1.0, '감경/예외는 본인부담금과 연결됩니다.');
+  }
+
+  if (/서류|서식|의사소견서/u.test(label)) {
+    addRelation('uses-document', label, guessConceptEntityType(label) ?? 'document', 0.9, '서류 질문은 문서 연결이 필요합니다.');
+  }
+
+  return relations.slice(0, 6);
 }
 
 function significantOntologyTokens(value: string): string[] {
@@ -396,10 +529,28 @@ function normalizeGeneratedConcept(concept: GeneratedOntologyConcept): Generated
       typeof concept.confidence === 'number'
         ? Math.max(0, Math.min(1, Number(concept.confidence.toFixed(3))))
         : undefined,
+    entity_type: concept.entity_type?.trim() || undefined,
     aliases: uniqueStrings(concept.aliases ?? []),
     related_terms: uniqueStrings(concept.related_terms ?? []),
+    slot_hints: uniqueStrings(concept.slot_hints ?? []).filter(
+      (slot): slot is SemanticSlotKey => typeof slot === 'string',
+    ),
+    relations: (concept.relations ?? [])
+      .filter((relation) => relation.target_label.trim().length > 0)
+      .map((relation) => ({
+        relation: relation.relation,
+        target_label: cleanConceptCandidate(relation.target_label),
+        target_entity_type: relation.target_entity_type?.trim() || undefined,
+        weight:
+          typeof relation.weight === 'number'
+            ? Math.max(0.1, Number(relation.weight.toFixed(3)))
+            : undefined,
+        reason: relation.reason?.trim() || undefined,
+      }))
+      .filter((relation) => relation.target_label.length > 0),
     source: concept.source,
     evidence: uniqueEvidence(concept.evidence ?? []),
+    status_reason: concept.status_reason?.trim() || undefined,
   };
 }
 
@@ -420,10 +571,23 @@ function mergeGeneratedConcepts(
     label: current.label || next.label,
     status,
     confidence: Math.max(current.confidence ?? 0, next.confidence ?? 0) || undefined,
+    entity_type: current.entity_type ?? next.entity_type,
     aliases: uniqueStrings([...(current.aliases ?? []), ...(next.aliases ?? [])]),
     related_terms: uniqueStrings([...(current.related_terms ?? []), ...(next.related_terms ?? [])]),
+    slot_hints: uniqueStrings([...(current.slot_hints ?? []), ...(next.slot_hints ?? [])]).filter(
+      (slot): slot is SemanticSlotKey => typeof slot === 'string',
+    ),
+    relations: [
+      ...new Map(
+        [...(current.relations ?? []), ...(next.relations ?? [])].map((relation) => [
+          `${relation.relation}:${compactQueryText(relation.target_label)}`,
+          relation,
+        ]),
+      ).values(),
+    ],
     source: current.source ?? next.source,
     evidence: uniqueEvidence([...(current.evidence ?? []), ...(next.evidence ?? [])]),
+    status_reason: current.status_reason ?? next.status_reason,
   };
 }
 
@@ -456,6 +620,13 @@ export function buildGeneratedOntologyManifest(
         label: candidate.label,
         status: 'candidate',
         confidence: candidate.confidence,
+        entity_type: guessConceptEntityType(candidate.label),
+        slot_hints: guessSlotHints(candidate.label),
+        relations: extractGeneratedRelationCandidates(
+          candidate.label,
+          representative,
+          chunksByDocumentId.get(representative.documentId) ?? [],
+        ),
         source: candidate.source,
         evidence: [
           {
@@ -480,8 +651,16 @@ export function buildGeneratedOntologyManifest(
 }
 
 export function writeGeneratedOntologyManifest(projectRoot: string, manifest: GeneratedOntologyManifest): string {
+  return writeOntologyManifest(projectRoot, manifest, 'generated.json');
+}
+
+export function writeCuratedOntologyManifest(projectRoot: string, manifest: GeneratedOntologyManifest): string {
+  return writeOntologyManifest(projectRoot, manifest, 'curated.json');
+}
+
+function writeOntologyManifest(projectRoot: string, manifest: GeneratedOntologyManifest, fileName: string): string {
   const ontologyRoot = path.join(projectRoot, 'knowledge', 'ontology');
-  const manifestPath = path.join(ontologyRoot, 'generated.json');
+  const manifestPath = path.join(ontologyRoot, fileName);
   fs.mkdirSync(ontologyRoot, { recursive: true });
   fs.writeFileSync(manifestPath, `${JSON.stringify(buildGeneratedOntologyManifest([], manifest), null, 2)}\n`, 'utf8');
   return manifestPath;
@@ -691,20 +870,24 @@ function attachDocumentEntities(graph: OntologyGraph, chunks: StructuredChunk[],
   }
 }
 
-function statusWeight(status: GeneratedOntologyStatus): number {
+function statusWeight(status: GeneratedOntologyStatus, manifestKind: 'generated' | 'curated' = 'generated'): number {
   switch (status) {
     case 'promoted':
-      return 1.35;
+      return manifestKind === 'curated' ? 1.55 : 1.35;
     case 'validated':
-      return 1.15;
+      return manifestKind === 'curated' ? 1.25 : 1.15;
     case 'candidate':
-      return 0.78;
+      return manifestKind === 'curated' ? 0.85 : 0.78;
     case 'rejected':
       return 0;
   }
 }
 
-function attachGeneratedOntologyManifest(graph: OntologyGraph, manifest: GeneratedOntologyManifest): void {
+function attachGeneratedOntologyManifest(
+  graph: OntologyGraph,
+  manifest: GeneratedOntologyManifest,
+  manifestKind: 'generated' | 'curated' = 'generated',
+): void {
   for (const concept of manifest.concepts) {
     const status = concept.status ?? 'candidate';
     if (status === 'rejected') continue;
@@ -712,42 +895,80 @@ function attachGeneratedOntologyManifest(graph: OntologyGraph, manifest: Generat
     const label = cleanConceptCandidate(concept.label);
     if (!label) continue;
 
-    const confidence = Math.max(0, Math.min(1, concept.confidence ?? statusWeight(status)));
-    const conceptEntityId = addEntity(graph, 'concept', label, {
-      kind: 'generated-ontology-concept',
+    const confidence = Math.max(0, Math.min(1, concept.confidence ?? statusWeight(status, manifestKind)));
+    const conceptEntityId = addEntity(graph, concept.entity_type ?? 'concept', label, {
+      kind: `${manifestKind}-ontology-concept`,
       status,
       confidence,
-      source: concept.source ?? 'generated-ontology',
+      source: concept.source ?? `${manifestKind}-ontology`,
+      slotHints: concept.slot_hints ?? [],
+      statusReason: concept.status_reason,
     });
-    addAlias(graph, conceptEntityId, label, `generated-${status}-label`, statusWeight(status));
+    addAlias(graph, conceptEntityId, label, `${manifestKind}-${status}-label`, statusWeight(status, manifestKind));
 
     for (const alias of uniqueStrings(concept.aliases ?? [])) {
-      addAlias(graph, conceptEntityId, alias, `generated-${status}-alias`, statusWeight(status));
+      addAlias(graph, conceptEntityId, alias, `${manifestKind}-${status}-alias`, statusWeight(status, manifestKind));
     }
 
     for (const related of uniqueStrings(concept.related_terms ?? [])) {
       const relatedLabel = cleanConceptCandidate(related);
       if (!relatedLabel) continue;
-      const relatedEntityId = addEntity(graph, 'concept', relatedLabel, {
-        kind: 'generated-ontology-related',
+      const relatedEntityId = addEntity(graph, concept.entity_type ?? 'concept', relatedLabel, {
+        kind: `${manifestKind}-ontology-related`,
         status,
         confidence,
-        source: concept.source ?? 'generated-ontology',
+        source: concept.source ?? `${manifestKind}-ontology`,
       });
-      addAlias(graph, relatedEntityId, relatedLabel, `generated-${status}-related`, Math.max(0.7, statusWeight(status) - 0.15));
-      addEdge(graph, conceptEntityId, relatedEntityId, 'generated-related-term', Math.max(0.6, statusWeight(status) - 0.2), {
+      addAlias(
+        graph,
+        relatedEntityId,
+        relatedLabel,
+        `${manifestKind}-${status}-related`,
+        Math.max(0.7, statusWeight(status, manifestKind) - 0.15),
+      );
+      addEdge(graph, conceptEntityId, relatedEntityId, 'same-as', Math.max(0.6, statusWeight(status, manifestKind) - 0.2), {
         status,
-        source: concept.source ?? 'generated-ontology',
+        source: concept.source ?? `${manifestKind}-ontology`,
       });
+    }
+
+    for (const relation of concept.relations ?? []) {
+      const targetLabel = cleanConceptCandidate(relation.target_label);
+      if (!targetLabel) continue;
+      const targetEntityId = addEntity(graph, relation.target_entity_type ?? 'concept', targetLabel, {
+        kind: `${manifestKind}-ontology-related-target`,
+        status,
+        confidence: relation.weight ?? confidence,
+        source: concept.source ?? `${manifestKind}-ontology`,
+      });
+      addAlias(
+        graph,
+        targetEntityId,
+        targetLabel,
+        `${manifestKind}-${status}-relation-target`,
+        Math.max(0.65, statusWeight(status, manifestKind) - 0.1),
+      );
+      addEdge(
+        graph,
+        conceptEntityId,
+        targetEntityId,
+        relation.relation,
+        relation.weight ?? statusWeight(status, manifestKind),
+        {
+          status,
+          source: concept.source ?? `${manifestKind}-ontology`,
+          reason: relation.reason,
+        },
+      );
     }
 
     for (const document of resolveEvidenceDocuments(graph, concept.evidence)) {
       bindDocument(graph, conceptEntityId, document.documentId, document.path);
       const documentEntityId = graph.documentEntityIdByDocumentId.get(document.documentId);
       if (documentEntityId) {
-        addEdge(graph, documentEntityId, conceptEntityId, 'supports-generated-concept', statusWeight(status), {
+        addEdge(graph, documentEntityId, conceptEntityId, 'evidenced-by', statusWeight(status, manifestKind), {
           status,
-          source: concept.source ?? 'generated-ontology',
+          source: concept.source ?? `${manifestKind}-ontology`,
         });
       }
     }
@@ -758,11 +979,13 @@ export function buildOntologyGraph(
   brain: DomainBrain,
   chunks: StructuredChunk[],
   generatedOntology: GeneratedOntologyManifest = EMPTY_GENERATED_ONTOLOGY,
+  curatedOntology: GeneratedOntologyManifest = EMPTY_GENERATED_ONTOLOGY,
 ): OntologyGraph {
   const graph = createGraph();
   attachBrainEntities(graph, brain);
   attachDocumentEntities(graph, chunks, brain);
-  attachGeneratedOntologyManifest(graph, generatedOntology);
+  attachGeneratedOntologyManifest(graph, curatedOntology, 'curated');
+  attachGeneratedOntologyManifest(graph, generatedOntology, 'generated');
   return graph;
 }
 
@@ -824,6 +1047,10 @@ function lookupEntityHits(graph: OntologyGraph, profile: NaturalLanguageQueryPro
         score,
         documentIds: Array.from(graph.documentIdsByEntityId.get(entity.id) ?? []),
         depth: 0,
+        status:
+          typeof entity.metadata?.status === 'string' && entity.metadata.status !== 'rejected'
+            ? (entity.metadata.status as OntologyHit['status'])
+            : undefined,
       });
     }
 
@@ -842,6 +1069,10 @@ function lookupEntityHits(graph: OntologyGraph, profile: NaturalLanguageQueryPro
           score,
           documentIds: Array.from(graph.documentIdsByEntityId.get(entity.id) ?? []),
           depth: 0,
+          status:
+            typeof entity.metadata?.status === 'string' && entity.metadata.status !== 'rejected'
+              ? (entity.metadata.status as OntologyHit['status'])
+              : undefined,
         });
       }
     }
@@ -863,6 +1094,10 @@ function lookupEntityHits(graph: OntologyGraph, profile: NaturalLanguageQueryPro
           score,
           documentIds: Array.from(graph.documentIdsByEntityId.get(entity.id) ?? []),
           depth: 0,
+          status:
+            typeof entity.metadata?.status === 'string' && entity.metadata.status !== 'rejected'
+              ? (entity.metadata.status as OntologyHit['status'])
+              : undefined,
         });
       }
     }
@@ -878,14 +1113,19 @@ export function expandDocumentsWithOntology(
   depth = 1,
 ): OntologySearchResult {
   const directHits = lookupEntityHits(graph, profile).slice(0, 12);
+  const relationWeights = new Map(
+    (profile.semanticFrame?.relationRequests ?? []).map((request) => [request.relation, request.weight]),
+  );
   const queue: Array<{ entityId: string; depth: number }> = [];
   const visited = new Set<string>();
   const documentScoreBoosts = new Map<string, number>();
   const expandedEntityIds = new Set<string>();
 
   for (const hit of directHits) {
-    queue.push({ entityId: hit.entityId, depth: 0 });
-    visited.add(hit.entityId);
+    if (hit.status !== 'candidate') {
+      queue.push({ entityId: hit.entityId, depth: 0 });
+      visited.add(hit.entityId);
+    }
     for (const documentId of hit.documentIds) {
       documentScoreBoosts.set(documentId, (documentScoreBoosts.get(documentId) ?? 0) + hit.score);
     }
@@ -909,13 +1149,16 @@ export function expandDocumentsWithOntology(
       const nextEntityId = edge.fromEntityId === current.entityId ? edge.toEntityId : edge.fromEntityId;
       const nextDepth = current.depth + 1;
       const docs = Array.from(graph.documentIdsByEntityId.get(nextEntityId) ?? []);
+      const relationWeight = relationWeights.get(edge.relation as OntologyRelationType) ?? 1;
 
       for (const documentId of docs) {
-        const boost = Math.max(2, edge.weight * (nextDepth === 1 ? 6 : 3));
+        const boost = Math.max(2, edge.weight * relationWeight * (nextDepth === 1 ? 6 : 3));
         documentScoreBoosts.set(documentId, (documentScoreBoosts.get(documentId) ?? 0) + boost);
       }
 
       if (visited.has(nextEntityId)) continue;
+      const nextEntity = graph.entityById.get(nextEntityId);
+      if (nextEntity?.metadata?.status === 'candidate') continue;
       visited.add(nextEntityId);
       queue.push({ entityId: nextEntityId, depth: nextDepth });
     }

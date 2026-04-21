@@ -1,15 +1,41 @@
+import fs from 'fs';
+import path from 'path';
 import type {
   LawAliasResolution,
   NaturalLanguageQueryProfile,
   NaturalLanguageQueryType,
+  OntologyConceptStatus,
+  OntologyRelationType,
   ParsedLawReference,
   QueryNormalizationTraceEntry,
+  SemanticEntityRef,
+  SemanticFrame,
+  SemanticPrimaryIntent,
+  SemanticRelationRequest,
+  SemanticSlotKey,
+  SemanticSlotValue,
 } from './ragTypes';
+import { tokenize } from './ragMetadata';
 
 interface LawAliasEntry {
   canonical: string;
   aliases: string[];
   alternatives?: string[];
+}
+
+interface LexiconEntry {
+  expression: string;
+  canonical: string;
+  entity_type: string;
+  slot_hint?: SemanticSlotKey;
+  mode_scope?: string[];
+  confidence?: number;
+  status?: OntologyConceptStatus;
+}
+
+interface LexiconManifest {
+  schema_version?: number;
+  entries?: LexiconEntry[];
 }
 
 interface ParsedSearchQuery {
@@ -22,26 +48,35 @@ interface ParsedSearchQuery {
   matchedAlias?: string;
 }
 
-const BASIC_CHAR_MAP = new Map<string, string>([
-  ['벚', '법'],
-  ['벆', '법'],
-  ['벋', '법'],
-  ['뻡', '법'],
-  ['볍', '법'],
-  ['뱝', '법'],
-  ['셰', '세'],
-  ['쉐', '세'],
-  ['괸', '관'],
-  ['곽', '관'],
-  ['엄', '업'],
-  ['얼', '업'],
-]);
+const FALLBACK_LEXICON_ENTRIES: LexiconEntry[] = [
+  { expression: '요양원', canonical: '노인요양시설', entity_type: 'institution', slot_hint: 'institution_type', confidence: 0.98, status: 'promoted' },
+  { expression: '시설급여', canonical: '시설급여', entity_type: 'benefit', slot_hint: 'benefit_type', confidence: 0.96, status: 'promoted' },
+  { expression: '주야간보호', canonical: '주야간보호', entity_type: 'service', slot_hint: 'service_scope', confidence: 0.98, status: 'promoted' },
+  { expression: '데이케어', canonical: '주야간보호', entity_type: 'service', slot_hint: 'service_scope', confidence: 0.92, status: 'promoted' },
+  { expression: '방문요양', canonical: '방문요양', entity_type: 'service', slot_hint: 'service_scope', confidence: 0.98, status: 'promoted' },
+  { expression: '방문목욕', canonical: '방문목욕', entity_type: 'service', slot_hint: 'service_scope', confidence: 0.96, status: 'promoted' },
+  { expression: '방문간호', canonical: '방문간호', entity_type: 'service', slot_hint: 'service_scope', confidence: 0.96, status: 'promoted' },
+  { expression: '복지용구', canonical: '복지용구', entity_type: 'service', slot_hint: 'service_scope', confidence: 0.95, status: 'promoted' },
+  { expression: '1등급', canonical: '장기요양 1등급', entity_type: 'grade', slot_hint: 'recipient_grade', confidence: 0.99, status: 'promoted' },
+  { expression: '2등급', canonical: '장기요양 2등급', entity_type: 'grade', slot_hint: 'recipient_grade', confidence: 0.99, status: 'promoted' },
+  { expression: '3등급', canonical: '장기요양 3등급', entity_type: 'grade', slot_hint: 'recipient_grade', confidence: 0.99, status: 'promoted' },
+  { expression: '4등급', canonical: '장기요양 4등급', entity_type: 'grade', slot_hint: 'recipient_grade', confidence: 0.99, status: 'promoted' },
+  { expression: '5등급', canonical: '장기요양 5등급', entity_type: 'grade', slot_hint: 'recipient_grade', confidence: 0.99, status: 'promoted' },
+  { expression: '인지지원등급', canonical: '인지지원등급', entity_type: 'grade', slot_hint: 'recipient_grade', confidence: 0.99, status: 'promoted' },
+  { expression: '본인부담금', canonical: '본인부담금', entity_type: 'cost_item', slot_hint: 'cost_topic', confidence: 0.97, status: 'promoted' },
+  { expression: '감경', canonical: '본인부담금 감경', entity_type: 'exception', slot_hint: 'exception_context', confidence: 0.94, status: 'promoted' },
+  { expression: '가산', canonical: '가산', entity_type: 'cost_item', slot_hint: 'cost_topic', confidence: 0.9, status: 'validated' },
+  { expression: '의사소견서', canonical: '의사소견서', entity_type: 'form', slot_hint: 'document_type', confidence: 0.98, status: 'promoted' },
+  { expression: '급여제공계획서', canonical: '급여제공계획서', entity_type: 'document', slot_hint: 'document_type', confidence: 0.97, status: 'promoted' },
+  { expression: '케어플랜', canonical: '급여제공계획서', entity_type: 'document', slot_hint: 'document_type', confidence: 0.9, status: 'validated' },
+  { expression: '요양보호사', canonical: '요양보호사', entity_type: 'actor', slot_hint: 'actor_role', confidence: 0.99, status: 'promoted' },
+  { expression: '사회복지사', canonical: '사회복지사', entity_type: 'actor', slot_hint: 'actor_role', confidence: 0.99, status: 'promoted' },
+  { expression: '시설장', canonical: '시설장', entity_type: 'actor', slot_hint: 'actor_role', confidence: 0.98, status: 'promoted' },
+  { expression: '평가', canonical: '평가', entity_type: 'quality_indicator', slot_hint: 'time_scope', confidence: 0.86, status: 'validated' },
+  { expression: '입소 초기', canonical: '입소 초기', entity_type: 'workflow', slot_hint: 'time_scope', confidence: 0.88, status: 'validated' },
+];
 
 const LAW_ALIAS_ENTRIES: LawAliasEntry[] = [
-  {
-    canonical: '대한민국헌법',
-    aliases: ['헌법', '헌 법'],
-  },
   {
     canonical: '노인장기요양보험법',
     aliases: ['장기요양보험법', '장기요양법', '노인장기요양법'],
@@ -57,190 +92,111 @@ const LAW_ALIAS_ENTRIES: LawAliasEntry[] = [
   },
   {
     canonical: '장기요양급여 제공기준 및 급여비용 산정방법 등에 관한 고시',
-    aliases: ['장기요양급여 고시', '급여비용 고시', '급여제공기준', '급여비용 산정방법 고시'],
+    aliases: ['장기요양급여 고시', '급여비용 고시', '급여제공기준 고시'],
   },
   {
     canonical: '노인복지법',
-    aliases: ['노복법', '노인복지 법'],
+    aliases: ['노복법'],
   },
   {
-    canonical: '의료법',
-    aliases: ['의료 법'],
-  },
-  {
-    canonical: '근로기준법',
-    aliases: ['근기법', '근로법'],
-  },
-  {
-    canonical: '산업안전보건법',
-    aliases: ['산안법'],
-    alternatives: ['산업안전보건법 시행령', '산업안전보건법 시행규칙', '산업안전보건기준에 관한 규칙'],
-  },
-  {
-    canonical: '산업안전보건기준에 관한 규칙',
-    aliases: ['산안기준규칙', '산안규칙', '안전보건규칙', '안전보건기준규칙'],
-    alternatives: ['산업안전보건법', '산업안전보건법 시행령'],
-  },
-  {
-    canonical: '중대재해 처벌 등에 관한 법률',
-    aliases: ['중대재해처벌법', '중처법', '중대재해법'],
-    alternatives: ['산업안전보건법'],
-  },
-  {
-    canonical: '개인정보 보호법',
-    aliases: ['개보법', '개인정보법', '개인정보보호법'],
-  },
-  {
-    canonical: '국민건강보험법',
-    aliases: ['건보법', '국건법'],
-  },
-  {
-    canonical: '관세법',
-    aliases: ['관세벚', '관세요', '관세 볍', '관세 볍률'],
-    alternatives: ['관세법 시행령', '관세법 시행규칙'],
-  },
-];
-
-const QUERY_TERM_EXPANSIONS: Array<{ triggers: string[]; expansions: string[] }> = [
-  {
-    triggers: ['뭐 봐야', '뭘 봐야', '뭐를 봐야', '무엇을 봐야'],
-    expansions: ['준비', '체크리스트', '확인사항'],
-  },
-  {
-    triggers: ['뭐 해야', '뭘 해야', '무엇을 해야'],
-    expansions: ['업무', '체크리스트', '준비'],
-  },
-  {
-    triggers: ['어떻게', '어떡해'],
-    expansions: ['절차', '방법', '순서'],
-  },
-  {
-    triggers: ['필수냐', '필수인가', '의무냐', '의무인가'],
-    expansions: ['필수', '의무', '법정'],
-  },
-  {
-    triggers: ['언제까지'],
-    expansions: ['기한', '시점'],
-  },
-  {
-    triggers: ['준비할 것', '준비물'],
-    expansions: ['준비', '체크리스트', '증빙'],
-  },
-  {
-    triggers: ['새 수급자', '수급자 받으면', '처음 오는 수급자', '뭐부터 해야 해'],
-    expansions: ['신규 수급자', '입소 초기', '초기 업무', '급여제공계획', '상담'],
-  },
-];
-
-const QUESTION_INTENT_EXPANSIONS: Array<{ patterns: RegExp[]; expansions: string[] }> = [
-  {
-    patterns: [/이(?:게|거)\s*뭐/u, /뭐야/u, /무슨\s*뜻/u, /무엇(?:인가|인지)?/u],
-    expansions: ['정의', '개념', '무엇인가'],
-  },
-  {
-    patterns: [/어떻게\s*(?:해|하|하면|진행|처리|준비)?/u, /어떡해/u, /방법/u],
-    expansions: ['절차', '방법', '순서'],
-  },
-  {
-    patterns: [/하면\s*돼/u, /해도\s*(?:돼|되|되나|되나요)/u, /해야\s*(?:돼|되|하나|되나|하나요)/u, /가능(?:해|한가|한지|하나)?/u, /되나요/u],
-    expansions: ['가능 여부', '해도 되는지', '필수', '의무', '기준'],
-  },
-  {
-    patterns: [/뭐\s*(?:준비|필요|챙겨|해야)/u, /뭘\s*(?:준비|필요|챙겨|해야)/u, /무엇을\s*(?:준비|필요|챙겨|해야)/u, /준비물/u, /확인사항/u],
-    expansions: ['체크리스트', '준비', '확인사항'],
-  },
-];
-
-const DOMAIN_CONCEPT_EXPANSIONS: Array<{
-  triggers: string[];
-  expansions: string[];
-  requiresAny?: string[];
-}> = [
-  {
-    triggers: [
-      '인력현황',
-      '인력 현황',
-      '인원현황',
-      '인원 현황',
-      '직원현황',
-      '직원 현황',
-      '근무인력',
-      '근무 인력',
-      '인력배치',
-      '인력 배치',
-      '직원배치',
-      '직원 배치',
-      '배치기준',
-      '배치 기준',
-      '인력기준',
-      '인력 기준',
-      '추가배치',
-      '추가 배치',
-    ],
-    expansions: [
-      '인력기준',
-      '인력배치기준',
-      '직원배치기준',
-      '직원 현황',
-      '인력신고 현황',
-      '인력추가배치 가산',
-      '시설기준 및 직원배치기준',
-    ],
-  },
-  {
-    triggers: ['몇명', '몇 명', '몇명이', '몇 명이', '몇명씩', '몇 명씩', '몇명을', '몇 명을'],
-    requiresAny: ['인력', '인원', '직원', '종사자', '요양보호사', '사회복지사', '간호'],
-    expansions: [
-      '인력기준',
-      '인력배치기준',
-      '직원배치기준',
-      '이용자 수 대비 배치기준',
-      '시설기준 및 직원배치기준',
-    ],
+    canonical: '의료급여법',
+    aliases: ['의료급여'],
   },
 ];
 
 const QUERY_TYPE_PATTERNS: Array<{ type: NaturalLanguageQueryType; patterns: RegExp[] }> = [
-  { type: 'exemption', patterns: [/면제/u, /감면/u, /비과세/u] },
-  { type: 'consequence', patterns: [/벌칙/u, /위반/u, /과태료/u, /처벌/u] },
-  { type: 'comparison', patterns: [/차이/u, /비교/u, /구분/u, /vs/i] },
-  {
-    type: 'checklist',
-    patterns: [/체크리스트/u, /준비물/u, /확인사항/u, /뭐\s*(?:준비|필요|챙겨|해야)/u, /뭘\s*(?:준비|필요|챙겨|해야)/u, /무엇을\s*(?:준비|필요|챙겨|해야)/u],
-  },
-  { type: 'procedure', patterns: [/절차/u, /방법/u, /어떻게\s*(?:해|하|하면|진행|처리|준비)?/u, /어떡해/u, /신청/u, /준비/u, /순서/u, /단계/u] },
-  {
-    type: 'requirement',
-    patterns: [/요건/u, /자격/u, /가능/u, /필수/u, /의무/u, /하면\s*돼/u, /해도\s*(?:돼|되|되나|되나요)/u, /해야\s*(?:돼|되|하나|되나|하나요)/u, /되나요/u],
-  },
-  { type: 'scope', patterns: [/세율/u, /얼마/u, /범위/u, /금액/u, /기간/u, /언제까지/u] },
-  { type: 'definition', patterns: [/이(?:게|거)\s*뭐/u, /뭐야/u, /무슨\s*뜻/u, /이란/u, /뜻/u, /정의/u, /무엇/u] },
-  { type: 'application', patterns: [/적용/u, /해당/u, /가능한가/u, /되는가/u] },
+  { type: 'comparison', patterns: [/차이/u, /비교/u, /구분/u, /\bvs\b/i] },
+  { type: 'checklist', patterns: [/체크리스트/u, /뭐\s*준비/u, /무엇\s*준비/u, /확인사항/u, /챙겨/u] },
+  { type: 'procedure', patterns: [/어떻게/u, /절차/u, /방법/u, /순서/u, /진행/u, /신청/u, /제출/u] },
+  { type: 'requirement', patterns: [/가능/u, /될까/u, /되나/u, /돼/u, /수\s*있/u, /해도/u, /필수/u, /해야/u, /의무/u, /대상/u, /조건/u] },
+  { type: 'scope', patterns: [/얼마/u, /금액/u, /범위/u, /기간/u, /언제까지/u] },
+  { type: 'consequence', patterns: [/위반/u, /제재/u, /처분/u, /벌점/u] },
+  { type: 'exemption', patterns: [/예외/u, /감경/u, /면제/u, /제외/u] },
+  { type: 'definition', patterns: [/뭐야/u, /무엇/u, /정의/u, /개념/u, /뜻/u] },
 ];
 
-const aliasLookup = new Map<string, LawAliasEntry>();
+const QUERY_TERM_EXPANSIONS: Array<{ triggers: string[]; expansions: string[] }> = [
+  { triggers: ['뭐야', '무엇', '정의', '개념', '뜻'], expansions: ['정의', '개념', '무엇인가'] },
+  { triggers: ['뭐 준비', '무엇 준비', '챙겨'], expansions: ['체크리스트', '확인사항', '준비서류'] },
+  { triggers: ['어떻게', '방법', '절차'], expansions: ['절차', '방법', '순서'] },
+  { triggers: ['가능', '될까', '되나', '돼', '수 있어', '해도', '대상'], expansions: ['가능 여부', '해도 되는지', '적용 조건'] },
+  { triggers: ['본인부담', '비용', '금액'], expansions: ['본인부담금', '급여비용', '산정기준'] },
+  { triggers: ['예외', '감경', '면제'], expansions: ['예외', '단서', '제외 기준'] },
+  { triggers: ['인력현황', '직원현황', '인력배치'], expansions: ['인력기준', '인력배치기준', '직원배치기준', '인력신고 현황'] },
+];
 
-for (const entry of LAW_ALIAS_ENTRIES) {
-  aliasLookup.set(normalizeAliasKey(entry.canonical), entry);
-  for (const alias of entry.aliases) {
-    aliasLookup.set(normalizeAliasKey(alias), entry);
-  }
-}
+const RELATION_TO_QUERY_TERMS: Record<OntologyRelationType, string[]> = {
+  'alias-of': ['동의어', '같은 용어'],
+  requires: ['필요 서류', '요건', '필수'],
+  'eligible-for': ['대상', '가능 여부', '적용 조건'],
+  'not-eligible-for': ['제외', '불가', '제한'],
+  'applies-to': ['적용 대상', '해당 기준'],
+  'not-applies-to': ['비적용', '예외 적용 제외'],
+  'belongs-to': ['분류', '소속'],
+  'uses-document': ['서류', '문서', '작성'],
+  'has-cost': ['본인부담금', '비용', '산정'],
+  'limited-by': ['제한', '조건', '상한'],
+  'exception-of': ['예외', '단서', '감경'],
+  'conflicts-with': ['충돌', '주의', '제재'],
+  'evidenced-by': ['근거', '증빙'],
+  'follows-step': ['절차', '순서', '진행'],
+  'same-as': ['동일', '같은 개념'],
+};
+
+const INTENT_RELATIONS: Record<SemanticPrimaryIntent, OntologyRelationType[]> = {
+  eligibility: ['eligible-for', 'not-eligible-for', 'requires', 'limited-by'],
+  compliance: ['applies-to', 'requires', 'limited-by', 'conflicts-with'],
+  cost: ['has-cost', 'limited-by', 'exception-of'],
+  document: ['uses-document', 'requires'],
+  workflow: ['follows-step', 'uses-document', 'requires'],
+  comparison: ['same-as', 'conflicts-with', 'belongs-to'],
+  definition: ['same-as', 'belongs-to'],
+  exception: ['exception-of', 'limited-by', 'not-applies-to'],
+  sanction: ['conflicts-with', 'applies-to', 'limited-by'],
+};
+
+const GENERIC_STOP_TOKENS = new Set([
+  '알려줘',
+  '알려주세요',
+  '설명',
+  '설명해줘',
+  '설명해주세요',
+  '질문',
+  '문의',
+  '뭐야',
+  '뭔가요',
+  '무엇',
+  '이게',
+  '이건',
+  '그게',
+  '그건',
+  '어떻게',
+  '해도',
+  '될까',
+  '가능',
+  '준비',
+  '확인',
+  '해주세요',
+]);
+
+let cachedLexiconProjectRoot = '';
+let cachedLexiconEntries: LexiconEntry[] | null = null;
 
 function uniqueStrings(values: Iterable<string>): string[] {
   return Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean)));
 }
 
-function normalizeBasicTypos(value: string): string {
-  return value.replace(/[벚벆벋뻡볍뱝셰쉐괸곽엄얼]/gu, (char) => BASIC_CHAR_MAP.get(char) ?? char);
+function safeNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function normalizeAliasKey(value: string): string {
-  return normalizeBasicTypos(value)
+  return value
     .normalize('NFC')
     .toLowerCase()
+    .replace(/[()[\]{}'"`’‘“”.,/\\\-_:;!?]/gu, ' ')
     .replace(/\s+/gu, '')
-    .replace(/[·•]/gu, '');
+    .trim();
 }
 
 export function compactQueryText(value: string): string {
@@ -248,204 +204,179 @@ export function compactQueryText(value: string): string {
 }
 
 export function normalizeLawSearchText(input: string): string {
-  let value = input.normalize('NFC');
-
-  value = value
+  return input
+    .normalize('NFC')
     .replace(/[\u00a0\u2002\u2003\u2009]/gu, ' ')
-    .replace(/[‐‑‒–—―﹘﹣－]/gu, '-')
-    .replace(/[﹦=]/gu, ' ')
-    .replace(/§/gu, ' 제')
-    .replace(/\s*[-]\s*/gu, '-')
-    .replace(/\s*\.\s*/gu, ' ');
-
-  value = normalizeBasicTypos(value);
-  value = value.replace(/([a-zA-Z])([가-힣])/gu, '$1 $2');
-
-  return value
+    .replace(/[‐‑‒–—―]/gu, '-')
+    .replace(/\s*-\s*/gu, '-')
     .replace(/\s+/gu, ' ')
+    .replace(/제\s+(\d+)\s+조/gu, '제$1조')
+    .replace(/제\s+(\d+)\s+항/gu, '제$1항')
+    .replace(/제\s+(\d+)\s+호/gu, '제$1호')
+    .replace(/제\s+(\d+)\s+목/gu, '제$1목')
     .replace(/\(\s+/gu, '(')
     .replace(/\s+\)/gu, ')')
     .trim();
 }
 
+function resolveProjectRoot(projectRoot?: string): string {
+  if (projectRoot?.trim()) return projectRoot;
+  if (typeof process !== 'undefined' && typeof process.cwd === 'function') {
+    return process.cwd();
+  }
+  return '.';
+}
+
+export function loadOntologyLexiconEntries(projectRoot?: string): LexiconEntry[] {
+  const resolvedProjectRoot = resolveProjectRoot(projectRoot);
+  if (cachedLexiconEntries && cachedLexiconProjectRoot === resolvedProjectRoot) {
+    return cachedLexiconEntries;
+  }
+
+  const manifestPath = path.join(resolvedProjectRoot, 'knowledge', 'ontology', 'lexicon.json');
+  try {
+    if (fs.existsSync(manifestPath)) {
+      const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as LexiconManifest;
+      const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
+      cachedLexiconEntries = entries
+        .filter((entry) => typeof entry.expression === 'string' && typeof entry.canonical === 'string')
+        .map((entry) => ({
+          expression: entry.expression,
+          canonical: entry.canonical,
+          entity_type: entry.entity_type,
+          slot_hint: entry.slot_hint,
+          mode_scope: entry.mode_scope,
+          confidence: safeNumber(entry.confidence, 0.75),
+          status: entry.status ?? 'validated',
+        }));
+      cachedLexiconProjectRoot = resolvedProjectRoot;
+      return cachedLexiconEntries;
+    }
+  } catch {
+    // Fall through to the embedded defaults.
+  }
+
+  cachedLexiconProjectRoot = resolvedProjectRoot;
+  cachedLexiconEntries = FALLBACK_LEXICON_ENTRIES;
+  return cachedLexiconEntries;
+}
+
 function resolveAliasEntry(lawName: string): LawAliasResolution {
   const normalizedKey = normalizeAliasKey(lawName);
-  const entry = aliasLookup.get(normalizedKey);
-
-  if (entry) {
-    const matchedAlias = entry.aliases.find((alias) => normalizeAliasKey(alias) === normalizedKey);
+  const entry = LAW_ALIAS_ENTRIES.find((item) =>
+    [item.canonical, ...item.aliases].some((candidate) => normalizeAliasKey(candidate) === normalizedKey),
+  );
+  if (!entry) {
     return {
-      canonical: entry.canonical,
+      canonical: lawName.trim(),
       alias: lawName,
-      matchedAlias: matchedAlias ?? undefined,
-      alternatives: entry.alternatives ?? [],
+      alternatives: [],
     };
   }
 
-  const cleaned = normalizeBasicTypos(lawName).trim();
+  const matchedAlias = entry.aliases.find((alias) => normalizeAliasKey(alias) === normalizedKey);
   return {
-    canonical: cleaned,
+    canonical: entry.canonical,
     alias: lawName,
-    alternatives: [],
+    matchedAlias,
+    alternatives: entry.alternatives ?? [],
   };
 }
 
 export function detectAliasesInQuery(query: string): LawAliasResolution[] {
-  if (!query.trim()) return [];
-  const normalized = normalizeAliasKey(query);
-  const seen = new Set<string>();
-  const hits: LawAliasResolution[] = [];
+  const normalizedQuery = normalizeAliasKey(query);
+  if (!normalizedQuery) return [];
 
+  const hits: LawAliasResolution[] = [];
+  const seen = new Set<string>();
   for (const entry of LAW_ALIAS_ENTRIES) {
-    const candidates = [entry.canonical, ...entry.aliases];
-    for (const candidate of candidates) {
-      const key = normalizeAliasKey(candidate);
-      if (key.length < 2 || !normalized.includes(key) || seen.has(entry.canonical)) continue;
+    for (const candidate of [entry.canonical, ...entry.aliases]) {
+      const normalized = normalizeAliasKey(candidate);
+      if (normalized.length < 2 || !normalizedQuery.includes(normalized) || seen.has(entry.canonical)) continue;
       seen.add(entry.canonical);
       hits.push({
         canonical: entry.canonical,
         alias: candidate,
-        matchedAlias: entry.aliases.find((alias) => normalizeAliasKey(alias) === key) ?? undefined,
+        matchedAlias: entry.aliases.find((alias) => normalizeAliasKey(alias) === normalized),
         alternatives: entry.alternatives ?? [],
       });
       break;
     }
   }
-
   return hits;
 }
 
-function stripClauseAndItem(raw: string): string {
-  return raw
-    .replace(/제?\d+항.*$/u, '')
-    .replace(/제?\d+호.*$/u, '')
-    .replace(/제?\d+목.*$/u, '');
-}
-
-function normalizeSeparators(raw: string): string {
-  return raw
-    .replace(/[‐‑‒–—―﹘﹣－]/gu, '-')
-    .replace(/[·•]/gu, ' ');
-}
-
-function parseArticleComponents(input: string): { articleNumber: number; branchNumber: number } {
-  const sanitized = stripClauseAndItem(
-    normalizeSeparators(input)
-      .replace(/제|第/gu, '')
-      .replace(/조문|條/gu, '조')
-      .replace(/之/gu, '의')
-      .replace(/[()]/gu, '')
-      .replace(/\s+/gu, '')
-      .trim(),
-  );
-
-  const match = sanitized.match(/(\d+)(?:조)?(?:(?:의|-)\s*(\d+))?/u);
-  if (!match) {
-    throw new Error(`Cannot parse article reference: ${input}`);
-  }
-
-  const articleNumber = Number.parseInt(match[1], 10);
-  const branchNumber = match[2] ? Number.parseInt(match[2], 10) : 0;
-  if (Number.isNaN(articleNumber) || Number.isNaN(branchNumber)) {
-    throw new Error(`Cannot parse article number: ${input}`);
-  }
-
-  return { articleNumber, branchNumber };
-}
-
-function formatArticleLabel(input: { articleNumber: number; branchNumber: number }): string {
-  const base = `제${input.articleNumber}조`;
-  return input.branchNumber > 0 ? `${base}의${input.branchNumber}` : base;
-}
-
-function buildJO(input: string): string {
-  const components = parseArticleComponents(input);
-  return `${components.articleNumber.toString().padStart(4, '0')}${components.branchNumber.toString().padStart(2, '0')}`;
-}
-
-function normalizeArticle(article: string): string {
-  return formatArticleLabel(parseArticleComponents(article));
-}
-
 function looksLikeLawName(value: string): boolean {
-  return /(법|령|규칙|고시|조례|규정|헌법|보험)/u.test(value) || aliasLookup.has(normalizeAliasKey(value));
+  return /(법|시행령|시행규칙|고시|규정|지침)$/u.test(value) || LAW_ALIAS_ENTRIES.some((entry) =>
+    [entry.canonical, ...entry.aliases].some((candidate) => normalizeAliasKey(candidate) === normalizeAliasKey(value)),
+  );
 }
 
 function parseSearchQuery(query: string): ParsedSearchQuery | null {
   const normalizedQuery = normalizeLawSearchText(query);
   const articlePattern =
-    /\s*(제?\d+(?:조)?(?:[-의]\d+)?)(?:\s*제?\d+항)?(?:\s*제?\d+호)?(?:\s*제?\d+목)?$/u;
-  const match = articlePattern.exec(normalizedQuery);
+    /^(.*?)(제\s*\d+\s*조(?:의\s*\d+)?)(?:\s*(제\s*\d+\s*항))?(?:\s*(제\s*\d+\s*호))?(?:\s*(제\s*\d+\s*목))?$/u;
+  const match = normalizedQuery.match(articlePattern);
+  if (!match) return null;
 
-  if (match && match.index !== undefined) {
-    const rawLawName = normalizedQuery.slice(0, match.index).trim();
-    if (!looksLikeLawName(rawLawName)) {
-      return null;
-    }
+  const rawLawName = normalizeLawSearchText(match[1] ?? '').trim();
+  if (!looksLikeLawName(rawLawName)) return null;
 
-    const lawNameResolution = resolveAliasEntry(rawLawName || normalizedQuery.trim());
-    const fullArticleSegment = normalizedQuery.slice(match.index).trim();
-    const articleLabel = normalizeArticle(match[1].trim());
-    const jo = buildJO(articleLabel);
-    const clauseMatch = fullArticleSegment.match(/제?\s*(\d+)\s*항/u);
-    const itemMatch = fullArticleSegment.match(/제?\s*(\d+)\s*호/u);
-    const subItemMatch = fullArticleSegment.match(/제?\s*(\d+)\s*목/u);
+  const lawResolution = resolveAliasEntry(rawLawName);
+  const article = normalizeLawSearchText(match[2] ?? '').replace(/\s+/gu, '');
+  const articleJoMatch = article.match(/제(\d+)조(?:의(\d+))?/u);
+  const clause = (match[3] ?? '').match(/제(\d+)항/u)?.[1];
+  const item = (match[4] ?? '').match(/제(\d+)호/u)?.[1];
+  const subItem = (match[5] ?? '').match(/제(\d+)목/u)?.[1];
+  const jo = articleJoMatch
+    ? `${articleJoMatch[1].padStart(4, '0')}${(articleJoMatch[2] ?? '0').padStart(2, '0')}`
+    : undefined;
 
-    return {
-      lawName: lawNameResolution.canonical,
-      article: articleLabel,
-      jo,
-      clause: clauseMatch?.[1],
-      item: itemMatch?.[1],
-      subItem: subItemMatch?.[1],
-      matchedAlias: lawNameResolution.matchedAlias,
-    };
-  }
-
-  return null;
+  return {
+    lawName: lawResolution.canonical,
+    article,
+    jo,
+    clause,
+    item,
+    subItem,
+    matchedAlias: lawResolution.matchedAlias,
+  };
 }
 
-function buildSynonymExpansions(query: string): string[] {
-  const normalized = normalizeLawSearchText(query).toLowerCase();
+function buildQueryTypeExpansions(query: string): string[] {
+  const normalized = normalizeLawSearchText(query);
+  const lower = normalized.toLowerCase();
   const expansions: string[] = [];
 
   for (const group of QUERY_TERM_EXPANSIONS) {
-    if (!group.triggers.some((trigger) => normalized.includes(trigger.toLowerCase()))) continue;
-    expansions.push(...group.expansions.map((expansion) => `${normalizeLawSearchText(query)} ${expansion}`));
+    if (!group.triggers.some((trigger) => lower.includes(trigger.toLowerCase()))) continue;
+    expansions.push(...group.expansions);
   }
 
-  return uniqueStrings(expansions).filter((variant) => variant !== normalizeLawSearchText(query));
+  return uniqueStrings(expansions);
 }
 
-function buildQuestionIntentExpansions(query: string): string[] {
-  const normalized = normalizeLawSearchText(query);
-  const expansions: string[] = [];
-
-  for (const group of QUESTION_INTENT_EXPANSIONS) {
-    if (group.patterns.some((pattern) => pattern.test(normalized))) {
-      expansions.push(...group.expansions);
-    }
-  }
-
-  return uniqueStrings(expansions).filter((variant) => normalizeAliasKey(variant) !== normalizeAliasKey(normalized));
+function extractLexiconHits(query: string, lexiconEntries: LexiconEntry[]): LexiconEntry[] {
+  const compactQuery = compactQueryText(query);
+  return lexiconEntries
+    .filter((entry) => compactQuery.includes(compactQueryText(entry.expression)))
+    .sort((left, right) => safeNumber(right.confidence, 0.75) - safeNumber(left.confidence, 0.75));
 }
 
-function buildDomainConceptExpansions(query: string): string[] {
-  const normalized = normalizeLawSearchText(query);
-  const compact = normalizeAliasKey(normalized);
-  const expansions: string[] = [];
-
-  for (const group of DOMAIN_CONCEPT_EXPANSIONS) {
-    const hasTrigger = group.triggers.some((trigger) => compact.includes(normalizeAliasKey(trigger)));
-    const hasRequiredContext =
-      !group.requiresAny ||
-      group.requiresAny.some((term) => compact.includes(normalizeAliasKey(term)));
-    if (hasTrigger && hasRequiredContext) {
-      expansions.push(...group.expansions);
-    }
-  }
-
-  return uniqueStrings(expansions).filter((variant) => normalizeAliasKey(variant) !== compact);
+function inferNaturalLanguagePrimaryIntent(query: string, queryType: NaturalLanguageQueryType): SemanticPrimaryIntent {
+  if (/예외|감경|면제|제외|단서/u.test(query)) return 'exception';
+  if (/본인부담|비용|금액|수가|본인부담금/u.test(query)) return 'cost';
+  if (/제재|처분|위반|벌점/u.test(query)) return 'sanction';
+  if (/서류|문서|양식|서식|제출/u.test(query)) return 'document';
+  if (/작성|수립|절차|순서|진행|신청|신고|청구/u.test(query)) return 'workflow';
+  if (queryType === 'comparison') return 'comparison';
+  if (queryType === 'definition') return 'definition';
+  if (queryType === 'procedure' || queryType === 'checklist') return 'workflow';
+  if (queryType === 'exemption') return 'exception';
+  if (queryType === 'consequence') return 'sanction';
+  if (queryType === 'scope') return 'cost';
+  if (queryType === 'requirement') return 'eligibility';
+  return 'compliance';
 }
 
 export function inferNaturalLanguageQueryType(query: string): NaturalLanguageQueryType {
@@ -454,15 +385,383 @@ export function inferNaturalLanguageQueryType(query: string): NaturalLanguageQue
       return entry.type;
     }
   }
-
   return 'application';
 }
 
-export function buildNaturalLanguageQueryProfile(query: string): NaturalLanguageQueryProfile {
+function createSlotValue(entry: LexiconEntry, source: SemanticSlotValue['source']): SemanticSlotValue {
+  return {
+    value: entry.expression,
+    canonical: entry.canonical,
+    confidence: safeNumber(entry.confidence, 0.75),
+    source,
+    entityType: entry.entity_type,
+    status: entry.status && entry.status !== 'rejected' ? entry.status : undefined,
+  };
+}
+
+function pushSlotValue(
+  slots: SemanticFrame['slots'],
+  slotKey: SemanticSlotKey,
+  value: SemanticSlotValue,
+): void {
+  const existing = slots[slotKey] ?? [];
+  if (existing.some((entry) => entry.canonical === value.canonical)) {
+    return;
+  }
+  slots[slotKey] = [...existing, value];
+}
+
+function deriveHeuristicSlots(query: string, slots: SemanticFrame['slots']): void {
+  const normalized = normalizeLawSearchText(query);
+
+  const gradeMatches = normalized.match(/[1-5]등급|인지지원등급/gu) ?? [];
+  for (const grade of gradeMatches) {
+    pushSlotValue(slots, 'recipient_grade', {
+      value: grade,
+      canonical: grade === '인지지원등급' ? grade : `장기요양 ${grade}`,
+      confidence: 0.92,
+      source: 'heuristic',
+      entityType: 'grade',
+      status: 'validated',
+    });
+  }
+
+  if (/입소|요양원/u.test(normalized)) {
+    pushSlotValue(slots, 'institution_type', {
+      value: '요양원',
+      canonical: '노인요양시설',
+      confidence: 0.88,
+      source: 'heuristic',
+      entityType: 'institution',
+      status: 'promoted',
+    });
+    pushSlotValue(slots, 'benefit_type', {
+      value: '입소',
+      canonical: '시설급여',
+      confidence: 0.78,
+      source: 'heuristic',
+      entityType: 'benefit',
+      status: 'validated',
+    });
+  }
+
+  if (/주야간|데이케어|주간보호/u.test(normalized)) {
+    pushSlotValue(slots, 'service_scope', {
+      value: '주야간보호',
+      canonical: '주야간보호',
+      confidence: 0.9,
+      source: 'heuristic',
+      entityType: 'service',
+      status: 'promoted',
+    });
+  }
+
+  if (/방문요양/u.test(normalized)) {
+    pushSlotValue(slots, 'service_scope', {
+      value: '방문요양',
+      canonical: '방문요양',
+      confidence: 0.9,
+      source: 'heuristic',
+      entityType: 'service',
+      status: 'promoted',
+    });
+  }
+
+  if (/본인부담|비용|금액/u.test(normalized)) {
+    pushSlotValue(slots, 'cost_topic', {
+      value: '비용',
+      canonical: '본인부담금',
+      confidence: 0.82,
+      source: 'heuristic',
+      entityType: 'cost_item',
+      status: 'validated',
+    });
+  }
+
+  if (/감경|예외|면제|제외/u.test(normalized)) {
+    pushSlotValue(slots, 'exception_context', {
+      value: '예외',
+      canonical: '예외',
+      confidence: 0.84,
+      source: 'heuristic',
+      entityType: 'exception',
+      status: 'validated',
+    });
+  }
+
+  if (/의사소견서|급여제공계획서|케어플랜|서식|서류/u.test(normalized)) {
+    pushSlotValue(slots, 'document_type', {
+      value: '서류',
+      canonical: '서류',
+      confidence: 0.7,
+      source: 'heuristic',
+      entityType: 'document',
+      status: 'validated',
+    });
+  }
+}
+
+function buildEntityRefs(
+  lexiconHits: LexiconEntry[],
+  slots: SemanticFrame['slots'],
+  aliasResolutions: LawAliasResolution[],
+  parsedLawRefs: ParsedLawReference[],
+): SemanticEntityRef[] {
+  const refs: SemanticEntityRef[] = lexiconHits.map((entry) => ({
+    label: entry.expression,
+    canonical: entry.canonical,
+    entityType: entry.entity_type,
+    confidence: safeNumber(entry.confidence, 0.75),
+    source: 'lexicon',
+    status: entry.status && entry.status !== 'rejected' ? entry.status : undefined,
+  }));
+
+  for (const values of Object.values(slots)) {
+    for (const value of values ?? []) {
+      refs.push({
+        label: value.value,
+        canonical: value.canonical,
+        entityType: value.entityType ?? 'concept',
+        confidence: value.confidence,
+        source: value.source === 'lexicon' ? 'lexicon' : 'heuristic',
+        status: value.status,
+      });
+    }
+  }
+
+  for (const alias of aliasResolutions) {
+    refs.push({
+      label: alias.alias,
+      canonical: alias.canonical,
+      entityType: 'law',
+      confidence: 0.95,
+      source: 'query',
+      status: 'promoted',
+    });
+  }
+
+  for (const lawRef of parsedLawRefs) {
+    refs.push({
+      label: lawRef.raw,
+      canonical: lawRef.article ? `${lawRef.canonicalLawName} ${lawRef.article}` : lawRef.canonicalLawName,
+      entityType: 'law',
+      confidence: 0.98,
+      source: 'query',
+      status: 'promoted',
+    });
+  }
+
+  const deduped = new Map<string, SemanticEntityRef>();
+  for (const ref of refs) {
+    const key = `${ref.entityType}:${compactQueryText(ref.canonical)}`;
+    const current = deduped.get(key);
+    if (!current || current.confidence < ref.confidence) {
+      deduped.set(key, ref);
+    }
+  }
+  return Array.from(deduped.values()).sort((left, right) => right.confidence - left.confidence);
+}
+
+function buildRelationRequests(
+  primaryIntent: SemanticPrimaryIntent,
+  secondaryIntents: SemanticPrimaryIntent[],
+  slots: SemanticFrame['slots'],
+): SemanticRelationRequest[] {
+  const intents = [primaryIntent, ...secondaryIntents];
+  const requests: SemanticRelationRequest[] = [];
+  const seen = new Set<OntologyRelationType>();
+
+  const addRequest = (relation: OntologyRelationType, weight: number, reason: string, source: SemanticRelationRequest['source']) => {
+    if (seen.has(relation)) return;
+    seen.add(relation);
+    requests.push({ relation, weight, reason, source });
+  };
+
+  for (const intent of intents) {
+    for (const relation of INTENT_RELATIONS[intent] ?? []) {
+      addRequest(relation, intent === primaryIntent ? 1.2 : 0.9, `${intent} intent`, 'intent');
+    }
+  }
+
+  if ((slots.cost_topic?.length ?? 0) > 0) {
+    addRequest('has-cost', 1.15, 'cost slot detected', 'slot');
+  }
+  if ((slots.document_type?.length ?? 0) > 0) {
+    addRequest('uses-document', 1.05, 'document slot detected', 'slot');
+  }
+  if ((slots.exception_context?.length ?? 0) > 0) {
+    addRequest('exception-of', 1.15, 'exception slot detected', 'slot');
+  }
+  if ((slots.service_scope?.length ?? 0) > 0 || (slots.institution_type?.length ?? 0) > 0) {
+    addRequest('applies-to', 1.05, 'service or institution slot detected', 'slot');
+  }
+  if ((slots.recipient_grade?.length ?? 0) > 0) {
+    addRequest('eligible-for', 1.08, 'grade slot detected', 'slot');
+  }
+
+  return requests;
+}
+
+function buildCriticalSlotList(primaryIntent: SemanticPrimaryIntent): SemanticSlotKey[] {
+  if (primaryIntent === 'eligibility' || primaryIntent === 'compliance' || primaryIntent === 'cost') {
+    return ['service_scope', 'institution_type', 'recipient_grade'];
+  }
+  if (primaryIntent === 'document' || primaryIntent === 'workflow') {
+    return ['service_scope', 'document_type'];
+  }
+  if (primaryIntent === 'exception') {
+    return ['exception_context', 'service_scope'];
+  }
+  return [];
+}
+
+function buildAssumptions(
+  normalizedQuery: string,
+  primaryIntent: SemanticPrimaryIntent,
+  slots: SemanticFrame['slots'],
+): { assumptions: string[]; missingCriticalSlots: SemanticSlotKey[]; riskLevel: SemanticFrame['riskLevel'] } {
+  const assumptions: string[] = [];
+  const criticalSlots = buildCriticalSlotList(primaryIntent);
+  const missingCriticalSlots = criticalSlots.filter((slot) => (slots[slot]?.length ?? 0) === 0);
+
+  if ((slots.institution_type?.length ?? 0) > 0 && (slots.service_scope?.length ?? 0) === 0) {
+    const topInstitution = slots.institution_type?.[0];
+    if (topInstitution?.canonical === '노인요양시설') {
+      assumptions.push('질문의 적용 범위를 노인요양시설/시설급여 맥락으로 우선 해석했습니다.');
+    }
+  }
+
+  if ((slots.document_type?.length ?? 0) > 0 && /서류|양식|문서/u.test(normalizedQuery)) {
+    assumptions.push('문서 질문은 공식 서식 또는 운영상 필수 문서 기준으로 우선 해석했습니다.');
+  }
+
+  if ((slots.recipient_grade?.length ?? 0) === 0 && /(수급자|어르신|보호자|입소)/u.test(normalizedQuery) && primaryIntent === 'eligibility') {
+    assumptions.push('등급 정보가 없어서 일반적인 장기요양 수급자 기준으로 조건을 안내해야 할 수 있습니다.');
+  }
+
+  let riskLevel: SemanticFrame['riskLevel'] = 'low';
+  if (missingCriticalSlots.length >= 2) {
+    riskLevel = 'high';
+  } else if (missingCriticalSlots.length === 1 || assumptions.length > 0) {
+    riskLevel = 'medium';
+  }
+
+  return {
+    assumptions,
+    missingCriticalSlots,
+    riskLevel,
+  };
+}
+
+function buildCanonicalTerms(
+  normalizedQuery: string,
+  entityRefs: SemanticEntityRef[],
+  slots: SemanticFrame['slots'],
+  queryTypeExpansions: string[],
+): string[] {
+  const terms = new Set<string>();
+  for (const ref of entityRefs) {
+    terms.add(ref.canonical);
+  }
+
+  for (const values of Object.values(slots)) {
+    for (const value of values ?? []) {
+      terms.add(value.canonical);
+    }
+  }
+
+  for (const token of tokenize(normalizedQuery)) {
+    if (token.length < 2 || GENERIC_STOP_TOKENS.has(token)) continue;
+    terms.add(token);
+  }
+
+  for (const expansion of queryTypeExpansions) {
+    terms.add(expansion);
+  }
+
+  return uniqueStrings(Array.from(terms)).slice(0, 24);
+}
+
+function buildRelationDrivenVariants(relationRequests: SemanticRelationRequest[]): string[] {
+  return uniqueStrings(
+    relationRequests.flatMap((request) => RELATION_TO_QUERY_TERMS[request.relation as OntologyRelationType] ?? []),
+  );
+}
+
+function buildSemanticFrame(params: {
+  normalizedQuery: string;
+  queryType: NaturalLanguageQueryType;
+  aliasResolutions: LawAliasResolution[];
+  parsedLawRefs: ParsedLawReference[];
+  lexiconHits: LexiconEntry[];
+  queryTypeExpansions: string[];
+}): SemanticFrame {
+  const primaryIntent = inferNaturalLanguagePrimaryIntent(params.normalizedQuery, params.queryType);
+  const secondaryIntents = uniqueStrings([
+    params.queryType === 'checklist' || params.queryType === 'procedure' ? 'workflow' : '',
+    (params.lexiconHits.some((entry) => entry.slot_hint === 'cost_topic') ? 'cost' : '') as SemanticPrimaryIntent | '',
+    (params.lexiconHits.some((entry) => entry.slot_hint === 'document_type') ? 'document' : '') as SemanticPrimaryIntent | '',
+    (params.queryType === 'comparison' ? 'comparison' : '') as SemanticPrimaryIntent | '',
+  ]).filter((value): value is SemanticPrimaryIntent => value !== primaryIntent) as SemanticPrimaryIntent[];
+
+  const slots: SemanticFrame['slots'] = {};
+  for (const entry of params.lexiconHits) {
+    if (!entry.slot_hint) continue;
+    pushSlotValue(slots, entry.slot_hint, createSlotValue(entry, 'lexicon'));
+  }
+  deriveHeuristicSlots(params.normalizedQuery, slots);
+
+  const entityRefs = buildEntityRefs(params.lexiconHits, slots, params.aliasResolutions, params.parsedLawRefs);
+  const relationRequests = buildRelationRequests(primaryIntent, secondaryIntents, slots);
+  const canonicalTerms = buildCanonicalTerms(params.normalizedQuery, entityRefs, slots, params.queryTypeExpansions);
+  const { assumptions, missingCriticalSlots, riskLevel } = buildAssumptions(
+    params.normalizedQuery,
+    primaryIntent,
+    slots,
+  );
+
+  return {
+    primaryIntent,
+    secondaryIntents,
+    canonicalTerms,
+    entityRefs,
+    relationRequests,
+    slots,
+    assumptions,
+    missingCriticalSlots,
+    riskLevel,
+  };
+}
+
+function buildSemanticVariants(semanticFrame: SemanticFrame): string[] {
+  const variants = [
+    ...semanticFrame.canonicalTerms,
+    ...buildRelationDrivenVariants(semanticFrame.relationRequests),
+    ...Object.values(semanticFrame.slots).flatMap((values) => (values ?? []).map((value) => value.canonical)),
+  ];
+  return uniqueStrings(variants);
+}
+
+export function buildNaturalLanguageQueryProfile(
+  query: string,
+  options?: { projectRoot?: string },
+): NaturalLanguageQueryProfile {
   const normalizationTrace: QueryNormalizationTraceEntry[] = [];
   const originalQuery = query.trim();
   const normalizedQuery = normalizeLawSearchText(originalQuery);
   normalizationTrace.push({ step: 'normalize-query', detail: normalizedQuery || '(empty)' });
+
+  const lexiconEntries = loadOntologyLexiconEntries(options?.projectRoot);
+  const lexiconHits = extractLexiconHits(normalizedQuery, lexiconEntries);
+  if (lexiconHits.length > 0) {
+    normalizationTrace.push({
+      step: 'normalize-terms',
+      detail: lexiconHits
+        .slice(0, 6)
+        .map((entry) => `${entry.expression}->${entry.canonical}`)
+        .join(', '),
+    });
+  }
 
   const aliasResolutions = detectAliasesInQuery(normalizedQuery);
   if (aliasResolutions.length > 0) {
@@ -491,22 +790,31 @@ export function buildNaturalLanguageQueryProfile(query: string): NaturalLanguage
     });
   }
 
-  const synonymExpansions = uniqueStrings([
-    ...buildSynonymExpansions(normalizedQuery),
-    ...buildQuestionIntentExpansions(normalizedQuery),
-    ...buildDomainConceptExpansions(normalizedQuery),
-  ]);
-  if (synonymExpansions.length > 0) {
+  const queryType = inferNaturalLanguageQueryType(normalizedQuery);
+  normalizationTrace.push({ step: 'classify-query', detail: queryType });
+
+  const queryTypeExpansions = buildQueryTypeExpansions(normalizedQuery);
+  if (queryTypeExpansions.length > 0) {
     normalizationTrace.push({
       step: 'expand-synonyms',
-      detail: synonymExpansions.slice(0, 4).join(' | '),
+      detail: queryTypeExpansions.slice(0, 6).join(' | '),
     });
   }
 
-  const aliasVariants = aliasResolutions.flatMap((item) => [
-    item.canonical,
-    ...item.alternatives,
-  ]);
+  const semanticFrame = buildSemanticFrame({
+    normalizedQuery,
+    queryType,
+    aliasResolutions,
+    parsedLawRefs,
+    lexiconHits,
+    queryTypeExpansions,
+  });
+  normalizationTrace.push({
+    step: 'semantic-frame',
+    detail: `${semanticFrame.primaryIntent} / risk=${semanticFrame.riskLevel}`,
+  });
+
+  const aliasVariants = aliasResolutions.flatMap((item) => [item.canonical, ...item.alternatives]);
   const lawVariants = parsedLawRefs.flatMap((item) =>
     uniqueStrings([
       item.canonicalLawName,
@@ -515,20 +823,19 @@ export function buildNaturalLanguageQueryProfile(query: string): NaturalLanguage
       item.item && item.article ? `${item.canonicalLawName} ${item.article} 제${item.item}호` : '',
     ]),
   );
+  const semanticVariants = buildSemanticVariants(semanticFrame);
 
   const searchVariants = uniqueStrings([
     normalizedQuery,
     ...aliasVariants,
     ...lawVariants,
-    ...synonymExpansions,
+    ...queryTypeExpansions,
+    ...semanticVariants,
   ]);
   normalizationTrace.push({
     step: 'search-variants',
     detail: `${searchVariants.length} variants`,
   });
-
-  const queryType = inferNaturalLanguageQueryType(normalizedQuery);
-  normalizationTrace.push({ step: 'classify-query', detail: queryType });
 
   return {
     originalQuery,
@@ -536,8 +843,9 @@ export function buildNaturalLanguageQueryProfile(query: string): NaturalLanguage
     queryType,
     aliasResolutions,
     parsedLawRefs,
-    synonymExpansions,
+    synonymExpansions: queryTypeExpansions,
     searchVariants,
     normalizationTrace,
+    semanticFrame,
   };
 }
