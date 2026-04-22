@@ -114,7 +114,7 @@ test('answer validation warning block uses Korean user-facing labels and details
   const semanticFrame: SemanticFrame = {
     primaryIntent: 'compliance',
     secondaryIntents: [],
-    canonicalTerms: ['인력배치'],
+    canonicalTerms: ['입소 가능 여부'],
     entityRefs: [],
     relationRequests: [],
     slots: {
@@ -134,15 +134,15 @@ test('answer validation warning block uses Korean user-facing labels and details
   const evidence = [
     makeChunk('day-night-staffing', {
       docTitle: '주야간보호 평가매뉴얼',
-      searchText: '주야간보호 인력배치 기준',
-      text: '주야간보호 인력배치 기준을 설명합니다.',
+      searchText: '주야간보호 이용 가능 기준',
+      text: '주야간보호 이용 가능 기준을 설명합니다.',
       sourceType: 'manual',
     }),
   ];
   const answer: ExpertAnswerEnvelope = {
     answerType: 'mixed',
-    headline: '인력배치 기준',
-    summary: '검색된 근거 기준으로 인력배치 기준을 정리했습니다.',
+    headline: '입소 가능 여부',
+    summary: '검색된 근거 기준으로 입소 가능 여부를 정리했습니다.',
     confidence: 'medium',
     evidenceState: 'partial',
     scope: '방문요양',
@@ -155,7 +155,7 @@ test('answer validation warning block uses Korean user-facing labels and details
       {
         type: 'bullets',
         title: '핵심',
-        items: [{ label: '인력배치', detail: '기준을 확인하세요.' }],
+        items: [{ label: '가능 여부', detail: '기준을 확인하세요.' }],
       },
     ],
     citations: [],
@@ -184,4 +184,102 @@ test('answer validation warning block uses Korean user-facing labels and details
   assert.match(warningText, /수급자 등급/u);
   assert.match(warningText, /급여유형 범위 확인 필요/u);
   assert.match(warningText, /주야간보호/u);
+});
+
+test('staffing compliance with a selected service scope does not ask for recipient grade', () => {
+  const semanticFrame: SemanticFrame = {
+    primaryIntent: 'compliance',
+    secondaryIntents: [],
+    canonicalTerms: ['인력배치'],
+    entityRefs: [],
+    relationRequests: [],
+    slots: {
+      service_scope: [
+        {
+          value: '요양원/공동생활가정',
+          canonical: '요양원/공동생활가정',
+          confidence: 1,
+          source: 'query',
+        },
+      ],
+    },
+    assumptions: [],
+    missingCriticalSlots: ['institution_type', 'recipient_grade'],
+    riskLevel: 'medium',
+  };
+  const evidence = [
+    makeChunk('facility-legal-staffing', {
+      docTitle: '노인복지법 시행규칙 별표 4',
+      parentSectionTitle: '노인의료복지시설의 시설기준 및 직원배치기준',
+      searchText: '노인요양시설 공동생활가정 시설급여 직원배치기준',
+      text: '노인요양시설과 노인요양공동생활가정의 직원배치기준입니다.',
+      sourceType: 'rule',
+    }),
+    makeChunk('facility-practical-staffing', {
+      docTitle: '인력기준 준비 서류',
+      parentSectionTitle: '시설급여 인력기준 확인 방법',
+      searchText: '시설급여 인력기준 요양원 공동생활가정 근무표 출근부',
+      text: '시설급여 인력기준 확인 방법입니다.',
+      sourceType: 'manual',
+    }),
+  ];
+
+  const summary = evaluateRetrievalValidation({
+    semanticFrame,
+    evidence,
+  });
+  const missingSlotWarnings = summary.validationIssues.filter(
+    (issue) => issue.code === 'insufficient-evidence-composition' && /Missing slots/.test(issue.message),
+  );
+
+  assert.deepEqual(missingSlotWarnings, []);
+});
+
+test('facility care selection treats facility benefit evidence as the selected service scope', () => {
+  const semanticFrame: SemanticFrame = {
+    primaryIntent: 'compliance',
+    secondaryIntents: [],
+    canonicalTerms: ['인력배치'],
+    entityRefs: [],
+    relationRequests: [],
+    slots: {
+      service_scope: [
+        {
+          value: '요양원/공동생활가정',
+          canonical: '요양원/공동생활가정',
+          confidence: 1,
+          source: 'query',
+        },
+      ],
+    },
+    assumptions: [],
+    missingCriticalSlots: [],
+    riskLevel: 'medium',
+  };
+  const evidence = [
+    makeChunk('facility-staffing', {
+      docTitle: '노인복지법 시행규칙 별표 4',
+      parentSectionTitle: '노인의료복지시설의 시설기준 및 직원배치기준',
+      searchText: '노인요양시설 공동생활가정 시설급여 직원배치기준',
+      text: '노인요양시설과 노인요양공동생활가정의 직원배치기준입니다.',
+      sourceType: 'rule',
+    }),
+    makeChunk('day-night-reference', {
+      docTitle: '주야간보호 평가매뉴얼',
+      parentSectionTitle: '주야간보호 인력기준',
+      searchText: '주야간보호 인력배치 기준',
+      text: '주야간보호 인력배치 기준입니다.',
+      sourceType: 'manual',
+    }),
+  ];
+
+  const summary = evaluateRetrievalValidation({
+    semanticFrame,
+    evidence,
+  });
+  const mixedScopeIssue = summary.validationIssues.find((issue) => issue.code === 'mixed-service-scope');
+
+  assert.ok(mixedScopeIssue);
+  assert.doesNotMatch(mixedScopeIssue.message, /시설급여/u);
+  assert.match(mixedScopeIssue.message, /주야간보호/u);
 });

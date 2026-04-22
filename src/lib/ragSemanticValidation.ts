@@ -239,8 +239,65 @@ function classifyEvidenceServiceScopes(chunk: StructuredChunk): string[] {
   if (/방문요양/u.test(haystack)) scopes.push('방문요양');
   if (/방문목욕/u.test(haystack)) scopes.push('방문목욕');
   if (/방문간호/u.test(haystack)) scopes.push('방문간호');
-  if (/요양원|노인요양시설|시설급여/u.test(haystack)) scopes.push('시설급여');
+  if (/요양원|노인요양시설|노인의료복지시설|공동생활가정|시설급여|입소시설/u.test(haystack)) scopes.push('시설급여');
   return scopes;
+}
+
+function isStaffingFrame(frame: SemanticFrame): boolean {
+  const haystack = [
+    ...frame.canonicalTerms,
+    ...frame.entityRefs.flatMap((entity) => [entity.label, entity.canonical]),
+  ].join(' ');
+  return /인력\s*(배치|기준|현황|신고)?|직원\s*(배치|기준)|요양보호사/u.test(haystack);
+}
+
+function getRequiredSlotsForRule(rule: ValidationRule, frame: SemanticFrame): SemanticSlotKey[] {
+  const requiredSlots = rule.required_slots ?? [];
+  if (
+    frame.primaryIntent === 'compliance' &&
+    isStaffingFrame(frame) &&
+    requiredSlots.includes('service_scope')
+  ) {
+    return requiredSlots.filter((slot) => slot === 'service_scope');
+  }
+  return requiredSlots;
+}
+
+function toComparableServiceScopeKeys(scope: string): string[] {
+  const normalized = scope.replace(/\s+/g, '');
+  if (/요양원|노인요양시설|노인의료복지시설|공동생활가정|시설급여|입소시설/u.test(normalized)) {
+    return ['facility-care'];
+  }
+  if (/주야간보호|데이케어|주간보호/u.test(normalized)) {
+    return ['day-night-care'];
+  }
+  if (/방문요양/u.test(normalized)) {
+    return ['home-visit-care'];
+  }
+  if (/방문목욕/u.test(normalized)) {
+    return ['home-visit-bath'];
+  }
+  if (/방문간호/u.test(normalized)) {
+    return ['home-visit-nursing'];
+  }
+  if (/복지용구/u.test(normalized)) {
+    return ['welfare-equipment'];
+  }
+  return [normalized];
+}
+
+function buildComparableServiceScopeSet(scopes: readonly string[]): Set<string> {
+  const keys = new Set<string>();
+  for (const scope of scopes) {
+    for (const key of toComparableServiceScopeKeys(scope)) {
+      keys.add(key);
+    }
+  }
+  return keys;
+}
+
+function hasComparableScopeMatch(scopes: readonly string[], requestedScopeKeys: Set<string>): boolean {
+  return scopes.some((scope) => toComparableServiceScopeKeys(scope).some((key) => requestedScopeKeys.has(key)));
 }
 
 function evaluateRuleViolations(
@@ -254,7 +311,7 @@ function evaluateRuleViolations(
   for (const rule of rules) {
     if (!rule.primary_intents.includes(frame.primaryIntent)) continue;
 
-    const missingSlots = (rule.required_slots ?? []).filter((slot) => (frame.slots[slot]?.length ?? 0) === 0);
+    const missingSlots = getRequiredSlotsForRule(rule, frame).filter((slot) => (frame.slots[slot]?.length ?? 0) === 0);
     if (missingSlots.length > 0) {
       issues.push({
         code: 'insufficient-evidence-composition',
@@ -318,7 +375,7 @@ export function evaluateRetrievalValidation(params: {
 
   issues.push(...evaluateRuleViolations(params.semanticFrame, params.evidence, rules));
 
-  const requestedServiceScopes = new Set(
+  const requestedServiceScopes = buildComparableServiceScopeSet(
     (params.semanticFrame.slots.service_scope ?? []).map((value) => value.canonical),
   );
   if (requestedServiceScopes.size > 0) {
@@ -326,9 +383,11 @@ export function evaluateRetrievalValidation(params: {
     const conflictingEvidenceIds: string[] = [];
     for (const chunk of params.evidence) {
       const chunkScopes = classifyEvidenceServiceScopes(chunk);
-      if (chunkScopes.some((scope) => requestedServiceScopes.has(scope))) continue;
+      if (hasComparableScopeMatch(chunkScopes, requestedServiceScopes)) continue;
 
-      const chunkConflicts = chunkScopes.filter((scope) => !requestedServiceScopes.has(scope));
+      const chunkConflicts = chunkScopes.filter(
+        (scope) => !hasComparableScopeMatch([scope], requestedServiceScopes),
+      );
       if (chunkConflicts.length === 0) continue;
       chunkConflicts.forEach((scope) => conflictingScopes.add(scope));
       conflictingEvidenceIds.push(chunk.id);
