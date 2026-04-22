@@ -742,6 +742,15 @@ function buildSemanticVariants(semanticFrame: SemanticFrame): string[] {
   return uniqueStrings(variants);
 }
 
+function recomputeSemanticRiskLevel(
+  missingCriticalSlots: SemanticSlotKey[],
+  assumptions: string[],
+): SemanticFrame['riskLevel'] {
+  if (missingCriticalSlots.length >= 2) return 'high';
+  if (missingCriticalSlots.length === 1 || assumptions.length > 0) return 'medium';
+  return 'low';
+}
+
 export function buildNaturalLanguageQueryProfile(
   query: string,
   options?: { projectRoot?: string },
@@ -846,6 +855,86 @@ export function buildNaturalLanguageQueryProfile(
     synonymExpansions: queryTypeExpansions,
     searchVariants,
     normalizationTrace,
+    semanticFrame,
+  };
+}
+
+export function enrichQueryProfileWithServiceScopeLabels(
+  profile: NaturalLanguageQueryProfile,
+  serviceScopeLabels: readonly string[],
+): NaturalLanguageQueryProfile {
+  const labels = uniqueStrings(serviceScopeLabels).filter(
+    (label) => label && !/^\s*전체\s*\/\s*공통\s*$/u.test(label),
+  );
+  if (labels.length === 0) {
+    return profile;
+  }
+
+  const serviceScopeKeys = new Set(
+    (profile.semanticFrame.slots.service_scope ?? []).map((value) => compactQueryText(value.canonical)),
+  );
+  const nextServiceScopeValues = [
+    ...(profile.semanticFrame.slots.service_scope ?? []),
+    ...labels
+      .filter((label) => !serviceScopeKeys.has(compactQueryText(label)))
+      .map((label) => ({
+        value: label,
+        canonical: label,
+        confidence: 0.99,
+        source: 'query' as const,
+        entityType: 'service',
+        status: 'promoted' as const,
+      })),
+  ];
+
+  const entityRefs = new Map(
+    profile.semanticFrame.entityRefs.map((entity) => [`${entity.entityType}:${compactQueryText(entity.canonical)}`, entity]),
+  );
+  for (const label of labels) {
+    const key = `service:${compactQueryText(label)}`;
+    if (!entityRefs.has(key)) {
+      entityRefs.set(key, {
+        label,
+        canonical: label,
+        entityType: 'service',
+        confidence: 0.99,
+        source: 'query',
+        status: 'promoted',
+      });
+    }
+  }
+
+  const relationRequests = [...profile.semanticFrame.relationRequests];
+  if (!relationRequests.some((request) => request.relation === 'applies-to')) {
+    relationRequests.push({
+      relation: 'applies-to',
+      weight: 1.05,
+      reason: 'selected service scope',
+      source: 'slot',
+    });
+  }
+
+  const missingCriticalSlots = profile.semanticFrame.missingCriticalSlots.filter((slot) => slot !== 'service_scope');
+  const semanticFrame: SemanticFrame = {
+    ...profile.semanticFrame,
+    canonicalTerms: uniqueStrings([...profile.semanticFrame.canonicalTerms, ...labels]),
+    entityRefs: Array.from(entityRefs.values()).sort((left, right) => right.confidence - left.confidence),
+    relationRequests,
+    slots: {
+      ...profile.semanticFrame.slots,
+      service_scope: nextServiceScopeValues,
+    },
+    missingCriticalSlots,
+    riskLevel: recomputeSemanticRiskLevel(missingCriticalSlots, profile.semanticFrame.assumptions),
+  };
+
+  return {
+    ...profile,
+    searchVariants: uniqueStrings([...profile.searchVariants, ...labels]),
+    normalizationTrace: [
+      ...profile.normalizationTrace,
+      { step: 'selected-service-scope', detail: labels.join(', ') },
+    ],
     semanticFrame,
   };
 }

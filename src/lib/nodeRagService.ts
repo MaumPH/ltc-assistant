@@ -59,7 +59,10 @@ import {
   buildHallucinationSignal,
   detectPromptInjectionSignals,
 } from './ragGuardrails';
-import { buildNaturalLanguageQueryProfile as buildNaturalQueryProfile } from './ragNaturalQuery';
+import {
+  buildNaturalLanguageQueryProfile as buildNaturalQueryProfile,
+  enrichQueryProfileWithServiceScopeLabels,
+} from './ragNaturalQuery';
 import { loadKnowledgeCorporaFromDisk } from './nodeKnowledge';
 import {
   buildOntologyGraph,
@@ -3966,7 +3969,7 @@ export class NodeRagService {
       }
     }
     latency.queryNormalizationMs = Date.now() - normalizationStartedAt;
-    const queryProfile = normalized.queryProfile;
+    const queryProfile = enrichQueryProfileWithServiceScopeLabels(normalized.queryProfile, serviceScopeLabels);
     const hydeStartedAt = Date.now();
     const pseudoHyde =
       runtimeProfile.queryProcessing.hyde
@@ -4123,7 +4126,7 @@ export class NodeRagService {
           additionalDocumentScoreBoosts: workflowBoosts,
           additionalChunkScoreBoosts: serviceScopeChunkBoosts,
           extraAliases: workflowAliasHints,
-          queryProfile: buildNaturalQueryProfile(subquestion),
+          queryProfile: enrichQueryProfileWithServiceScopeLabels(buildNaturalQueryProfile(subquestion), serviceScopeLabels),
         });
 
         refinedSearch.search.evidence.forEach((item) => {
