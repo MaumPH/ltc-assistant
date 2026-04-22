@@ -1,9 +1,9 @@
-import React, { useDeferredValue, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, FileText, Search, X } from 'lucide-react';
 import {
-  allKnowledgeListItems,
   CATEGORY_ORDER,
   SOURCE_LABELS,
+  fetchKnowledgeList,
   type Category,
   type KnowledgeListItem,
   type KnowledgeSource,
@@ -23,7 +23,7 @@ const CATEGORY_BADGE_STYLES: Record<Category, string> = {
   시행령: 'bg-blue-100 text-blue-700',
   시행규칙: 'bg-cyan-100 text-cyan-700',
   고시: 'bg-emerald-100 text-emerald-700',
-  '별표·별지': 'bg-amber-100 text-amber-700',
+  '별표·부표': 'bg-amber-100 text-amber-700',
   '평가·매뉴얼': 'bg-violet-100 text-violet-700',
   참고자료: 'bg-slate-100 text-slate-600',
 };
@@ -33,7 +33,7 @@ const CATEGORY_DOT_STYLES: Record<Category, string> = {
   시행령: 'bg-blue-500',
   시행규칙: 'bg-cyan-500',
   고시: 'bg-emerald-500',
-  '별표·별지': 'bg-amber-500',
+  '별표·부표': 'bg-amber-500',
   '평가·매뉴얼': 'bg-violet-500',
   참고자료: 'bg-slate-400',
 };
@@ -46,17 +46,42 @@ const twoLineClampStyle: React.CSSProperties = {
 };
 
 export default function KnowledgeBaseView() {
+  const [documents, setDocuments] = useState<KnowledgeListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [openCategories, setOpenCategories] = useState<Set<Category>>(() => new Set(CATEGORY_ORDER));
   const deferredSearch = useDeferredValue(search);
 
-  const totalDocuments = allKnowledgeListItems.length;
+  useEffect(() => {
+    const controller = new AbortController();
+
+    setLoading(true);
+    setError(null);
+    void fetchKnowledgeList(controller.signal)
+      .then((items) => {
+        setDocuments(items);
+      })
+      .catch((loadError) => {
+        if (controller.signal.aborted) return;
+        setError(loadError instanceof Error ? loadError.message : '문서 목록을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  const totalDocuments = documents.length;
 
   const filteredDocuments = useMemo(() => {
     const query = deferredSearch.trim().toLowerCase();
 
-    return allKnowledgeListItems.filter((file) => {
+    return documents.filter((file) => {
       if (sourceFilter !== 'all' && file.source !== sourceFilter) {
         return false;
       }
@@ -67,7 +92,7 @@ export default function KnowledgeBaseView() {
 
       return matchesKnowledgeSearch(file, query);
     });
-  }, [deferredSearch, sourceFilter]);
+  }, [deferredSearch, documents, sourceFilter]);
 
   const groupedDocuments = useMemo(
     () =>
@@ -95,9 +120,9 @@ export default function KnowledgeBaseView() {
   const filteredCountText =
     filteredDocuments.length === totalDocuments
       ? `총 ${totalDocuments}개 문서`
-      : `${filteredDocuments.length}개 문서 표시 중 · 전체 ${totalDocuments}개`;
+      : `${filteredDocuments.length}개 문서 표시 중, 전체 ${totalDocuments}개`;
 
-  const emptyTitle = isSearching ? '검색 결과가 없습니다' : '선택한 범위에 문서가 없습니다';
+  const emptyTitle = isSearching ? '검색 결과가 없습니다' : '선택한 범위의 문서가 없습니다';
   const emptyDescription = isSearching
     ? '제목, 파일명, 분류를 기준으로 다시 검색해 보세요.'
     : '다른 문서 범위를 선택하거나 필터를 전체로 바꿔 보세요.';
@@ -109,9 +134,7 @@ export default function KnowledgeBaseView() {
         className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
       >
         <div className="flex items-start gap-3">
-          <div
-            className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-500"
-          >
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
             <FileText className="h-4 w-4" />
           </div>
 
@@ -137,10 +160,20 @@ export default function KnowledgeBaseView() {
       <div className="flex flex-1 items-center justify-center bg-slate-50 p-6 sm:p-8">
         <div className="max-w-md rounded-[32px] border border-slate-200 bg-white px-6 py-10 text-center shadow-sm">
           <FileText className="mx-auto mb-4 h-12 w-12 text-slate-300" />
-          <h2 className="text-xl font-semibold text-slate-900">지식베이스 문서가 없습니다</h2>
+          <h2 className="text-xl font-semibold text-slate-900">
+            {loading ? '지식베이스 문서를 불러오는 중입니다' : error ? '지식베이스 문서를 불러오지 못했습니다' : '지식베이스 문서가 없습니다'}
+          </h2>
           <p className="mt-3 text-sm leading-6 text-slate-500">
-            <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">knowledge/</code> 폴더에 문서를 추가하면
-            이 탭에서 바로 탐색할 수 있습니다.
+            {loading
+              ? '서버에서 문서 인덱스를 불러오고 있습니다.'
+              : error
+                ? error
+                : (
+                  <>
+                    <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">knowledge/</code> 폴더에 문서를 추가하면
+                    여기에서 바로 탐색할 수 있습니다.
+                  </>
+                )}
           </p>
         </div>
       </div>
@@ -155,9 +188,7 @@ export default function KnowledgeBaseView() {
           <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="text-2xl font-bold tracking-[-0.02em] text-slate-900">지식베이스 문서 목록</h1>
-              <p className="mt-1 text-sm leading-6 text-slate-500">
-                제목과 분류 유형으로 문서를 찾을 수 있습니다.
-              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-500">제목과 분류, 문서 유형으로 문서를 찾을 수 있습니다.</p>
             </div>
             <div className="w-fit rounded-full border border-blue-200 bg-blue-50 px-4 py-1.5 text-xs font-bold text-blue-700">
               {filteredCountText}
@@ -172,7 +203,7 @@ export default function KnowledgeBaseView() {
               type="text"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="문서 제목이나 분류를 검색하세요"
+              placeholder="문서 제목이나 분류를 검색해보세요"
               className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-10 text-sm text-slate-900 outline-none transition focus:border-blue-500"
             />
             {search && (

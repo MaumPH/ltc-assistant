@@ -10,9 +10,7 @@ function normalizeSearchText(value: string): string {
   return value
     .normalize('NFC')
     .toLowerCase()
-    .replace(/[‐‑‒–—―﹘﹣－]/gu, '-')
-    .replace(/[·•ㆍ]/gu, ' ')
-    .replace(/[_()[\]{}"'`~!@#$%^&*+=|\\/:;,.?<>]+/gu, ' ')
+    .replace(/[_()[\]{}"'`~!@#$%^&*+=|\\/:;,.?<>-]+/gu, ' ')
     .replace(/\s+/gu, ' ')
     .trim();
 }

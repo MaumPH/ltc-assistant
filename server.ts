@@ -305,9 +305,8 @@ async function startServer() {
       const knowledgeFiles = ragService.listKnowledgeFiles();
       const latestKnowledgeUpdatedAt = knowledgeFiles
         .map((file) => file.updatedAt)
-        .filter((value): value is Date => value instanceof Date && !Number.isNaN(value.getTime()))
-        .sort((left, right) => right.getTime() - left.getTime())[0]
-        ?.toISOString();
+        .filter((value): value is string => typeof value === 'string' && !Number.isNaN(new Date(value).getTime()))
+        .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0];
 
       res.json({
         knowledgeDocumentCount: knowledgeFiles.length,

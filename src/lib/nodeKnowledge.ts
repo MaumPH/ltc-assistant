@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import type { KnowledgeFile, PromptMode } from './ragCore';
 
+const loggedNulStripPaths = new Set<string>();
+
 function stripNullCharacters(value: string): string {
   return value.replace(/\u0000/g, '');
 }
@@ -34,7 +36,8 @@ function readKnowledgeTree(dirPath: string, virtualPrefix: string): KnowledgeFil
       const rawContent = fs.readFileSync(fullPath, 'utf8');
       const sanitizedContent = stripNullCharacters(rawContent);
       const nulStripped = rawContent.length !== sanitizedContent.length;
-      if (rawContent.length !== sanitizedContent.length) {
+      if (rawContent.length !== sanitizedContent.length && !loggedNulStripPaths.has(virtualPath)) {
+        loggedNulStripPaths.add(virtualPath);
         console.warn(`[knowledge] stripped NUL characters from ${virtualPath}`);
       }
       entries.push({

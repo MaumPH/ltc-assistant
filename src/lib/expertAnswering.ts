@@ -566,6 +566,9 @@ export async function generateAnswerPlan(params: {
       'Return a compact JSON planning object only.',
       'For workflowEvents use only known workflow event ids.',
       'For selectedEvidenceIds use only the evidence ids provided in the user payload.',
+      'Self-check: recommendedAnswerType must match the semantic intent supported by the evidence, not just the surface wording.',
+      'Self-check: if blocking validation or authority mismatch makes a verdict unsafe, prefer a conservative plan over a forced verdict.',
+      'Self-check: keep the highest-authority evidence in selectedEvidenceIds whenever it materially answers the question.',
     ],
   });
 
@@ -1102,6 +1105,9 @@ export async function synthesizeExpertAnswer(params: {
       'Prefer checklist or procedure blocks for broad operational questions.',
       'Citations and basis entries must use only the provided evidence ids.',
       'If the semantic frame contains assumptions, reflect them conservatively in scope or caveat-like wording.',
+      'If validation is blocking, do not provide a verdict block that sounds final.',
+      'In evaluation mode, prefer the primary evaluation manual over Q&A or general employee guidance when both are available.',
+      'Self-check: the final citations must still include the strongest authority that directly supports the answer.',
     ],
   });
 

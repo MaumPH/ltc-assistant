@@ -3,7 +3,7 @@ export type Category =
   | '시행령'
   | '시행규칙'
   | '고시'
-  | '별표·별지'
+  | '별표·부표'
   | '평가·매뉴얼'
   | '참고자료';
 
@@ -17,18 +17,18 @@ export const CATEGORY_ORDER: Category[] = [
   '시행령',
   '시행규칙',
   '고시',
-  '별표·별지',
+  '별표·부표',
   '평가·매뉴얼',
   '참고자료',
 ];
 
 export function categorizeKnowledgeFileName(fileName: string): Category {
-  if (/\(법률\)/.test(fileName)) return '법령';
-  if (/\(시행령\)/.test(fileName)) return '시행령';
-  if (/\(시행규칙\)|보건복지부령/.test(fileName)) return '시행규칙';
-  if (/^\[(별표|별지)/.test(fileName)) return '별표·별지';
-  if (/\(고시\)/.test(fileName)) return '고시';
-  if (/평가|매뉴얼|Q&A|사례집/i.test(fileName)) return '평가·매뉴얼';
+  if (/\(법령\)|법\b/u.test(fileName)) return '법령';
+  if (/시행령/u.test(fileName)) return '시행령';
+  if (/시행규칙|보건복지부령/u.test(fileName)) return '시행규칙';
+  if (/^\[(별표|부표)|별표|부표/u.test(fileName)) return '별표·부표';
+  if (/\(고시\)|고시/u.test(fileName)) return '고시';
+  if (/평가|매뉴얼|Q&A|질의응답|사례집/i.test(fileName)) return '평가·매뉴얼';
   return '참고자료';
 }
 

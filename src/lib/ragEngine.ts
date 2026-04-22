@@ -27,6 +27,7 @@ export interface SearchOptions {
   lawRefs?: ParsedLawReference[];
   queryType?: NaturalLanguageQueryType;
   semanticFrame?: SemanticFrame;
+  precomputedVectorCandidates?: SearchCandidate[];
 }
 
 const VECTOR_TOP_K = 36;
@@ -469,6 +470,39 @@ function reciprocalRankFuse(lists: SearchCandidate[][]): SearchCandidate[] {
   return Array.from(merged.values()).sort((left, right) => right.fusedScore - left.fusedScore);
 }
 
+function extractCandidateYear(candidate: SearchCandidate): number | null {
+  const source = [candidate.docTitle, candidate.fileName, candidate.effectiveDate, candidate.publishedDate]
+    .filter(Boolean)
+    .join(' ');
+  const match = source.match(/\b(20\d{2})\b/);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+function scoreEvaluationAuthority(candidate: SearchCandidate): number {
+  const haystack = `${candidate.docTitle} ${candidate.fileName} ${candidate.parentSectionTitle}`.toLowerCase();
+  const currentYear = new Date().getFullYear();
+  const year = extractCandidateYear(candidate);
+  let score = 0;
+
+  if (candidate.sourceRole === 'primary_evaluation') score += 28;
+  if (candidate.sourceRole === 'support_reference') score += 8;
+  if (candidate.sourceRole === 'routing_summary') score -= 32;
+
+  if (/평가매뉴얼/u.test(haystack)) score += 20;
+  if (/q&a|qa|질의응답/u.test(haystack)) score -= 10;
+  if (/사례집/u.test(haystack)) score -= 6;
+  if ((/직원교육|직원인권|인권보호/u.test(haystack)) && candidate.sourceRole !== 'primary_evaluation') {
+    score -= 12;
+  }
+
+  if (year) {
+    const yearGap = Math.max(0, currentYear - year);
+    score += Math.max(-10, 8 - yearGap * 2);
+  }
+
+  return score;
+}
+
 function rerankCandidate(
   candidate: SearchCandidate,
   intent: QueryIntent,
@@ -494,9 +528,7 @@ function rerankCandidate(
   if (mode === 'evaluation' && candidate.mode === 'evaluation') score += 6;
 
   if (mode === 'evaluation') {
-    if (candidate.sourceRole === 'primary_evaluation') score += 16;
-    if (candidate.sourceRole === 'support_reference') score += 6;
-    if (candidate.sourceRole === 'routing_summary') score -= 24;
+    score += scoreEvaluationAuthority(candidate);
   }
 
   if (mode === 'integrated' && intent === 'legal-exact') {
@@ -674,10 +706,11 @@ function inferConfidence(intent: QueryIntent, evidence: SearchCandidate[], misma
   const top = evidence[0];
   const exactHeavy = top.exactScore >= 25 || Boolean(top.articleNo && top.matchedTerms.includes(top.articleNo));
   const mixedDocs = new Set(evidence.map((item) => item.docTitle)).size >= 3;
+  const focusMatchedEvidenceCount = evidence.filter((item) => item.matchedTerms.some((term) => !CANDIDATE_METADATA_TERMS.has(term))).length;
 
-  if (exactHeavy && top.rerankScore >= 60) return 'high';
-  if (intent === 'synthesis' && mixedDocs) return 'medium';
-  if (top.rerankScore >= 35) return 'medium';
+  if (exactHeavy && top.rerankScore >= 72 && focusMatchedEvidenceCount >= 1) return 'high';
+  if (intent === 'synthesis' && mixedDocs && focusMatchedEvidenceCount >= 1) return 'medium';
+  if (top.rerankScore >= 42 && focusMatchedEvidenceCount >= 1) return 'medium';
   return 'low';
 }
 
@@ -781,7 +814,7 @@ export function searchCorpus(params: {
   const diversifiedExactCandidates = diversifyCandidatePool(exactCandidates, FUSED_TOP_K);
 
   const lexicalCandidates = scoreLexical(index, query, mode, options).slice(0, FUSED_TOP_K);
-  const vectorCandidates = scoreVector(index, queryEmbedding, mode, options);
+  const vectorCandidates = options?.precomputedVectorCandidates ?? scoreVector(index, queryEmbedding, mode, options);
   const fusedCandidates = reciprocalRankFuse([diversifiedExactCandidates, lexicalCandidates, vectorCandidates])
     .map((candidate) => rerankCandidate(candidate, intent, mode, options))
     .sort((left, right) => right.rerankScore - left.rerankScore)
