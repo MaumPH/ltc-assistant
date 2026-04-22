@@ -36,6 +36,22 @@ async function main() {
   let riskHits = 0;
   let claimCoverageChecks = 0;
   let claimCoverageHits = 0;
+  const failedValidationCases: Array<{
+    id: string;
+    expected: string[];
+    forbidden: string[];
+    actual: string[];
+  }> = [];
+  const failedClaimCoverageCases: Array<{
+    id: string;
+    requiredMinSupportedClaims?: number;
+    requiredMaxUnsupportedClaims?: number;
+    actual: {
+      supportedClaims: number;
+      unsupportedClaims: number;
+    };
+    unsupportedClaimIds: string[];
+  }> = [];
 
   for (const testCase of cases) {
     const inspection = await service.inspectRetrieval(
@@ -73,10 +89,13 @@ async function main() {
       !testCase.expectedRelationRequests || testCase.expectedRelationRequests.length === 0
         ? null
         : testCase.expectedRelationRequests.every((relation) => relationCodes.includes(relation));
+    const missingValidationCodes = (testCase.expectedValidationCodes ?? []).filter((code) => !validationCodes.includes(code));
+    const unexpectedValidationCodes = (testCase.forbiddenValidationCodes ?? []).filter((code) => validationCodes.includes(code));
     const validationPass =
-      !testCase.expectedValidationCodes || testCase.expectedValidationCodes.length === 0
+      (!testCase.expectedValidationCodes || testCase.expectedValidationCodes.length === 0) &&
+      (!testCase.forbiddenValidationCodes || testCase.forbiddenValidationCodes.length === 0)
         ? null
-        : testCase.expectedValidationCodes.every((code) => validationCodes.includes(code));
+        : missingValidationCodes.length === 0 && unexpectedValidationCodes.length === 0;
     const missingSlotPass =
       !testCase.expectedMissingCriticalSlots || testCase.expectedMissingCriticalSlots.length === 0
         ? null
@@ -89,6 +108,9 @@ async function main() {
             inspection.claimCoverage.supportedClaims >= testCase.minSupportedClaims) &&
           (typeof testCase.maxUnsupportedClaims !== 'number' ||
             inspection.claimCoverage.unsupportedClaims <= testCase.maxUnsupportedClaims);
+    const unsupportedClaimIds = inspection.claimCoverage.details
+      .filter((detail) => detail.status === 'unsupported')
+      .map((detail) => detail.claimId);
 
     if (top3Hit) top3Hits += 1;
     if (top5Hit) top5Hits += 1;
@@ -110,7 +132,16 @@ async function main() {
     }
     if (validationPass !== null) {
       validationChecks += 1;
-      if (validationPass) validationHits += 1;
+      if (validationPass) {
+        validationHits += 1;
+      } else {
+        failedValidationCases.push({
+          id: testCase.id,
+          expected: testCase.expectedValidationCodes ?? [],
+          forbidden: testCase.forbiddenValidationCodes ?? [],
+          actual: validationCodes,
+        });
+      }
     }
     if (missingSlotPass !== null) {
       missingSlotChecks += 1;
@@ -122,7 +153,20 @@ async function main() {
     }
     if (claimCoveragePass !== null) {
       claimCoverageChecks += 1;
-      if (claimCoveragePass) claimCoverageHits += 1;
+      if (claimCoveragePass) {
+        claimCoverageHits += 1;
+      } else {
+        failedClaimCoverageCases.push({
+          id: testCase.id,
+          requiredMinSupportedClaims: testCase.minSupportedClaims,
+          requiredMaxUnsupportedClaims: testCase.maxUnsupportedClaims,
+          actual: {
+            supportedClaims: inspection.claimCoverage.supportedClaims,
+            unsupportedClaims: inspection.claimCoverage.unsupportedClaims,
+          },
+          unsupportedClaimIds,
+        });
+      }
     }
 
     results.push({
@@ -150,6 +194,8 @@ async function main() {
       intentPass,
       relationPass,
       validationPass,
+      missingValidationCodes,
+      unexpectedValidationCodes,
       missingSlotPass,
       riskPass,
       claimCoveragePass,
@@ -192,12 +238,16 @@ async function main() {
     intentPassRate: intentChecks > 0 ? Number((intentHits / intentChecks).toFixed(4)) : null,
     relationPassRate: relationChecks > 0 ? Number((relationHits / relationChecks).toFixed(4)) : null,
     validationSignalPassRate: validationChecks > 0 ? Number((validationHits / validationChecks).toFixed(4)) : null,
+    validationSignalChecks: validationChecks,
     missingCriticalSlotPassRate: missingSlotChecks > 0 ? Number((missingSlotHits / missingSlotChecks).toFixed(4)) : null,
     riskPassRate: riskChecks > 0 ? Number((riskHits / riskChecks).toFixed(4)) : null,
     claimCoveragePassRate: claimCoverageChecks > 0 ? Number((claimCoverageHits / claimCoverageChecks).toFixed(4)) : null,
+    claimCoverageChecks,
     abstainAcceptRate: cases.filter((item) => item.acceptableAbstain).length > 0
       ? Number((abstainAccepts / cases.filter((item) => item.acceptableAbstain).length).toFixed(4))
       : null,
+    failedValidationCases,
+    failedClaimCoverageCases,
     results,
   };
 
@@ -219,7 +269,7 @@ async function main() {
     console.log(`Relation pass: ${(payload.relationPassRate * 100).toFixed(1)}%`);
   }
   if (payload.validationSignalPassRate !== null) {
-    console.log(`Validation signal pass: ${(payload.validationSignalPassRate * 100).toFixed(1)}%`);
+    console.log(`Validation signal pass: ${(payload.validationSignalPassRate * 100).toFixed(1)}% (${payload.validationSignalChecks} checks)`);
   }
   if (payload.missingCriticalSlotPassRate !== null) {
     console.log(`Missing critical slot pass: ${(payload.missingCriticalSlotPassRate * 100).toFixed(1)}%`);
@@ -228,7 +278,13 @@ async function main() {
     console.log(`Risk pass: ${(payload.riskPassRate * 100).toFixed(1)}%`);
   }
   if (payload.claimCoveragePassRate !== null) {
-    console.log(`Claim coverage pass: ${(payload.claimCoveragePassRate * 100).toFixed(1)}%`);
+    console.log(`Claim coverage pass: ${(payload.claimCoveragePassRate * 100).toFixed(1)}% (${payload.claimCoverageChecks} checks)`);
+  }
+  if (payload.failedValidationCases.length > 0) {
+    console.log(`Failed validation cases: ${payload.failedValidationCases.map((item) => item.id).join(', ')}`);
+  }
+  if (payload.failedClaimCoverageCases.length > 0) {
+    console.log(`Failed claim coverage cases: ${payload.failedClaimCoverageCases.map((item) => item.id).join(', ')}`);
   }
 }
 

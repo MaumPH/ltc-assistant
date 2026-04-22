@@ -24,10 +24,13 @@ import type {
   ConfidenceLevel,
   EvidenceState,
   ExpertAnswerBlock,
+  ExpertAnswerBlockItem,
   ExpertAnswerCitation,
   ExpertAnswerEnvelope,
   ExpertAnswerType,
+  GroundedBasisBuckets,
   PromptMode,
+  RetrievalPriorityClass,
   RetrievalMode,
   SemanticFrame,
   StructuredChunk,
@@ -100,6 +103,23 @@ function sanitizeCitationIds(value: unknown, allowedIds: Set<string>, limit = 6)
   ).slice(0, limit);
 }
 
+function trimQuote(value: string, max = 220): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, max - 3).trim()}...`;
+}
+
+function selectQuoteText(chunk: StructuredChunk): string {
+  /*
+  const firstSentence = chunk.text
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(/(?<=[.!?。])\s+/u)[0];
+  */
+  const firstSentence = chunk.text.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/u)[0];
+  return trimQuote(firstSentence || chunk.textPreview || chunk.text, 220);
+}
+
 function toBasisEntriesFromEvidence(evidence: StructuredChunk[]): ExpertAnswerEnvelope['basis'] {
   const buckets: ExpertAnswerEnvelope['basis'] = {
     legal: [],
@@ -129,6 +149,86 @@ function toBasisEntriesFromEvidence(evidence: StructuredChunk[]): ExpertAnswerEn
     evaluation: buckets.evaluation.slice(0, 4),
     practical: buckets.practical.slice(0, 4),
   };
+}
+
+function toGroundedBasisFromEvidence(evidence: StructuredChunk[]): GroundedBasisBuckets {
+  const buckets: GroundedBasisBuckets = {
+    legal: [],
+    evaluation: [],
+    practical: [],
+  };
+
+  for (const chunk of evidence) {
+    const bucket = inferBasisBucketFromChunk(chunk);
+    const existing = buckets[bucket].find((entry) => entry.label === chunk.docTitle && entry.quote === selectQuoteText(chunk));
+    if (existing) {
+      existing.citationIds = uniqueStrings([...existing.citationIds, chunk.id]);
+      continue;
+    }
+
+    buckets[bucket].push({
+      label: chunk.docTitle,
+      quote: selectQuoteText(chunk),
+      explanation: trimQuote(chunk.textPreview || chunk.parentSectionTitle || chunk.docTitle, 140),
+      citationIds: [chunk.id],
+    });
+  }
+
+  return {
+    legal: buckets.legal.slice(0, 3),
+    evaluation: buckets.evaluation.slice(0, 3),
+    practical: buckets.practical.slice(0, 3),
+  };
+}
+
+function toLegacyBasisFromGroundedBasis(groundedBasis: GroundedBasisBuckets): ExpertAnswerEnvelope['basis'] {
+  return {
+    legal: groundedBasis.legal.map((entry) => ({
+      label: entry.label,
+      summary: entry.explanation || entry.quote,
+      citationIds: entry.citationIds,
+    })),
+    evaluation: groundedBasis.evaluation.map((entry) => ({
+      label: entry.label,
+      summary: entry.explanation || entry.quote,
+      citationIds: entry.citationIds,
+    })),
+    practical: groundedBasis.practical.map((entry) => ({
+      label: entry.label,
+      summary: entry.explanation || entry.quote,
+      citationIds: entry.citationIds,
+    })),
+  };
+}
+
+function deriveReferenceDate(keyIssueDate: string | undefined, evidence: StructuredChunk[]): string {
+  if (keyIssueDate?.trim()) return keyIssueDate.trim();
+  return (
+    evidence
+      .flatMap((chunk) => [chunk.effectiveDate ?? '', chunk.publishedDate ?? ''])
+      .find((value) => /^\d{4}-\d{2}-\d{2}$/.test(value)) || '확인 필요'
+  );
+}
+
+function buildPracticalInterpretationItems(plan: AnswerPlan, citations: StructuredChunk[]): ExpertAnswerBlockItem[] {
+  if (plan.taskCandidates.length > 0) {
+    return plan.taskCandidates.slice(0, 6).map((task) => ({
+      label: task.title,
+      detail: task.note,
+      actor: task.actor,
+      timeWindow: task.timeWindow,
+      artifact: task.artifact,
+      basis: task.basis,
+      citationIds: plan.selectedEvidenceIds,
+    }));
+  }
+
+  return citations.slice(0, 4).map((citation) => ({
+    label: citation.docTitle,
+    detail: trimQuote(citation.textPreview, 160),
+    basis: inferBasisBucketFromChunk(citation),
+    citationIds: [citation.id],
+  }));
 }
 
 export function buildBasisCoverage(evidence: StructuredChunk[]): Record<BasisBucketKey, number> {
@@ -614,14 +714,15 @@ function buildAnswerSchema() {
     required: [
       'answerType',
       'headline',
-      'summary',
       'confidence',
       'evidenceState',
-      'scope',
-      'basis',
-      'blocks',
+      'referenceDate',
+      'conclusion',
+      'groundedBasis',
+      'practicalInterpretation',
       'citations',
       'followUps',
+      'appliedScope',
     ],
     properties: {
       answerType: {
@@ -633,7 +734,97 @@ function buildAnswerSchema() {
       confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
       evidenceState: { type: 'string', enum: ['confirmed', 'partial', 'conflict', 'not_enough'] },
       keyIssueDate: { type: 'string' },
+      referenceDate: { type: 'string' },
+      conclusion: { type: 'string' },
+      appliedScope: { type: 'string' },
       scope: { type: 'string' },
+      groundedBasis: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['legal', 'evaluation', 'practical'],
+        properties: {
+          legal: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['label', 'quote', 'explanation', 'citationIds'],
+              properties: {
+                label: { type: 'string' },
+                quote: { type: 'string' },
+                explanation: { type: 'string' },
+                citationIds: { type: 'array', items: { type: 'string' } },
+              },
+            },
+          },
+          evaluation: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['label', 'quote', 'explanation', 'citationIds'],
+              properties: {
+                label: { type: 'string' },
+                quote: { type: 'string' },
+                explanation: { type: 'string' },
+                citationIds: { type: 'array', items: { type: 'string' } },
+              },
+            },
+          },
+          practical: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['label', 'quote', 'explanation', 'citationIds'],
+              properties: {
+                label: { type: 'string' },
+                quote: { type: 'string' },
+                explanation: { type: 'string' },
+                citationIds: { type: 'array', items: { type: 'string' } },
+              },
+            },
+          },
+        },
+      },
+      practicalInterpretation: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['label', 'detail'],
+          properties: {
+            label: { type: 'string' },
+            detail: { type: 'string' },
+            actor: { type: 'string' },
+            timeWindow: { type: 'string' },
+            artifact: { type: 'string' },
+            basis: { type: 'string', enum: ['legal', 'evaluation', 'practical'] },
+            citationIds: { type: 'array', items: { type: 'string' } },
+            side: { type: 'string' },
+            term: { type: 'string' },
+          },
+        },
+      },
+      additionalChecks: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['label', 'detail'],
+          properties: {
+            label: { type: 'string' },
+            detail: { type: 'string' },
+            actor: { type: 'string' },
+            timeWindow: { type: 'string' },
+            artifact: { type: 'string' },
+            basis: { type: 'string', enum: ['legal', 'evaluation', 'practical'] },
+            citationIds: { type: 'array', items: { type: 'string' } },
+            side: { type: 'string' },
+            term: { type: 'string' },
+          },
+        },
+      },
       basis: {
         type: 'object',
         additionalProperties: false,
@@ -841,6 +1032,8 @@ function buildFallbackAnswer(params: {
   citations: StructuredChunk[];
 }): ExpertAnswerEnvelope {
   const citations = buildExpertCitations(params.citations);
+  const groundedBasis = toGroundedBasisFromEvidence(params.citations);
+  const practicalInterpretation = buildPracticalInterpretationItems(params.plan, params.citations);
   return {
     answerType: params.plan.recommendedAnswerType,
     headline: params.question.length > 36 ? `${params.question.slice(0, 35)}...` : params.question,
@@ -851,8 +1044,21 @@ function buildFallbackAnswer(params: {
     confidence: params.confidence,
     evidenceState: params.evidenceState,
     keyIssueDate: params.keyIssueDate,
+    referenceDate: deriveReferenceDate(params.keyIssueDate, params.citations),
+    conclusion:
+      params.plan.taskCandidates.length > 0
+        ? trimQuote(params.plan.taskCandidates.map((task) => task.title).join(', '), 160)
+        : '검색된 근거를 기준으로 적용 가능한 결론을 우선 정리했습니다.',
+    groundedBasis,
+    practicalInterpretation,
+    additionalChecks: params.plan.missingDimensions.map((dimension) => ({
+      label: '추가 확인 필요',
+      detail: dimension,
+      citationIds: params.plan.selectedEvidenceIds,
+    })),
+    appliedScope: '전체/공통',
     scope: params.plan.intentSummary,
-    basis: toBasisEntriesFromEvidence(params.citations),
+    basis: toLegacyBasisFromGroundedBasis(groundedBasis),
     blocks: buildFallbackBlocks(params.plan, params.citations),
     citations,
     followUps: params.plan.missingDimensions.map((dimension) => `추가 확인 필요: ${dimension}`),
@@ -891,6 +1097,80 @@ function normalizeBasisEntries(
     evaluation: normalizeBucket(input?.evaluation, fallback.evaluation),
     practical: normalizeBucket(input?.practical, fallback.practical),
   };
+}
+
+function normalizeGroundedBasisEntries(
+  value: unknown,
+  fallback: ExpertAnswerEnvelope['groundedBasis'],
+  allowedCitationIds: Set<string>,
+): ExpertAnswerEnvelope['groundedBasis'] {
+  const normalizeBucket = (
+    entries: unknown,
+    fallbackEntries: ExpertAnswerEnvelope['groundedBasis'][BasisBucketKey],
+  ) => {
+    if (!Array.isArray(entries)) return fallbackEntries;
+    const normalized = entries
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') return null;
+        const item = entry as Partial<ExpertAnswerEnvelope['groundedBasis'][BasisBucketKey][number]>;
+        const label = sanitizeText(item.label);
+        const quote = sanitizeText(item.quote);
+        const explanation = sanitizeText(item.explanation);
+        const citationIds = sanitizeCitationIds(item.citationIds, allowedCitationIds, 6);
+        if (!label || !quote || !explanation) return null;
+        return {
+          label,
+          quote,
+          explanation,
+          citationIds,
+        };
+      })
+      .filter((entry): entry is ExpertAnswerEnvelope['groundedBasis'][BasisBucketKey][number] => Boolean(entry))
+      .slice(0, 4);
+    return normalized.length > 0 ? normalized : fallbackEntries;
+  };
+
+  const input = value as Partial<ExpertAnswerEnvelope['groundedBasis']> | undefined;
+  return {
+    legal: normalizeBucket(input?.legal, fallback.legal),
+    evaluation: normalizeBucket(input?.evaluation, fallback.evaluation),
+    practical: normalizeBucket(input?.practical, fallback.practical),
+  };
+}
+
+function normalizeAnswerItems(
+  value: unknown,
+  fallback: ExpertAnswerBlockItem[],
+  allowedCitationIds: Set<string>,
+  limit = 8,
+): ExpertAnswerBlockItem[] {
+  if (!Array.isArray(value)) return fallback;
+  const normalized = value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const entry = item as Partial<ExpertAnswerBlockItem>;
+      const label = sanitizeText(entry.label);
+      const detail = sanitizeText(entry.detail);
+      if (!label || !detail) return null;
+      const basis =
+        entry.basis === 'legal' || entry.basis === 'evaluation' || entry.basis === 'practical'
+          ? entry.basis
+          : undefined;
+      return {
+        label,
+        detail,
+        actor: sanitizeText(entry.actor) || undefined,
+        timeWindow: sanitizeText(entry.timeWindow) || undefined,
+        artifact: sanitizeText(entry.artifact) || undefined,
+        basis,
+        citationIds: sanitizeCitationIds(entry.citationIds, allowedCitationIds, 6),
+        side: sanitizeText(entry.side) || undefined,
+        term: sanitizeText(entry.term) || undefined,
+      };
+    })
+    .filter(Boolean) as ExpertAnswerBlockItem[];
+
+  return normalized.slice(0, limit).length > 0 ? normalized.slice(0, limit) : fallback;
 }
 
 function normalizeBlocks(
@@ -995,6 +1275,7 @@ function normalizeExpertAnswer(
   fallback: ExpertAnswerEnvelope,
   allowedCitationIds: Set<string>,
 ): ExpertAnswerEnvelope {
+  const groundedBasis = normalizeGroundedBasisEntries(candidate.groundedBasis, fallback.groundedBasis, allowedCitationIds);
   return {
     answerType:
       candidate.answerType === 'verdict' ||
@@ -1019,8 +1300,19 @@ function normalizeExpertAnswer(
         ? candidate.evidenceState
         : fallback.evidenceState,
     keyIssueDate: sanitizeText(candidate.keyIssueDate) || fallback.keyIssueDate,
+    referenceDate: sanitizeText(candidate.referenceDate, fallback.referenceDate),
+    conclusion: sanitizeText(candidate.conclusion, fallback.conclusion),
+    groundedBasis,
+    practicalInterpretation: normalizeAnswerItems(
+      candidate.practicalInterpretation,
+      fallback.practicalInterpretation,
+      allowedCitationIds,
+      8,
+    ),
+    additionalChecks: normalizeAnswerItems(candidate.additionalChecks, fallback.additionalChecks, allowedCitationIds, 6),
+    appliedScope: sanitizeText(candidate.appliedScope, fallback.appliedScope),
     scope: sanitizeText(candidate.scope, fallback.scope),
-    basis: normalizeBasisEntries(candidate.basis, fallback.basis, allowedCitationIds),
+    basis: normalizeBasisEntries(candidate.basis, toLegacyBasisFromGroundedBasis(groundedBasis), allowedCitationIds),
     blocks: normalizeBlocks(candidate.blocks, fallback.blocks, allowedCitationIds),
     citations: normalizeCitations(candidate.citations, fallback.citations, allowedCitationIds),
     followUps: sanitizeStringList(candidate.followUps, 6),
@@ -1036,6 +1328,7 @@ function buildSynthesisPrompt(params: {
   confidence: ConfidenceLevel;
   keyIssueDate?: string;
   workflowEventLabels: string[];
+  priorityClass: RetrievalPriorityClass;
 }): string {
   return [
     'Question:',
@@ -1052,6 +1345,7 @@ function buildSynthesisPrompt(params: {
     '',
     `Evidence state: ${params.evidenceState}`,
     `Confidence: ${params.confidence}`,
+    `Retrieval priority class: ${params.priorityClass}`,
     params.keyIssueDate ? `Key issue date: ${params.keyIssueDate}` : 'Key issue date: unknown',
     params.workflowEventLabels.length > 0 ? `Workflow events: ${params.workflowEventLabels.join(', ')}` : 'Workflow events: none',
     '',
@@ -1071,6 +1365,7 @@ export async function synthesizeExpertAnswer(params: {
   evidence: StructuredChunk[];
   knowledgeContext: string;
   retrievalMode: RetrievalMode;
+  priorityClass: RetrievalPriorityClass;
   evidenceState: EvidenceState;
   confidence: ConfidenceLevel;
   keyIssueDate?: string;
@@ -1102,10 +1397,13 @@ export async function synthesizeExpertAnswer(params: {
     extraInstructions: [
       'Return semantic JSON only.',
       'Do not emit presentation markdown, HTML, or numbered headings.',
-      'Prefer checklist or procedure blocks for broad operational questions.',
-      'Citations and basis entries must use only the provided evidence ids.',
-      'If the semantic frame contains assumptions, reflect them conservatively in scope or caveat-like wording.',
-      'If validation is blocking, do not provide a verdict block that sounds final.',
+      'Use this exact output flow: [기준 시점] -> [결론] -> [확정 근거] -> [실무 해석] -> [출처].',
+      'The groundedBasis field must separate legal, evaluation, and practical evidence.',
+      'Each groundedBasis item must prefer a direct quote-like sentence from evidence, not a vague paraphrase.',
+      'Citations and grounded basis entries must use only the provided evidence ids.',
+      'If the semantic frame contains assumptions, reflect them conservatively in conclusion or additionalChecks.',
+      'If validation is blocking, do not provide a final-sounding conclusion.',
+      'Do not place warning-style caveats before the conclusion.',
       'In evaluation mode, prefer the primary evaluation manual over Q&A or general employee guidance when both are available.',
       'Self-check: the final citations must still include the strongest authority that directly supports the answer.',
     ],
@@ -1126,6 +1424,7 @@ export async function synthesizeExpertAnswer(params: {
                 semanticFrame: params.semanticFrame,
                 evidenceState: params.evidenceState,
                 confidence: params.confidence,
+                priorityClass: params.priorityClass,
                 keyIssueDate: params.keyIssueDate,
                 workflowEventLabels: summarizeWorkflowEvents(params.brain, params.plan.workflowEvents),
               }),
@@ -1156,7 +1455,7 @@ export function createExpertAbstainAnswer(params: {
   evidence: StructuredChunk[];
 }): ExpertAnswerEnvelope {
   const citations = buildExpertCitations(params.evidence.slice(0, 4));
-  const basis = toBasisEntriesFromEvidence(params.evidence.slice(0, 4));
+  const groundedBasis = toGroundedBasisFromEvidence(params.evidence.slice(0, 4));
   return {
     answerType: 'mixed',
     headline: params.question.length > 36 ? `${params.question.slice(0, 35)}...` : params.question,
@@ -1164,8 +1463,29 @@ export function createExpertAbstainAnswer(params: {
     confidence: params.confidence,
     evidenceState: params.evidenceState,
     keyIssueDate: params.keyIssueDate,
+    referenceDate: deriveReferenceDate(params.keyIssueDate, params.evidence),
+    conclusion: '현재 확보된 근거만으로는 결론을 단정하기 어렵습니다. 적용 전 원문 기준을 추가로 확인해야 합니다.',
+    groundedBasis,
+    practicalInterpretation: [
+      {
+        label: '기준 범위 재확인',
+        detail: '기관 유형, 급여유형, 기준 시점을 먼저 좁힌 뒤 다시 검색하는 것이 안전합니다.',
+      },
+    ],
+    additionalChecks: [
+      {
+        label: '직접 근거 부족',
+        detail: '검색된 문맥 안에서 질문의 핵심 판단을 바로 확정할 조문·지표·실무 근거가 충분히 연결되지 않았습니다.',
+        citationIds: citations.map((item) => item.evidenceId),
+      },
+      {
+        label: '추가 확인 추천',
+        detail: '기관 유형과 기준 시점을 알려주면 관련 근거를 더 정확하게 좁힐 수 있습니다.',
+      },
+    ],
+    appliedScope: '전체/공통',
     scope: '질문과 직접 연결되는 근거 범위를 다시 좁혀야 합니다.',
-    basis,
+    basis: toLegacyBasisFromGroundedBasis(groundedBasis),
     blocks: [
       {
         type: 'warning',
@@ -1243,6 +1563,29 @@ export function createExpertClarificationAnswer(params: {
       params.decision.reason || '현재 질문은 해석이 둘 이상 가능해 바로 답하면 잘못된 기준을 적용할 수 있습니다.',
     confidence: 'low',
     evidenceState: 'not_enough',
+    referenceDate: '확인 필요',
+    conclusion: followUpQuestion,
+    groundedBasis: {
+      legal: [],
+      evaluation: [],
+      practical: [],
+    },
+    practicalInterpretation: optionItems.slice(0, 3),
+    additionalChecks: [
+      {
+        label: '오답 위험 방지',
+        detail:
+          params.decision.reason || '현재 정보만으로는 서로 다른 기준 중 하나를 임의로 선택하게 되어 답변 정확도가 떨어질 수 있습니다.',
+      },
+      {
+        label: '추가로 필요한 축',
+        detail:
+          missingDimensionLabels.length > 0
+            ? `${missingDimensionLabels.join(', ')} 정보가 확인되면 바로 정확한 기준으로 정리할 수 있습니다.`
+            : '질문의 적용 범위를 한 번만 더 확인하면 정확한 답변으로 바로 이어질 수 있습니다.',
+      },
+    ],
+    appliedScope: '전체/공통',
     scope: '핵심 기준이 확인되면 같은 질문이라도 적용 조문, 평가 포인트, 실무 안내가 달라질 수 있습니다.',
     basis: {
       legal: [],
@@ -1288,6 +1631,7 @@ export function createExpertClarificationAnswer(params: {
   };
 }
 
+/*
 function renderBasisBucket(title: string, entries: ExpertAnswerEnvelope['basis'][BasisBucketKey]): string {
   if (entries.length === 0) return `### ${title}\n- 직접 연결된 근거가 충분하지 않습니다.`;
   return `### ${title}\n${entries.map((entry) => `- ${entry.label}: ${entry.summary}`).join('\n')}`;
@@ -1321,6 +1665,116 @@ export function renderExpertAnswerMarkdown(answer: ExpertAnswerEnvelope): string
     '## 출처',
     ...answer.citations.map((citation) => `- ${citation.label}`),
     answer.followUps.length > 0 ? `\n## 추가 확인\n${answer.followUps.map((item) => `- ${item}`).join('\n')}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+*/
+
+function formatCitationRefs(citationIds: readonly string[] | undefined, citationIndexById: Map<string, number>): string {
+  if (!citationIds || citationIds.length === 0) return '';
+  const refs = uniqueStrings(
+    citationIds
+      .map((citationId) => citationIndexById.get(citationId))
+      .filter((index): index is number => typeof index === 'number')
+      .sort((left, right) => left - right)
+      .map((index) => `출처 ${index}`),
+  );
+  return refs.join(', ');
+}
+
+function renderGroundedBasisBucket(
+  title: string,
+  entries: ExpertAnswerEnvelope['groundedBasis'][BasisBucketKey],
+  citationIndexById: Map<string, number>,
+): string {
+  if (entries.length === 0) {
+    return `### ${title}\n- 직접 연결된 확정 근거는 아직 비어 있습니다.`;
+  }
+
+  return [
+    `### ${title}`,
+    ...entries.flatMap((entry) => {
+      const refs = formatCitationRefs(entry.citationIds, citationIndexById);
+      return [
+        `- ${entry.label}${refs ? ` (${refs})` : ''}`,
+        `  > ${entry.quote}`,
+        `  ${entry.explanation}`,
+      ];
+    }),
+  ].join('\n');
+}
+
+function renderItemSection(title: string, items: ExpertAnswerBlockItem[]): string {
+  if (items.length === 0) {
+    return `## ${title}\n- 해당 항목은 추가 기재가 없습니다.`;
+  }
+
+  return [
+    `## ${title}`,
+    ...items.flatMap((item) => {
+      const meta = uniqueStrings([item.actor ?? '', item.timeWindow ?? '', item.artifact ?? '', item.term ?? '']);
+      return [
+        `- ${item.label}: ${item.detail}`,
+        meta.length > 0 ? `  메모: ${meta.join(' / ')}` : null,
+      ].filter(Boolean) as string[];
+    }),
+  ].join('\n');
+}
+
+function renderCitationSection(answer: ExpertAnswerEnvelope): string {
+  if (answer.citations.length === 0) {
+    return '## [출처]\n- 연결된 출처가 없습니다.';
+  }
+
+  return [
+    '## [출처]',
+    ...answer.citations.map((citation, index) => {
+      const meta = [citation.docTitle, citation.articleNo, citation.sectionPath.join(' / '), citation.effectiveDate]
+        .filter(Boolean)
+        .join(' · ');
+      return `- 출처 ${index + 1}. ${citation.label}${meta ? ` (${meta})` : ''}`;
+    }),
+  ].join('\n');
+}
+
+export function renderExpertAnswerMarkdown(answer: ExpertAnswerEnvelope): string {
+  const citationIndexById = new Map(answer.citations.map((citation, index) => [citation.evidenceId, index + 1] as const));
+  const additionalItems = [
+    ...answer.additionalChecks,
+    ...answer.followUps.map((followUp) => ({
+      label: '후속 확인',
+      detail: followUp,
+    })),
+  ];
+
+  return [
+    `# ${answer.headline}`,
+    '',
+    answer.summary || null,
+    answer.appliedScope ? `적용 급여유형: ${answer.appliedScope}` : null,
+    `근거 상태: ${formatEvidenceStateLabel(answer.evidenceState)}`,
+    `신뢰도: ${answer.confidence}`,
+    '',
+    '## [기준 시점]',
+    answer.referenceDate,
+    '',
+    '## [결론]',
+    answer.conclusion,
+    '',
+    '## [확정 근거]',
+    renderGroundedBasisBucket('법적 근거', answer.groundedBasis.legal, citationIndexById),
+    '',
+    renderGroundedBasisBucket('평가 근거', answer.groundedBasis.evaluation, citationIndexById),
+    '',
+    renderGroundedBasisBucket('실무 근거', answer.groundedBasis.practical, citationIndexById),
+    '',
+    renderItemSection('[실무 해석]', answer.practicalInterpretation),
+    '',
+    renderCitationSection(answer),
+    '',
+    renderItemSection('[추가 확인]', additionalItems),
   ]
     .filter(Boolean)
     .join('\n');

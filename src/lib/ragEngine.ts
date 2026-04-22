@@ -1,14 +1,18 @@
 import { compareIsoDateDesc, detectIntent, extractArticleNo, tokenize } from './ragMetadata';
+import { scoreCandidateByPriority, type RetrievalPriorityPolicy } from './retrievalPriority';
+import { chunkMatchesSelectedServiceScopes, getEffectiveServiceScopes, isChunkCompatibleWithServiceScopes } from './serviceScopes';
 import type {
   ConfidenceLevel,
   NaturalLanguageQueryType,
   ParsedLawReference,
   PromptMode,
   QueryIntent,
+  RetrievalPriorityClass,
   SemanticFrame,
   RetrievalStageTrace,
   SearchCandidate,
   SearchRun,
+  ServiceScopeId,
   SourceRole,
   StructuredChunk,
 } from './ragTypes';
@@ -27,6 +31,10 @@ export interface SearchOptions {
   lawRefs?: ParsedLawReference[];
   queryType?: NaturalLanguageQueryType;
   semanticFrame?: SemanticFrame;
+  selectedServiceScopes?: ServiceScopeId[];
+  retrievalPriorityClass?: RetrievalPriorityClass;
+  retrievalPriorityPolicy?: RetrievalPriorityPolicy;
+  evaluationLinked?: boolean;
   precomputedVectorCandidates?: SearchCandidate[];
 }
 
@@ -546,6 +554,24 @@ function rerankCandidate(
 
   if (options?.queryType === 'procedure' && ['manual', 'guide', 'notice'].includes(candidate.sourceType)) {
     score += 6;
+  }
+
+  if (options?.retrievalPriorityClass && options?.retrievalPriorityPolicy) {
+    score += scoreCandidateByPriority({
+      candidate,
+      priorityClass: options.retrievalPriorityClass,
+      policy: options.retrievalPriorityPolicy,
+      evaluationLinked: options.evaluationLinked ?? false,
+    });
+  }
+
+  const effectiveServiceScopes = getEffectiveServiceScopes(options?.selectedServiceScopes);
+  if (effectiveServiceScopes.length > 0) {
+    if (chunkMatchesSelectedServiceScopes(candidate, options?.selectedServiceScopes)) {
+      score += options?.retrievalPriorityPolicy?.scopeBoost ?? 14;
+    } else if (!isChunkCompatibleWithServiceScopes(candidate, options?.selectedServiceScopes)) {
+      score -= options?.retrievalPriorityPolicy?.mismatchPenalty ?? 10;
+    }
   }
 
   return {
