@@ -6,6 +6,7 @@ import type {
   ClaimCoverage,
   ClaimPlan,
   ClaimPlanItem,
+  ExpertAnswerBlockItem,
   ExpertAnswerEnvelope,
   OntologyRelationType,
   SemanticFrame,
@@ -63,6 +64,25 @@ const DEFAULT_RULES: ValidationRule[] = [
     required_relations: ['exception-of', 'limited-by'],
   },
 ];
+
+const SLOT_LABELS: Partial<Record<SemanticSlotKey, string>> = {
+  service_scope: '급여유형',
+  institution_type: '기관/시설 유형',
+  benefit_type: '급여 항목',
+  recipient_grade: '수급자 등급',
+  actor_role: '대상 직종/역할',
+  document_type: '문서 유형',
+  cost_topic: '비용 항목',
+  time_scope: '기준 시점',
+  legal_action: '행정/법적 조치',
+  exception_context: '예외 조건',
+};
+
+const BASIS_BUCKET_LABELS: Record<BasisBucketKey, string> = {
+  legal: '법적 근거',
+  evaluation: '평가 근거',
+  practical: '실무 근거',
+};
 
 let cachedRulesProjectRoot = '';
 let cachedRules: ValidationRule[] | null = null;
@@ -377,6 +397,120 @@ function hasUngroundedCostNumber(answerText: string, citations: StructuredChunk[
   return !citations.some((citation) => numbers.some((numberText) => citation.text.includes(numberText)));
 }
 
+function toSlotLabel(slot: string): string {
+  return SLOT_LABELS[slot as SemanticSlotKey] ?? slot.replace(/_/g, ' ');
+}
+
+function extractMissingSlotLabels(message: string): string[] {
+  const match = message.match(/Missing slots:\s*([A-Za-z_,\s-]+)/);
+  if (!match) return [];
+  return match[1]
+    .split(',')
+    .map((slot) => slot.trim())
+    .filter(Boolean)
+    .map(toSlotLabel);
+}
+
+function extractThinBasisLabel(message: string): string | null {
+  const match = message.match(/\b(legal|evaluation|practical)\s+evidence is thinner/i);
+  if (!match) return null;
+  return BASIS_BUCKET_LABELS[match[1] as BasisBucketKey] ?? null;
+}
+
+function extractMixedScopes(message: string): string[] {
+  const match = message.match(/mixed service scopes:\s*(.+)$/i);
+  if (!match) return [];
+  return match[1]
+    .split(',')
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+}
+
+function extractNewestDate(message: string): string | null {
+  return message.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? null;
+}
+
+function formatValidationIssueForAnswer(issue: ValidationIssue): ExpertAnswerBlockItem {
+  switch (issue.code) {
+    case 'insufficient-evidence-composition': {
+      const missingSlots = extractMissingSlotLabels(issue.message);
+      if (missingSlots.length > 0) {
+        return {
+          label: '질문 조건 확인 필요',
+          detail: `정확한 판단을 위해 ${missingSlots.join(', ')} 정보가 더 필요합니다. 현재 답변은 확인된 근거 범위 안에서만 참고하세요.`,
+          citationIds: issue.evidenceIds,
+        };
+      }
+
+      const basisLabel = extractThinBasisLabel(issue.message);
+      return {
+        label: basisLabel ? `${basisLabel} 보강 필요` : '근거 구성 보강 필요',
+        detail: basisLabel
+          ? `${basisLabel}가 충분히 확보되지 않았습니다. 해당 항목은 원문 근거를 추가 확인한 뒤 적용하세요.`
+          : '질문을 확정하려면 법적 근거, 평가 근거, 실무 근거의 조합을 더 확인해야 합니다.',
+        citationIds: issue.evidenceIds,
+      };
+    }
+    case 'mixed-service-scope': {
+      const scopes = extractMixedScopes(issue.message);
+      return {
+        label: '급여유형 범위 확인 필요',
+        detail:
+          scopes.length > 0
+            ? `선택한 급여유형과 다른 범위의 근거가 함께 검색되었습니다: ${scopes.join(', ')}. 답변을 적용할 때는 선택한 급여유형과 직접 맞는 근거를 우선 확인하세요.`
+            : '선택한 급여유형과 다른 범위의 근거가 함께 검색되었습니다. 적용 전 급여유형이 맞는지 다시 확인하세요.',
+        citationIds: issue.evidenceIds,
+      };
+    }
+    case 'unsupported-claim':
+      return {
+        label: '직접 근거 확인 필요',
+        detail: '답변 일부와 직접 연결되는 근거가 충분하지 않습니다. 해당 항목은 원문 문서에서 추가 근거를 확인한 뒤 적용하세요.',
+        citationIds: issue.evidenceIds,
+      };
+    case 'stale-priority': {
+      const newestDate = extractNewestDate(issue.message);
+      return {
+        label: '최신 기준일 확인 필요',
+        detail: newestDate
+          ? `검색된 근거 중 최신 기준일(${newestDate})이 답변에 충분히 드러나지 않았습니다. 최신 개정 기준을 먼저 확인하세요.`
+          : '검색된 근거 중 최신 기준일이 답변에 충분히 드러나지 않았습니다. 최신 개정 기준을 먼저 확인하세요.',
+        citationIds: issue.evidenceIds,
+      };
+    }
+    case 'ungrounded-cost-number':
+      return {
+        label: '금액·비율 근거 확인 필요',
+        detail: '답변의 금액 또는 비율 수치가 인용 근거와 직접 연결되지 않았습니다. 산식과 기준 금액을 원문에서 다시 확인하세요.',
+        citationIds: issue.evidenceIds,
+      };
+    case 'missing-exception':
+      return {
+        label: '예외·단서 조건 확인 필요',
+        detail: '사용자가 요청한 예외나 단서 조건이 답변에 충분히 드러나지 않았습니다. 적용 제외, 다만 조항, 제한 조건을 추가 확인하세요.',
+        citationIds: issue.evidenceIds,
+      };
+    case 'grade-benefit-mismatch':
+      return {
+        label: '등급과 급여 적용 범위 확인 필요',
+        detail: '수급자 등급과 급여 적용 범위가 서로 맞는지 추가 확인이 필요합니다.',
+        citationIds: issue.evidenceIds,
+      };
+    case 'institution-scope-mismatch':
+      return {
+        label: '기관 유형과 급여유형 확인 필요',
+        detail: '기관 유형과 선택한 급여유형의 적용 범위가 서로 맞는지 추가 확인이 필요합니다.',
+        citationIds: issue.evidenceIds,
+      };
+    case 'basis-confusion':
+      return {
+        label: '법적 근거 확인 필요',
+        detail: '고위험 판단에 필요한 직접 법적 근거가 부족합니다. 답변을 확정하기 전에 관련 조문을 먼저 확인하세요.',
+        citationIds: issue.evidenceIds,
+      };
+  }
+}
+
 function appendValidationWarnings(answer: ExpertAnswerEnvelope, issues: ValidationIssue[]): ExpertAnswerEnvelope {
   const warningIssues = issues.filter((issue) => issue.severity === 'warning');
   if (warningIssues.length === 0) return answer;
@@ -384,11 +518,7 @@ function appendValidationWarnings(answer: ExpertAnswerEnvelope, issues: Validati
   const warningBlock = {
     type: 'warning' as const,
     title: '추가 확인이 필요한 부분',
-    items: warningIssues.slice(0, 4).map((issue) => ({
-      label: issue.code,
-      detail: issue.message,
-      citationIds: issue.evidenceIds,
-    })),
+    items: warningIssues.slice(0, 4).map(formatValidationIssueForAnswer),
   };
 
   return {

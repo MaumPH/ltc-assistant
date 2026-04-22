@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildNaturalLanguageQueryProfile } from '../src/lib/ragNaturalQuery';
 import { evaluateRetrievalValidation, validateAnswerEnvelope } from '../src/lib/ragSemanticValidation';
-import type { ExpertAnswerEnvelope, StructuredChunk } from '../src/lib/ragTypes';
+import type { ExpertAnswerEnvelope, SemanticFrame, StructuredChunk } from '../src/lib/ragTypes';
 
 function makeChunk(id: string, patch: Partial<StructuredChunk>): StructuredChunk {
   return {
@@ -108,4 +108,80 @@ test('answer validation injects assumptions and warns about missing exception wo
 
   assert.ok(validated.answer.scope.includes('해석 가정') || profile.semanticFrame.assumptions.length === 0);
   assert.ok(validated.validationIssues.some((issue) => issue.code === 'missing-exception'));
+});
+
+test('answer validation warning block uses Korean user-facing labels and details', () => {
+  const semanticFrame: SemanticFrame = {
+    primaryIntent: 'compliance',
+    secondaryIntents: [],
+    canonicalTerms: ['인력배치'],
+    entityRefs: [],
+    relationRequests: [],
+    slots: {
+      service_scope: [
+        {
+          value: '방문요양',
+          canonical: '방문요양',
+          confidence: 1,
+          source: 'query',
+        },
+      ],
+    },
+    assumptions: [],
+    missingCriticalSlots: ['institution_type', 'recipient_grade'],
+    riskLevel: 'high',
+  };
+  const evidence = [
+    makeChunk('day-night-staffing', {
+      docTitle: '주야간보호 평가매뉴얼',
+      searchText: '주야간보호 인력배치 기준',
+      text: '주야간보호 인력배치 기준을 설명합니다.',
+      sourceType: 'manual',
+    }),
+  ];
+  const answer: ExpertAnswerEnvelope = {
+    answerType: 'mixed',
+    headline: '인력배치 기준',
+    summary: '검색된 근거 기준으로 인력배치 기준을 정리했습니다.',
+    confidence: 'medium',
+    evidenceState: 'partial',
+    scope: '방문요양',
+    basis: {
+      legal: [],
+      evaluation: [],
+      practical: [],
+    },
+    blocks: [
+      {
+        type: 'bullets',
+        title: '핵심',
+        items: [{ label: '인력배치', detail: '기준을 확인하세요.' }],
+      },
+    ],
+    citations: [],
+    followUps: [],
+  };
+
+  const validated = validateAnswerEnvelope({
+    answer,
+    semanticFrame,
+    citations: evidence,
+    evidence,
+  });
+
+  const warningBlock = validated.answer.blocks.find(
+    (block) => block.type === 'warning' && block.title === '추가 확인이 필요한 부분',
+  );
+  assert.ok(warningBlock);
+
+  const warningText = warningBlock.items.map((item) => `${item.label} ${item.detail}`).join(' ');
+  assert.doesNotMatch(
+    warningText,
+    /insufficient-evidence-composition|mixed-service-scope|Missing slots|Evidence contains|institution_type|recipient_grade/u,
+  );
+  assert.match(warningText, /질문 조건 확인 필요/u);
+  assert.match(warningText, /기관\/시설 유형/u);
+  assert.match(warningText, /수급자 등급/u);
+  assert.match(warningText, /급여유형 범위 확인 필요/u);
+  assert.match(warningText, /주야간보호/u);
 });

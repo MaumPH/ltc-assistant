@@ -409,7 +409,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
   };
 
   return (
-    <div className="mx-auto flex min-h-0 w-full max-w-[860px] flex-1 flex-col px-3 sm:px-5">
+    <div className="mx-auto flex min-h-0 w-full max-w-[1440px] flex-1 flex-col px-3 sm:px-5 lg:px-8 2xl:max-w-[1600px]">
       <div className="shrink-0 pb-1 pt-3">
         <ServiceScopeSelector selectedScopes={selectedServiceScopes} onToggle={handleServiceScopeToggle} />
       </div>
@@ -437,7 +437,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
                 className={`flex flex-col ${
                   message.role === 'user'
                     ? 'max-w-[82%] items-end sm:max-w-[74%] lg:max-w-[70%]'
-                    : 'max-w-[92%] items-start sm:max-w-[88%]'
+                    : 'min-w-0 flex-1 items-start'
                 }`}
               >
                 {message.role === 'user' ? (
