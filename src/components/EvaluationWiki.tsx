@@ -1,6 +1,21 @@
-import React, { useDeferredValue, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { ChevronDown, ChevronRight, FileText, Search, Tag, X } from 'lucide-react';
+import {
+  BadgeCheck,
+  BookOpen,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardCheck,
+  FileCheck2,
+  FileText,
+  Layers3,
+  ListChecks,
+  Search,
+  ShieldAlert,
+  Tag,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 
 const evalWikiModules = {
   ...import.meta.glob('/knowledge/evaluation/*.md', { query: '?raw', import: 'default', eager: true }),
@@ -17,8 +32,46 @@ interface WikiPage {
   body: string;
 }
 
+interface WikiSection {
+  title: string;
+  content: string;
+}
+
+interface AreaTheme {
+  color: string;
+  bg: string;
+  border: string;
+}
+
+interface AreaGroup {
+  area: string;
+  pages: WikiPage[];
+  theme: AreaTheme;
+}
+
+const AREA_THEMES: AreaTheme[] = [
+  { color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
+  { color: '#0891b2', bg: '#ecfeff', border: '#a5f3fc' },
+  { color: '#059669', bg: '#f0fdf4', border: '#bbf7d0' },
+  { color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
+  { color: '#d97706', bg: '#fffbeb', border: '#fde68a' },
+  { color: '#64748b', bg: '#f8fafc', border: '#e2e8f0' },
+];
+
+const SECTION_META: Record<string, { icon: LucideIcon; label?: string }> = {
+  '충족/미충족 기준': { icon: CheckCircle2 },
+  '확인 방법': { icon: ClipboardCheck },
+  '확정 근거': { icon: BadgeCheck },
+  '관련 근거': { icon: FileText },
+  '실무 해석': { icon: BookOpen },
+  '준비 서류': { icon: FileCheck2 },
+  주의사항: { icon: ShieldAlert },
+  '관련 지표': { icon: ListChecks },
+  개요: { icon: Layers3 },
+};
+
 function parsePage(fileName: string, raw: string): WikiPage {
-  const frontMatterMatch = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  const frontMatterMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
   let title = fileName.replace('.md', '');
   let area = '미분류';
   let status = 'active';
@@ -42,7 +95,7 @@ function parsePage(fileName: string, raw: string): WikiPage {
     if (tagsMatch) {
       tags = tagsMatch[1]
         .split(',')
-        .map((tag) => tag.trim())
+        .map((tag) => tag.trim().replace(/^['"]|['"]$/g, ''))
         .filter(Boolean);
     }
   }
@@ -59,16 +112,63 @@ function parsePage(fileName: string, raw: string): WikiPage {
   };
 }
 
-function getStatusStyle(status: string) {
-  if (status === 'revised') return 'bg-blue-100 text-blue-700';
-  if (status === '확인필요') return 'bg-amber-100 text-amber-700';
-  return 'bg-green-100 text-green-700';
+function getStatusColors(status: string) {
+  if (status === 'revised') return { bg: '#dbeafe', color: '#1d4ed8', border: '#bfdbfe' };
+  if (status === '확인필요') return { bg: '#fef3c7', color: '#92400e', border: '#fde68a' };
+  return { bg: '#dcfce7', color: '#166534', border: '#bbf7d0' };
+}
+
+function getPageNumber(page: WikiPage) {
+  const titleNumber = page.title.match(/^(\d+)\./)?.[1];
+  if (titleNumber) return titleNumber;
+
+  const slugNumber = page.slug.match(/^\d+-(\d+)/)?.[1];
+  if (slugNumber) return String(Number(slugNumber));
+
+  return 'i';
+}
+
+function stripMarkdown(value: string) {
+  return value
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^[-*]\s+/gm, '')
+    .replace(/\|/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function splitSections(body: string): WikiSection[] {
+  const normalized = body.replace(/\r\n/g, '\n').trim();
+  const matches = Array.from(normalized.matchAll(/^##\s+(.+)$/gm));
+
+  if (matches.length === 0) {
+    return normalized ? [{ title: '개요', content: normalized }] : [];
+  }
+
+  const sections: WikiSection[] = [];
+  const preface = normalized.slice(0, matches[0].index).trim();
+  if (preface) sections.push({ title: '개요', content: preface });
+
+  matches.forEach((match, index) => {
+    const start = (match.index ?? 0) + match[0].length;
+    const end = index + 1 < matches.length ? matches[index + 1].index ?? normalized.length : normalized.length;
+    const content = normalized.slice(start, end).trim();
+    sections.push({ title: match[1].trim(), content });
+  });
+
+  return sections;
+}
+
+function getSectionIcon(title: string) {
+  return SECTION_META[title]?.icon ?? FileText;
 }
 
 export default function EvaluationWiki() {
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  const [activeArea, setActiveArea] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [openAreas, setOpenAreas] = useState<Set<string>>(new Set());
   const [isMobileIndexOpen, setIsMobileIndexOpen] = useState(false);
   const deferredSearch = useDeferredValue(search);
 
@@ -81,17 +181,29 @@ export default function EvaluationWiki() {
       .sort((a, b) => a.slug.localeCompare(b.slug, 'ko'));
   }, []);
 
-  const grouped = useMemo(() => {
+  const areaGroups = useMemo<AreaGroup[]>(() => {
     const map = new Map<string, WikiPage[]>();
     for (const page of pages) {
       if (!map.has(page.area)) map.set(page.area, []);
       map.get(page.area)!.push(page);
     }
-    return map;
+
+    return Array.from(map.entries()).map(([area, areaPages], index) => ({
+      area,
+      pages: areaPages,
+      theme: AREA_THEMES[index % AREA_THEMES.length],
+    }));
   }, [pages]);
 
-  const filtered = useMemo(() => {
-    if (!deferredSearch.trim()) return pages;
+  const selectedPage = pages.find((page) => page.slug === selectedSlug) ?? pages[0] ?? null;
+  const selectedGroup =
+    areaGroups.find((group) => group.area === selectedPage?.area) ?? areaGroups.find((group) => group.area === activeArea) ?? areaGroups[0];
+  const activeGroup = areaGroups.find((group) => group.area === activeArea) ?? selectedGroup;
+  const currentTheme = selectedGroup?.theme ?? AREA_THEMES[0];
+  const currentStatus = selectedPage ? getStatusColors(selectedPage.status) : getStatusColors('active');
+
+  const filteredPages = useMemo(() => {
+    if (!deferredSearch.trim()) return activeGroup?.pages ?? [];
     const query = deferredSearch.toLowerCase();
 
     return pages.filter((page) => {
@@ -102,28 +214,76 @@ export default function EvaluationWiki() {
         page.body.toLowerCase().includes(query)
       );
     });
-  }, [deferredSearch, pages]);
+  }, [activeGroup?.pages, deferredSearch, pages]);
 
-  const selectedPage = pages.find((page) => page.slug === selectedSlug) ?? pages[0] ?? null;
+  const sections = useMemo(() => (selectedPage ? splitSections(selectedPage.body) : []), [selectedPage]);
+  const directionSection = sections.find((section) => section.title === '판단 기준');
+  const contentSections = sections.filter((section) => section.title !== '판단 기준');
+  const summary = directionSection?.content ? stripMarkdown(directionSection.content) : selectedPage ? stripMarkdown(selectedPage.body).slice(0, 180) : '';
 
-  const toggleArea = (area: string) => {
-    setOpenAreas((previous) => {
-      const next = new Set(previous);
-      if (next.has(area)) next.delete(area);
-      else next.add(area);
-      return next;
+  useEffect(() => {
+    if (pages.length === 0) return;
+
+    setSelectedSlug((previous) => {
+      if (previous && pages.some((page) => page.slug === previous)) return previous;
+      return pages[0].slug;
     });
+
+    setActiveArea((previous) => {
+      if (previous && areaGroups.some((group) => group.area === previous)) return previous;
+      return pages[0].area;
+    });
+  }, [areaGroups, pages]);
+
+  const handleSelectArea = (area: string) => {
+    const group = areaGroups.find((item) => item.area === area);
+    setActiveArea(area);
+    setSearch('');
+    if (group?.pages[0]) setSelectedSlug(group.pages[0].slug);
   };
 
-  const handleSelectPage = (slug: string) => {
-    setSelectedSlug(slug);
+  const handleSelectPage = (page: WikiPage) => {
+    setSelectedSlug(page.slug);
+    setActiveArea(page.area);
     setSearch('');
     setIsMobileIndexOpen(false);
   };
 
   const navigationContent = (
     <>
-      <div className="border-b border-slate-200 p-3">
+      <div className="border-b border-slate-100 px-3 py-3">
+        <div className="space-y-1">
+          {areaGroups.map((group) => {
+            const isActive = activeGroup?.area === group.area;
+            return (
+              <button
+                key={group.area}
+                type="button"
+                onClick={() => handleSelectArea(group.area)}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors"
+                style={{
+                  background: isActive ? group.theme.bg : 'transparent',
+                  color: isActive ? group.theme.color : '#64748b',
+                  fontWeight: isActive ? 700 : 500,
+                }}
+              >
+                <span className="min-w-0 truncate">{group.area}</span>
+                <span
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold"
+                  style={{
+                    background: isActive ? group.theme.color : '#e2e8f0',
+                    color: isActive ? '#fff' : '#64748b',
+                  }}
+                >
+                  {group.pages.length}개
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="px-3 pb-2 pt-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <input
@@ -131,79 +291,56 @@ export default function EvaluationWiki() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="지표 검색..."
-            className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-base focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
+            className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-base text-slate-900 outline-none transition focus:border-blue-500 sm:text-sm"
           />
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto p-2">
-        {search.trim() ? (
-          <ul className="space-y-0.5">
-            {filtered.map((page) => (
-              <li key={page.slug}>
-                <button
-                  type="button"
-                  onClick={() => handleSelectPage(page.slug)}
-                  className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                    selectedSlug === page.slug ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate">{page.title}</span>
-                    <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${getStatusStyle(page.status)}`}>
-                      {page.status}
-                    </span>
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-slate-400">{page.area}</div>
-                </button>
-              </li>
-            ))}
+      <nav className="flex-1 overflow-y-auto px-3 pb-4 pt-1">
+        <div className="space-y-1">
+          {filteredPages.map((page) => {
+            const group = areaGroups.find((item) => item.area === page.area) ?? selectedGroup;
+            const isActive = selectedPage?.slug === page.slug;
+            const status = getStatusColors(page.status);
 
-            {filtered.length === 0 && <p className="py-8 text-center text-xs text-slate-400">검색 결과가 없습니다.</p>}
-          </ul>
-        ) : (
-          Array.from(grouped.entries()).map(([area, areaPages]) => {
-            const isOpen = openAreas.has(area);
             return (
-              <div key={area} className="mb-1">
-                <button
-                  type="button"
-                  onClick={() => toggleArea(area)}
-                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 transition-colors hover:bg-slate-50"
+              <button
+                key={page.slug}
+                type="button"
+                onClick={() => handleSelectPage(page)}
+                className="flex w-full items-center gap-2 rounded-[9px] px-2.5 py-2 text-left transition-colors hover:bg-slate-50"
+                style={{ background: isActive ? group?.theme.bg : 'transparent' }}
+              >
+                <span
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold"
+                  style={{
+                    background: isActive ? group?.theme.color : '#e2e8f0',
+                    color: isActive ? '#fff' : '#94a3b8',
+                  }}
                 >
-                  <span>{area}</span>
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] font-normal normal-case text-slate-400">{areaPages.length}개</span>
-                    {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                  </div>
-                </button>
-
-                {isOpen && (
-                  <ul className="ml-2 space-y-0.5">
-                    {areaPages.map((page) => (
-                      <li key={page.slug}>
-                        <button
-                          type="button"
-                          onClick={() => handleSelectPage(page.slug)}
-                          className={`w-full rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
-                            selectedSlug === page.slug ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-700 hover:bg-slate-50'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate text-[13px]">{page.title}</span>
-                            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${getStatusStyle(page.status)}`}>
-                              {page.status}
-                            </span>
-                          </div>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+                  {getPageNumber(page)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span
+                    className="block truncate text-[13px] font-semibold"
+                    style={{ color: isActive ? group?.theme.color : '#334155' }}
+                  >
+                    {page.title.replace(/^\d+\.\s*/, '')}
+                  </span>
+                  {search.trim() && <span className="mt-0.5 block truncate text-[11px] text-slate-400">{page.area}</span>}
+                </span>
+                <span
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold"
+                  style={{ background: status.bg, color: status.color, border: `1px solid ${status.border}` }}
+                >
+                  {page.status}
+                </span>
+              </button>
             );
-          })
-        )}
+          })}
+
+          {filteredPages.length === 0 && <p className="py-8 text-center text-xs text-slate-400">검색 결과가 없습니다.</p>}
+        </div>
       </nav>
     </>
   );
@@ -213,7 +350,7 @@ export default function EvaluationWiki() {
       <div className="flex flex-1 items-center justify-center bg-slate-50 p-8">
         <div className="max-w-md text-center">
           <FileText className="mx-auto mb-4 h-12 w-12 text-slate-300" />
-          <h2 className="mb-2 text-lg font-semibold text-slate-700">평가지표 파일이 없습니다</h2>
+          <h2 className="mb-2 text-lg font-semibold text-slate-700">평가 지침 파일이 없습니다</h2>
           <p className="text-sm leading-relaxed text-slate-500">
             <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">knowledge/evaluation/</code> 폴더에 문서를 추가하면
             여기에 표시됩니다.
@@ -225,93 +362,136 @@ export default function EvaluationWiki() {
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 bg-slate-50">
-        <aside className="hidden w-72 shrink-0 flex-col border-r border-slate-200 bg-white md:flex">
+      <div className="flex min-h-0 flex-1 overflow-hidden bg-[#f8fbff]">
+        <aside className="hidden w-[260px] shrink-0 flex-col overflow-hidden border-r border-slate-100 bg-white/95 md:flex">
           {navigationContent}
         </aside>
 
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 lg:p-10">
+        <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 md:px-8 md:py-7">
           {selectedPage ? (
-            <div className="mx-auto max-w-5xl">
-              <div className="mb-4 flex items-center justify-between gap-3 md:hidden">
+            <div className="mx-auto flex max-w-[920px] flex-col gap-6">
+              <div className="flex items-center justify-between gap-3 md:hidden">
                 <button
                   type="button"
                   onClick={() => setIsMobileIndexOpen(true)}
-                  className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
                 >
-                  문서 목록
+                  지표 목록
+                  <ChevronRight className="h-3.5 w-3.5" />
                 </button>
 
-                <span className="max-w-[55%] truncate rounded-full bg-white px-3 py-1.5 text-xs font-medium text-slate-500 shadow-sm">
+                <span
+                  className="max-w-[55%] truncate rounded-full px-3 py-1.5 text-xs font-bold shadow-sm"
+                  style={{ background: currentTheme.bg, color: currentTheme.color, border: `1px solid ${currentTheme.border}` }}
+                >
                   {selectedPage.area}
                 </span>
               </div>
 
-              <div className="mb-6 border-b border-slate-200 pb-4">
-                <div className="mb-2 flex items-start justify-between gap-4">
-                  <h1 className="text-xl font-bold text-slate-900">{selectedPage.title}</h1>
-                  <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${getStatusStyle(selectedPage.status)}`}>
+              <header>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <span
+                    className="rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em]"
+                    style={{ background: currentTheme.bg, color: currentTheme.color, border: `1px solid ${currentTheme.border}` }}
+                  >
+                    주야간보호 {getPageNumber(selectedPage)}
+                  </span>
+                  <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-500">
+                    {selectedPage.area}
+                  </span>
+                  {selectedPage.updated && (
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-800">
+                      최종 수정 {selectedPage.updated}
+                    </span>
+                  )}
+                  <span
+                    className="ml-auto rounded-full px-3 py-1 text-[11px] font-bold"
+                    style={{ background: currentStatus.bg, color: currentStatus.color, border: `1px solid ${currentStatus.border}` }}
+                  >
                     {selectedPage.status}
                   </span>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                  <span className="rounded bg-slate-100 px-2 py-0.5">{selectedPage.area}</span>
-                  {selectedPage.updated && <span>최종 수정: {selectedPage.updated}</span>}
-                  {selectedPage.tags.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1">
-                      <Tag className="h-3 w-3" />
-                      {selectedPage.tags.map((tag) => (
-                        <span key={tag} className="rounded bg-blue-50 px-2 py-0.5 text-blue-600">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+                <h1 className="font-brand text-[22px] font-bold leading-tight tracking-[0] text-slate-950 sm:text-2xl">
+                  {selectedPage.title}
+                </h1>
 
-              <div className="prose prose-sm max-w-none break-words prose-headings:font-semibold prose-p:leading-8 prose-li:leading-8 prose-h2:mt-8 prose-h2:border-b prose-h2:border-slate-200 prose-h2:pb-2 prose-h2:text-lg prose-a:text-blue-600 md:prose-base">
-                <ReactMarkdown>{selectedPage.body}</ReactMarkdown>
+                {selectedPage.tags.length > 0 && (
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                    <Tag className="h-3.5 w-3.5 text-slate-400" />
+                    {selectedPage.tags.map((tag) => (
+                      <span key={tag} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {summary && (
+                  <div className="mt-4 rounded-[10px] border border-slate-100 bg-slate-50 px-4 py-3 text-[13px] leading-7 text-slate-600">
+                    <span className="mr-2 font-bold text-slate-500">▣ 판단 기준</span>
+                    {summary}
+                  </div>
+                )}
+              </header>
+
+              <div className="flex flex-col gap-6 pb-8">
+                {contentSections.map((section) => {
+                  const Icon = getSectionIcon(section.title);
+                  const sectionStyle = { '--wiki-color': currentTheme.color } as React.CSSProperties;
+
+                  return (
+                    <section key={section.title} className="evaluation-content-section" style={sectionStyle}>
+                      <div className="mb-3 flex items-center gap-2">
+                        <div className="h-4 w-[3px] rounded-full" style={{ background: currentTheme.color }} />
+                        <Icon className="h-4 w-4" style={{ color: currentTheme.color }} />
+                        <h2 className="text-sm font-bold text-slate-950">▣ {section.title}</h2>
+                      </div>
+                      <div className="evaluation-markdown" style={sectionStyle}>
+                        <ReactMarkdown>{section.content}</ReactMarkdown>
+                      </div>
+                    </section>
+                  );
+                })}
               </div>
             </div>
           ) : (
             <div className="flex h-full items-center justify-center text-slate-400">
-              <p className="text-sm">문서를 선택해 주세요.</p>
+              <p className="text-sm">좌측에서 지표를 선택하세요.</p>
             </div>
           )}
         </main>
       </div>
 
       {isMobileIndexOpen && (
-        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="문서 목록">
+        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="지표 목록">
           <button
             type="button"
             onClick={() => setIsMobileIndexOpen(false)}
             className="absolute inset-0 bg-slate-950/50"
-            aria-label="문서 목록 닫기"
+            aria-label="지표 목록 닫기"
           />
 
-          <div className="absolute inset-x-0 bottom-0 max-h-[82dvh] overflow-hidden rounded-t-[28px] bg-white shadow-2xl">
+          <div className="absolute inset-x-0 bottom-0 max-h-[84dvh] overflow-hidden rounded-t-[28px] bg-white shadow-2xl">
             <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-slate-200" />
 
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4">
               <div>
-                <h2 className="text-base font-semibold text-slate-900">문서 목록</h2>
-                <p className="mt-1 text-xs text-slate-500">검색하거나 영역별로 펼쳐서 문서를 선택하세요.</p>
+                <h2 className="text-base font-semibold text-slate-900">지표 목록</h2>
+                <p className="mt-1 text-xs text-slate-500">영역을 고르거나 검색해서 평가 지침을 확인하세요.</p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsMobileIndexOpen(false)}
                 className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-                aria-label="문서 목록 닫기"
+                aria-label="지표 목록 닫기"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             <div
-              className="flex max-h-[calc(82dvh-4.5rem)] flex-col"
+              className="flex max-h-[calc(84dvh-4.5rem)] flex-col"
               style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
             >
               {navigationContent}
