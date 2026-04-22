@@ -109,6 +109,107 @@ body {
   margin-bottom: 0;
 }
 
+.evaluation-content-section {
+  scroll-margin-top: 24px;
+}
+
+.evaluation-markdown {
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+
+.evaluation-markdown > :first-child {
+  margin-top: 0;
+}
+
+.evaluation-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.evaluation-markdown p {
+  margin: 0 0 0.75rem;
+}
+
+.evaluation-markdown ul,
+.evaluation-markdown ol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.evaluation-markdown li {
+  position: relative;
+  margin: 0;
+  padding: 0.68rem 0.875rem 0.68rem 1.6rem;
+  border: 1px solid #f1f5f9;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.evaluation-markdown li::before {
+  content: "";
+  position: absolute;
+  left: 0.82rem;
+  top: 1.22rem;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--wiki-color, #2563eb);
+}
+
+.evaluation-markdown strong {
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.evaluation-markdown code {
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #1e40af;
+  font-size: 0.92em;
+  padding: 0.12rem 0.35rem;
+}
+
+.evaluation-markdown blockquote {
+  margin: 0;
+  border-left: 3px solid var(--wiki-color, #2563eb);
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 0.8rem 1rem;
+  color: #475569;
+}
+
+.evaluation-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 0 0 1px #e2e8f0;
+}
+
+.evaluation-markdown th {
+  background: #0f172a;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.evaluation-markdown th,
+.evaluation-markdown td {
+  border-bottom: 1px solid #f1f5f9;
+  padding: 0.7rem 0.85rem;
+  vertical-align: top;
+}
+
 .prose pre,
 .prose table {
   max-width: 100%;
