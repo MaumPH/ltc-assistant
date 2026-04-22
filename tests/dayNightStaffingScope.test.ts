@@ -26,3 +26,18 @@ test('day-night care scope prioritizes staffing placement evidence for staffing 
     `expected staffing criteria evidence, got ${evidencePaths.join(', ')}`,
   );
 });
+
+test('home visit care scope excludes day-night care evaluation evidence for staffing questions', async () => {
+  await service.initialize();
+
+  const result = await service.inspectRetrieval('인력배치 알려줘', 'evaluation', undefined, ['home-visit-care']);
+  const evidenceText = result.search.evidence
+    .map((candidate) => [candidate.docTitle, candidate.parentSectionTitle, candidate.textPreview].join(' '))
+    .join('\n');
+  const evidencePaths = result.search.evidence.map((candidate) => candidate.path).join('\n');
+
+  assert.equal(result.selectedServiceScopes.includes('home-visit-care'), true);
+  assert.match(evidenceText, /방문요양/);
+  assert.doesNotMatch(evidencePaths, /주야간보호 평가매뉴얼/u);
+  assert.equal(result.validationIssues.some((issue) => issue.code === 'mixed-service-scope'), false);
+});

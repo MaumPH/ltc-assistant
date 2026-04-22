@@ -80,6 +80,47 @@ function compact(value: string): string {
   return value.replace(/\s+/g, '').toLowerCase();
 }
 
+function buildScopeTerms(option: ServiceScopeOption): string[] {
+  return unique([option.label, ...option.aliases, ...option.boostTerms]).map(compact).filter(Boolean);
+}
+
+function buildScopeIdentityTerms(option: ServiceScopeOption): string[] {
+  return unique([option.label, ...option.aliases]).map(compact).filter(Boolean);
+}
+
+function buildChunkScopeMetadataText(chunk: StructuredChunk): string {
+  return compact(
+    [
+      chunk.docTitle,
+      chunk.fileName,
+      chunk.title,
+      chunk.parentSectionTitle,
+      chunk.documentGroup,
+      ...chunk.sectionPath,
+      ...chunk.matchedLabels,
+      ...chunk.linkedDocumentTitles,
+    ].join(' '),
+  );
+}
+
+function buildChunkScopeText(chunk: StructuredChunk): string {
+  return compact(
+    [
+      buildChunkScopeMetadataText(chunk),
+      chunk.searchText,
+      chunk.text,
+    ].join(' '),
+  );
+}
+
+function matchesScopeOption(haystack: string, option: ServiceScopeOption): boolean {
+  return buildScopeTerms(option).some((term) => haystack.includes(term));
+}
+
+function matchesScopeIdentityOption(haystack: string, option: ServiceScopeOption): boolean {
+  return buildScopeIdentityTerms(option).some((term) => haystack.includes(term));
+}
+
 function asServiceScopeId(value: unknown): ServiceScopeId {
   if (typeof value !== 'string' || !SERVICE_SCOPE_BY_ID.has(value as ServiceScopeId)) {
     throw new Error(`Invalid serviceScopes value: ${String(value)}`);
@@ -150,6 +191,43 @@ export function buildServiceScopePromptContext(scopes: readonly ServiceScopeId[]
   return ['선택 적용 범위:', labels.join(', '), multiScopeNote].filter(Boolean).join(' ');
 }
 
+export function isChunkCompatibleWithServiceScopes(
+  chunk: StructuredChunk,
+  scopes: readonly ServiceScopeId[] | undefined,
+): boolean {
+  const selectedOptions = getServiceScopeOptions(scopes);
+  if (selectedOptions.length === 0) return true;
+
+  const selectedScopeIds = new Set(selectedOptions.map((option) => option.id));
+  const otherOptions = SERVICE_SCOPE_OPTIONS.filter(
+    (option) => option.id !== ALL_SERVICE_SCOPE_ID && !selectedScopeIds.has(option.id),
+  );
+  const metadataHaystack = buildChunkScopeMetadataText(chunk);
+  const selectedMetadataMatch = selectedOptions.some((option) => matchesScopeIdentityOption(metadataHaystack, option));
+  const otherMetadataMatch = otherOptions.some((option) => matchesScopeIdentityOption(metadataHaystack, option));
+  if (otherMetadataMatch && !selectedMetadataMatch) {
+    return false;
+  }
+
+  const haystack = buildChunkScopeText(chunk);
+  if (selectedOptions.some((option) => matchesScopeIdentityOption(haystack, option))) {
+    return true;
+  }
+
+  return !otherOptions.some((option) => matchesScopeIdentityOption(haystack, option));
+}
+
+export function chunkMatchesSelectedServiceScopes(
+  chunk: StructuredChunk,
+  scopes: readonly ServiceScopeId[] | undefined,
+): boolean {
+  const selectedOptions = getServiceScopeOptions(scopes);
+  if (selectedOptions.length === 0) return false;
+
+  const haystack = buildChunkScopeText(chunk);
+  return selectedOptions.some((option) => matchesScopeIdentityOption(haystack, option));
+}
+
 export function buildServiceScopeDocumentBoosts(
   chunks: readonly StructuredChunk[],
   scopes: readonly ServiceScopeId[] | undefined,
@@ -175,7 +253,7 @@ export function buildServiceScopeDocumentBoosts(
     let chunkScore = 0;
 
     for (const option of scopeOptions) {
-      const terms = unique([option.label, ...option.aliases, ...option.boostTerms]).map(compact).filter(Boolean);
+      const terms = buildScopeTerms(option);
       let optionScore = 0;
       for (const term of terms) {
         if (metadataText.includes(term)) optionScore += 12;

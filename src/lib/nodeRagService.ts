@@ -146,8 +146,10 @@ import { CHAT_MODELS } from './chatModels';
 import {
   buildServiceScopeChunkBoosts,
   buildServiceScopePromptContext,
+  chunkMatchesSelectedServiceScopes,
   getServiceScopeLabels,
   getServiceScopeSearchAliases,
+  isChunkCompatibleWithServiceScopes,
   parseServiceScopes,
 } from './serviceScopes';
 
@@ -1578,6 +1580,35 @@ function mergeSearchRuns(base: SearchRun, extra: SearchRun): SearchRun {
     mismatchSignals,
     groundingGatePassed: confidence !== 'low',
     stageTrace: base.stageTrace,
+  };
+}
+
+function filterEvidenceByServiceScopes(
+  evidence: SearchRun['evidence'],
+  serviceScopes: readonly ServiceScopeId[],
+): SearchRun['evidence'] {
+  if (serviceScopes.every((scope) => scope === 'all')) return evidence;
+
+  const filtered = evidence.filter((candidate) =>
+    isChunkCompatibleWithServiceScopes(candidate, serviceScopes),
+  );
+  if (filtered.length === 0) return evidence;
+
+  const selectedScopeEvidence = filtered.filter((candidate) =>
+    chunkMatchesSelectedServiceScopes(candidate, serviceScopes),
+  );
+  return selectedScopeEvidence.length >= 3 ? selectedScopeEvidence : filtered;
+}
+
+function applyServiceScopeEvidenceGate(search: SearchRun, serviceScopes: readonly ServiceScopeId[]): SearchRun {
+  const evidence = filterEvidenceByServiceScopes(search.evidence, serviceScopes);
+  if (evidence.length === search.evidence.length) {
+    return search;
+  }
+
+  return {
+    ...search,
+    evidence,
   };
 }
 
@@ -4196,10 +4227,22 @@ export class NodeRagService {
     }
 
     search = applyOriginalFocusGate(search, normalized.normalizedQuery, normalized.aliases);
+    const preScopeGateEvidenceCount = search.evidence.length;
+    search = applyServiceScopeEvidenceGate(search, selectedServiceScopes);
+    if (search.evidence.length !== preScopeGateEvidenceCount) {
+      plannerTrace.push({
+        step: 'service-scope-evidence-gate',
+        detail: `${preScopeGateEvidenceCount}->${search.evidence.length}`,
+      });
+    }
 
+    const expandedEvidence = filterEvidenceByServiceScopes(
+      expandEvidenceWithNeighbors(search.evidence, allSearchChunks),
+      selectedServiceScopes,
+    );
     const evidence = constrainEvidence({
       ...search,
-      evidence: expandEvidenceWithNeighbors(search.evidence, allSearchChunks),
+      evidence: expandedEvidence,
     });
     const retrievalValidation = evaluateRetrievalValidation({
       semanticFrame: queryProfile.semanticFrame,

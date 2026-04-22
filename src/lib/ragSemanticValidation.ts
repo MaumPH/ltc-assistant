@@ -302,14 +302,23 @@ export function evaluateRetrievalValidation(params: {
     (params.semanticFrame.slots.service_scope ?? []).map((value) => value.canonical),
   );
   if (requestedServiceScopes.size > 0) {
-    const evidenceScopes = new Set(params.evidence.flatMap(classifyEvidenceServiceScopes));
-    const conflictingScopes = Array.from(evidenceScopes).filter((scope) => !requestedServiceScopes.has(scope));
-    if (conflictingScopes.length > 0) {
+    const conflictingScopes = new Set<string>();
+    const conflictingEvidenceIds: string[] = [];
+    for (const chunk of params.evidence) {
+      const chunkScopes = classifyEvidenceServiceScopes(chunk);
+      if (chunkScopes.some((scope) => requestedServiceScopes.has(scope))) continue;
+
+      const chunkConflicts = chunkScopes.filter((scope) => !requestedServiceScopes.has(scope));
+      if (chunkConflicts.length === 0) continue;
+      chunkConflicts.forEach((scope) => conflictingScopes.add(scope));
+      conflictingEvidenceIds.push(chunk.id);
+    }
+    if (conflictingScopes.size > 0) {
       issues.push({
         code: 'mixed-service-scope',
         severity: 'warning',
-        message: `Evidence contains mixed service scopes: ${conflictingScopes.join(', ')}`,
-        evidenceIds: params.evidence.slice(0, 6).map((chunk) => chunk.id),
+        message: `Evidence contains mixed service scopes: ${Array.from(conflictingScopes).join(', ')}`,
+        evidenceIds: conflictingEvidenceIds.slice(0, 6),
       });
     }
   }
