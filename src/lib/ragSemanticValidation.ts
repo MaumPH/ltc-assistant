@@ -4,6 +4,7 @@ import { inferBasisBucketFromChunk } from './brain';
 import type {
   BasisBucketKey,
   ClaimCoverage,
+  ClaimCoverageDetail,
   ClaimPlan,
   ClaimPlanItem,
   ExpertAnswerBlockItem,
@@ -59,7 +60,7 @@ const DEFAULT_RULES: ValidationRule[] = [
   },
   {
     id: 'cost-core-evidence',
-    description: 'Cost questions need legal support and grounded numeric evidence.',
+    description: 'Cost questions need legal support, and numeric answers need directly grounded rate evidence.',
     primary_intents: ['cost'],
     required_slots: ['service_scope', 'recipient_grade'],
     required_evidence: {
@@ -137,6 +138,77 @@ function summarizeSlotValue(frame: SemanticFrame, slot: SemanticSlotKey): string
   return frame.slots[slot]?.map((value) => value.canonical).join(', ') || undefined;
 }
 
+function collectSlotValues(frame: SemanticFrame, slot: SemanticSlotKey): string[] {
+  return uniqueStrings((frame.slots[slot] ?? []).map((value) => value.canonical));
+}
+
+function normalizeSupportText(value: string): string {
+  return value
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/[()[\]{}"'`.,:;!?/\\|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function toAnchorConceptKey(value: string): string {
+  return normalizeSupportText(value).replace(
+    /(에서|으로|로|을|를|은|는|이|가|와|과|도|만|할|하기|하다|인가요|있나요|할수있나요|할수)$/u,
+    '',
+  );
+}
+
+function compactSupportText(value: string): string {
+  return normalizeSupportText(value).replace(/\s+/g, '');
+}
+
+function isLegalSourceType(sourceType: StructuredChunk['sourceType']): boolean {
+  return sourceType === 'law' || sourceType === 'ordinance' || sourceType === 'rule' || sourceType === 'notice';
+}
+
+function isGenericSupportAnchor(value: string): boolean {
+  const normalized = toAnchorConceptKey(value);
+  return (
+    normalized.length < 2 ||
+    new Set([
+      '\uc5b4\ub5a4',
+      '\ubb34\uc5c7',
+      '\ubb38\uc11c',
+      '\uc790\ub8cc',
+      '\ubc29\ubc95',
+      '\uc808\ucc28',
+      '\uc21c\uc11c',
+      '\ud558\ub098\uc694',
+      '\ubd10\uc57c',
+      '\ud655\uc778',
+      '\uc9c8\ubb38',
+    ]).has(normalized)
+  );
+}
+
+function isDomainGenericAnchor(value: string): boolean {
+  return new Set([
+    '장기요양',
+    '장기요양기관',
+    '급여',
+    '급여비용',
+    '비용',
+    '청구',
+    '고시',
+    '기준',
+    '산정기준',
+    '본인부담금',
+    '적용',
+    '의무',
+    '배치',
+    '절차',
+    '파악',
+    '기록',
+    '제공',
+    '확인',
+  ]).has(toAnchorConceptKey(value));
+}
+
 function describeIntentPredicate(intent: SemanticPrimaryIntent, relation: OntologyRelationType | undefined): string {
   if (relation) return relation;
   switch (intent) {
@@ -161,25 +233,211 @@ function describeIntentPredicate(intent: SemanticPrimaryIntent, relation: Ontolo
   }
 }
 
-function buildSupportingEvidenceIds(
-  canonicalSubject: string,
-  object: string | undefined,
+function buildIntentCueAnchors(intent: SemanticPrimaryIntent): string[] {
+  switch (intent) {
+    case 'cost':
+      return ['\uace0\uc2dc', '\uc0b0\uc815\uae30\uc900', '\uae09\uc5ec\ube44\uc6a9', '\uae30\uc900'];
+    case 'workflow':
+      return ['\uc808\ucc28', '\ud30c\uc545', '\uae30\ub85d', '\uc81c\uacf5', '\ud655\uc778'];
+    case 'compliance':
+      return ['\uae30\uc900', '\ubc30\uce58', '\uc758\ubb34', '\uc801\uc6a9'];
+    case 'exception':
+      return ['\uc608\uc678', '\ub2e8\uc11c', '\uc81c\ud55c', '\uba74\uc81c'];
+    case 'document':
+      return ['\ubb38\uc11c', '\uc11c\uc2dd', '\uc870\ud56d'];
+    default:
+      return [];
+  }
+}
+
+function buildClaimSupportBucketHints(intent: SemanticPrimaryIntent): BasisBucketKey[] {
+  switch (intent) {
+    case 'eligibility':
+    case 'compliance':
+      return ['legal', 'practical'];
+    case 'cost':
+    case 'exception':
+      return ['legal'];
+    case 'workflow':
+      return ['evaluation', 'practical'];
+    default:
+      return ['legal', 'evaluation', 'practical'];
+  }
+}
+
+function buildClaimSupportAnchors(params: {
+  semanticFrame: SemanticFrame;
+  canonicalSubject: string;
+  object?: string;
+}): string[] {
+  const slotAnchors = [
+    ...collectSlotValues(params.semanticFrame, 'service_scope'),
+    ...collectSlotValues(params.semanticFrame, 'institution_type'),
+    ...collectSlotValues(params.semanticFrame, 'recipient_grade'),
+    ...collectSlotValues(params.semanticFrame, 'document_type'),
+    ...collectSlotValues(params.semanticFrame, 'cost_topic'),
+    ...collectSlotValues(params.semanticFrame, 'exception_context'),
+  ];
+
+  return uniqueStrings([
+    params.canonicalSubject,
+    params.object ?? '',
+    ...slotAnchors,
+    ...params.semanticFrame.canonicalTerms,
+    ...buildIntentCueAnchors(params.semanticFrame.primaryIntent),
+  ]).filter((anchor) => !isGenericSupportAnchor(anchor));
+}
+
+function buildChunkSupportFields(chunk: StructuredChunk): Array<{ weight: number; value: string }> {
+  return [
+    { weight: 3.2, value: chunk.docTitle },
+    { weight: 2.6, value: chunk.parentSectionTitle },
+    { weight: 2.4, value: chunk.matchedLabels.join(' ') },
+    { weight: 2.1, value: chunk.searchText },
+    { weight: 1.7, value: chunk.textPreview },
+    { weight: 1.4, value: chunk.text },
+  ];
+}
+
+function scoreAnchorAgainstChunk(anchor: string, chunk: StructuredChunk): number {
+  const normalizedAnchor = normalizeSupportText(anchor);
+  const compactAnchor = compactSupportText(anchor);
+  if (!normalizedAnchor) return 0;
+
+  let bestScore = 0;
+  for (const field of buildChunkSupportFields(chunk)) {
+    const normalizedField = normalizeSupportText(field.value);
+    if (!normalizedField) continue;
+    if (normalizedField.includes(normalizedAnchor)) {
+      bestScore = Math.max(bestScore, field.weight);
+      continue;
+    }
+
+    const compactField = compactSupportText(field.value);
+    if (compactAnchor.length >= 2 && compactField.includes(compactAnchor)) {
+      bestScore = Math.max(bestScore, Math.max(1, field.weight - 0.4));
+    }
+  }
+
+  return bestScore;
+}
+
+function buildRequestedServiceScopeKeys(frame: SemanticFrame): Set<string> {
+  return buildComparableServiceScopeSet((frame.slots.service_scope ?? []).map((value) => value.canonical));
+}
+
+function analyzeClaimEvidenceSupport(
+  claim: ClaimPlanItem,
+  semanticFrame: SemanticFrame,
   evidence: StructuredChunk[],
-): string[] {
-  const queryTerms = uniqueStrings([canonicalSubject, object ?? '']).filter(Boolean);
-  return evidence
-    .filter((chunk) =>
-      queryTerms.some((term) => {
-        const normalizedTerm = term.toLowerCase();
-        return (
-          chunk.docTitle.toLowerCase().includes(normalizedTerm) ||
-          chunk.parentSectionTitle.toLowerCase().includes(normalizedTerm) ||
-          chunk.searchText.toLowerCase().includes(normalizedTerm)
-        );
-      }),
+): {
+  supportedEvidenceIds: string[];
+  partialEvidenceIds: string[];
+} {
+  const requestedScopeKeys = buildRequestedServiceScopeKeys(semanticFrame);
+  const ranked = evidence
+    .map((chunk) => {
+      const matchedAnchors = claim.supportAnchors
+        .map((anchor) => ({ anchor, score: scoreAnchorAgainstChunk(anchor, chunk) }))
+        .filter((entry) => entry.score > 0);
+      const matchedAnchorCount = matchedAnchors.length;
+      const specificAnchorCount = matchedAnchors.filter((entry) => !isDomainGenericAnchor(entry.anchor)).length;
+      let score = matchedAnchors.reduce((sum, entry) => sum + entry.score, 0);
+
+      const bucket = inferBasisBucketFromChunk(chunk);
+      if (claim.supportBucketHints.includes(bucket)) score += 1.2;
+      if (isLegalSourceType(chunk.sourceType) && claim.claimType === 'cost') score += 1.8;
+      if (claim.claimType === 'workflow' && chunk.sourceRole === 'primary_evaluation') score += 2.2;
+      if (claim.claimType === 'workflow' && bucket === 'evaluation') score += 1.4;
+      if (claim.claimType === 'compliance' && isLegalSourceType(chunk.sourceType)) score += 1.4;
+      if (claim.claimType === 'document' && chunk.articleNo) score += 0.8;
+
+      const chunkScopes = classifyEvidenceServiceScopes(chunk);
+      let scopeMatched = false;
+      if (requestedScopeKeys.size > 0 && chunkScopes.length > 0) {
+        if (hasComparableScopeMatch(chunkScopes, requestedScopeKeys)) {
+          scopeMatched = true;
+          score += 1.4;
+        } else if (!isLegalSourceType(chunk.sourceType)) {
+          score -= 1.2;
+        }
+      }
+
+      return {
+        id: chunk.id,
+        score,
+        matchedAnchorCount,
+        specificAnchorCount,
+        scopeMatched,
+      };
+    })
+    .sort((left, right) => right.score - left.score);
+
+  const supportedEvidenceIds = ranked
+    .filter(
+      (entry) =>
+        entry.score >= 5.2 &&
+        entry.matchedAnchorCount >= 2 &&
+        (entry.specificAnchorCount >= 1 || entry.scopeMatched),
     )
     .slice(0, 4)
-    .map((chunk) => chunk.id);
+    .map((entry) => entry.id);
+  const partialEvidenceIds =
+    supportedEvidenceIds.length > 0
+      ? []
+      : ranked
+          .filter(
+            (entry) =>
+              entry.score >= 3.2 &&
+              entry.matchedAnchorCount >= 1 &&
+              (entry.specificAnchorCount >= 1 || entry.scopeMatched),
+          )
+          .slice(0, 3)
+          .map((entry) => entry.id);
+
+  return {
+    supportedEvidenceIds,
+    partialEvidenceIds,
+  };
+}
+
+function buildClaimCoverageDetails(
+  claimPlan: ClaimPlan,
+  semanticFrame: SemanticFrame,
+  evidence: StructuredChunk[],
+): ClaimCoverageDetail[] {
+  return claimPlan.claims.map((claim) => {
+    if (claim.claimType === 'assumption') {
+      return {
+        claimId: claim.id,
+        status: 'partial',
+        evidenceIds: [],
+      };
+    }
+
+    const analysis = analyzeClaimEvidenceSupport(claim, semanticFrame, evidence);
+    if (analysis.supportedEvidenceIds.length > 0) {
+      return {
+        claimId: claim.id,
+        status: 'supported',
+        evidenceIds: analysis.supportedEvidenceIds,
+      };
+    }
+
+    if (analysis.partialEvidenceIds.length > 0) {
+      return {
+        claimId: claim.id,
+        status: 'partial',
+        evidenceIds: analysis.partialEvidenceIds,
+      };
+    }
+
+    return {
+      claimId: claim.id,
+      status: 'unsupported',
+      evidenceIds: [],
+    };
+  });
 }
 
 export function buildClaimPlan(params: {
@@ -212,9 +470,16 @@ export function buildClaimPlan(params: {
           ? ['legal']
           : ['legal', 'evaluation', 'practical'],
     ),
-    supportingEvidenceIds: buildSupportingEvidenceIds(subject, object, params.evidence),
+    supportAnchors: buildClaimSupportAnchors({
+      semanticFrame: params.semanticFrame,
+      canonicalSubject: subject,
+      object,
+    }),
+    supportBucketHints: buildClaimSupportBucketHints(params.semanticFrame.primaryIntent),
+    supportingEvidenceIds: [],
     assumptions: params.semanticFrame.assumptions,
   };
+  mainClaim.supportingEvidenceIds = analyzeClaimEvidenceSupport(mainClaim, params.semanticFrame, params.evidence).supportedEvidenceIds;
 
   const assumptionClaims: ClaimPlanItem[] = params.semanticFrame.assumptions.map((assumption, index) => ({
     id: `claim-assumption-${index + 1}`,
@@ -223,6 +488,8 @@ export function buildClaimPlan(params: {
     predicate: 'assumption',
     object: assumption,
     requiredEvidenceTypes: [],
+    supportAnchors: [],
+    supportBucketHints: [],
     supportingEvidenceIds: [],
     assumptions: [assumption],
   }));
@@ -245,7 +512,7 @@ function buildEvidenceCounts(evidence: StructuredChunk[]): Record<BasisBucketKey
 function classifyEvidenceServiceScopes(chunk: StructuredChunk): string[] {
   const haystack = `${chunk.docTitle} ${chunk.parentSectionTitle} ${chunk.searchText}`;
   const scopes: string[] = [];
-  if (/주야간보호|데이케어|주간보호/u.test(haystack)) scopes.push('주야간보호');
+  if (/주\s*[·ㆍ\/-]?\s*야간보호|주야간보호|데이케어|주간보호/u.test(haystack)) scopes.push('주야간보호');
   if (/방문요양/u.test(haystack)) scopes.push('방문요양');
   if (/방문목욕/u.test(haystack)) scopes.push('방문목욕');
   if (/방문간호/u.test(haystack)) scopes.push('방문간호');
@@ -261,6 +528,21 @@ function isStaffingFrame(frame: SemanticFrame): boolean {
   return /인력\s*(배치|기준|현황|신고)?|직원\s*(배치|기준)|요양보호사/u.test(haystack);
 }
 
+function isCostReferenceLookupFrame(frame: SemanticFrame): boolean {
+  if (frame.primaryIntent !== 'cost') return false;
+  const haystack = normalizeSupportText(
+    [
+      ...frame.canonicalTerms,
+      ...frame.entityRefs.flatMap((entity) => [entity.label, entity.canonical]),
+      ...collectSlotValues(frame, 'document_type'),
+      ...collectSlotValues(frame, 'cost_topic'),
+    ].join(' '),
+  );
+  const hasReferenceCue = /(?:고시|기준|문서|조항|어떤)/u.test(haystack);
+  const hasNumericCue = /(?:얼마|몇|%|비율|금액|수가)/u.test(haystack);
+  return hasReferenceCue && !hasNumericCue;
+}
+
 function getRequiredSlotsForRule(rule: ValidationRule, frame: SemanticFrame): SemanticSlotKey[] {
   const requiredSlots = rule.required_slots ?? [];
   if (
@@ -270,6 +552,9 @@ function getRequiredSlotsForRule(rule: ValidationRule, frame: SemanticFrame): Se
   ) {
     return requiredSlots.filter((slot) => slot === 'service_scope');
   }
+  if (rule.id === 'cost-core-evidence' && isCostReferenceLookupFrame(frame)) {
+    return requiredSlots.filter((slot) => slot !== 'recipient_grade');
+  }
   return requiredSlots;
 }
 
@@ -278,7 +563,7 @@ function toComparableServiceScopeKeys(scope: string): string[] {
   if (/요양원|노인요양시설|노인의료복지시설|공동생활가정|시설급여|입소시설/u.test(normalized)) {
     return ['facility-care'];
   }
-  if (/주야간보호|데이케어|주간보호/u.test(normalized)) {
+  if (/주[·ㆍ\/-]?야간보호|주야간보호|데이케어|주간보호/u.test(normalized)) {
     return ['day-night-care'];
   }
   if (/방문요양/u.test(normalized)) {
@@ -354,6 +639,47 @@ function evaluateRuleViolations(
   return issues;
 }
 
+function buildMixedServiceScopeIssues(frame: SemanticFrame, evidence: StructuredChunk[]): ValidationIssue[] {
+  const requestedServiceScopes = buildRequestedServiceScopeKeys(frame);
+  if (requestedServiceScopes.size === 0) return [];
+
+  const matchingEvidenceIds: string[] = [];
+  const conflictingScopes = new Set<string>();
+  const conflictingEvidenceIds: string[] = [];
+
+  for (const chunk of evidence) {
+    const chunkScopes = classifyEvidenceServiceScopes(chunk);
+    if (chunkScopes.length === 0) continue;
+    if (hasComparableScopeMatch(chunkScopes, requestedServiceScopes)) {
+      matchingEvidenceIds.push(chunk.id);
+      continue;
+    }
+    if (isLegalSourceType(chunk.sourceType)) {
+      continue;
+    }
+
+    const chunkConflicts = chunkScopes.filter((scope) => !hasComparableScopeMatch([scope], requestedServiceScopes));
+    if (chunkConflicts.length === 0) continue;
+    chunkConflicts.forEach((scope) => conflictingScopes.add(scope));
+    conflictingEvidenceIds.push(chunk.id);
+  }
+
+  if (conflictingEvidenceIds.length === 0) return [];
+
+  const shouldWarn =
+    matchingEvidenceIds.length === 0 || conflictingEvidenceIds.length > Math.max(1, matchingEvidenceIds.length);
+  if (!shouldWarn) return [];
+
+  return [
+    {
+      code: 'mixed-service-scope',
+      severity: 'warning',
+      message: `Evidence contains mixed service scopes: ${Array.from(conflictingScopes).join(', ')}`,
+      evidenceIds: conflictingEvidenceIds.slice(0, 6),
+    },
+  ];
+}
+
 export function evaluateRetrievalValidation(params: {
   semanticFrame: SemanticFrame;
   evidence: StructuredChunk[];
@@ -367,14 +693,16 @@ export function evaluateRetrievalValidation(params: {
   });
   const rules = loadOntologyValidationRules(params.projectRoot);
   const issues: ValidationIssue[] = [];
-  const supportedClaims = claimPlan.claims.filter((claim) => claim.supportingEvidenceIds.length > 0).length;
-  const assumptionClaims = claimPlan.claims.filter((claim) => claim.claimType === 'assumption').length;
-  const partiallySupportedClaims = Math.min(assumptionClaims, claimPlan.claims.length - supportedClaims);
-  const unsupportedClaims = Math.max(0, claimPlan.claims.length - supportedClaims - partiallySupportedClaims);
+  const claimCoverageDetails = buildClaimCoverageDetails(claimPlan, params.semanticFrame, params.evidence);
+  const supportedClaims = claimCoverageDetails.filter((detail) => detail.status === 'supported').length;
+  const partiallySupportedClaims = claimCoverageDetails.filter((detail) => detail.status === 'partial').length;
+  const unsupportedClaims = claimCoverageDetails.filter((detail) => detail.status === 'unsupported').length;
+  const claimDetailById = new Map(claimCoverageDetails.map((detail) => [detail.claimId, detail] as const));
 
   for (const claim of claimPlan.claims) {
     if (claim.claimType === 'assumption') continue;
-    if (claim.supportingEvidenceIds.length > 0) continue;
+    const detail = claimDetailById.get(claim.id);
+    if (!detail || detail.status !== 'unsupported') continue;
     issues.push({
       code: 'unsupported-claim',
       severity: 'warning',
@@ -384,46 +712,33 @@ export function evaluateRetrievalValidation(params: {
   }
 
   issues.push(...evaluateRuleViolations(params.semanticFrame, params.evidence, rules));
-
-  const requestedServiceScopes = buildComparableServiceScopeSet(
-    (params.semanticFrame.slots.service_scope ?? []).map((value) => value.canonical),
-  );
-  if (requestedServiceScopes.size > 0) {
-    const conflictingScopes = new Set<string>();
-    const conflictingEvidenceIds: string[] = [];
-    for (const chunk of params.evidence) {
-      const chunkScopes = classifyEvidenceServiceScopes(chunk);
-      if (hasComparableScopeMatch(chunkScopes, requestedServiceScopes)) continue;
-
-      const chunkConflicts = chunkScopes.filter(
-        (scope) => !hasComparableScopeMatch([scope], requestedServiceScopes),
-      );
-      if (chunkConflicts.length === 0) continue;
-      chunkConflicts.forEach((scope) => conflictingScopes.add(scope));
-      conflictingEvidenceIds.push(chunk.id);
-    }
-    if (conflictingScopes.size > 0) {
-      issues.push({
-        code: 'mixed-service-scope',
-        severity: 'warning',
-        message: `Evidence contains mixed service scopes: ${Array.from(conflictingScopes).join(', ')}`,
-        evidenceIds: conflictingEvidenceIds.slice(0, 6),
-      });
-    }
-  }
+  issues.push(...buildMixedServiceScopeIssues(params.semanticFrame, params.evidence));
 
   const basisCounts = buildEvidenceCounts(params.evidence);
+  const mainClaimDetail =
+    claimCoverageDetails.find((detail) => detail.claimId === 'claim-main') ??
+    claimCoverageDetails.find((detail) => detail.status !== 'partial');
+  const mainClaimEvidenceIds = new Set(mainClaimDetail?.evidenceIds ?? []);
+  const hasDirectLegalSupport = params.evidence.some(
+    (chunk) => mainClaimEvidenceIds.has(chunk.id) && isLegalSourceType(chunk.sourceType),
+  );
   if (
     (params.semanticFrame.primaryIntent === 'eligibility' ||
       params.semanticFrame.primaryIntent === 'compliance' ||
       params.semanticFrame.primaryIntent === 'cost') &&
-    basisCounts.legal <= 0
+    (basisCounts.legal <= 0 || !hasDirectLegalSupport)
   ) {
     issues.push({
       code: 'basis-confusion',
       severity: 'block',
-      message: 'High-risk question is missing direct legal basis in the selected evidence.',
-      evidenceIds: params.evidence.slice(0, 4).map((chunk) => chunk.id),
+      message:
+        basisCounts.legal <= 0
+          ? 'High-risk question is missing direct legal basis in the selected evidence.'
+          : 'Selected legal evidence does not directly support the primary high-risk claim.',
+      evidenceIds:
+        mainClaimDetail?.evidenceIds && mainClaimDetail.evidenceIds.length > 0
+          ? mainClaimDetail.evidenceIds
+          : params.evidence.slice(0, 4).map((chunk) => chunk.id),
     });
   }
 
@@ -434,6 +749,7 @@ export function evaluateRetrievalValidation(params: {
       supportedClaims,
       partiallySupportedClaims,
       unsupportedClaims,
+      details: claimCoverageDetails,
     },
     validationIssues: issues,
   };
@@ -453,8 +769,17 @@ function collectAnswerText(answer: ExpertAnswerEnvelope): string {
   return [
     answer.headline,
     answer.summary,
+    answer.referenceDate,
+    answer.conclusion,
+    answer.appliedScope,
     answer.scope,
+    ...Object.values(answer.groundedBasis).flatMap((entries) =>
+      entries.flatMap((entry) => [entry.label, entry.quote, entry.explanation]),
+    ),
+    ...answer.practicalInterpretation.flatMap((item) => [item.label, item.detail]),
+    ...answer.additionalChecks.flatMap((item) => [item.label, item.detail]),
     ...answer.blocks.flatMap((block) => [block.title, block.intro ?? '', ...block.items.flatMap((item) => [item.label, item.detail])]),
+    ...answer.followUps,
   ]
     .filter(Boolean)
     .join(' ');
@@ -584,15 +909,16 @@ function appendValidationWarnings(answer: ExpertAnswerEnvelope, issues: Validati
   const warningIssues = issues.filter((issue) => issue.severity === 'warning');
   if (warningIssues.length === 0) return answer;
 
-  const warningBlock = {
-    type: 'warning' as const,
-    title: '추가 확인이 필요한 부분',
-    items: warningIssues.slice(0, 4).map(formatValidationIssueForAnswer),
-  };
+  const warningItems = warningIssues.slice(0, 4).map(formatValidationIssueForAnswer);
+  const existing = new Set(answer.additionalChecks.map((item) => `${item.label}::${item.detail}`));
+  const mergedAdditionalChecks = [
+    ...answer.additionalChecks,
+    ...warningItems.filter((item) => !existing.has(`${item.label}::${item.detail}`)),
+  ].slice(0, 8);
 
   return {
     ...answer,
-    blocks: [warningBlock, ...answer.blocks],
+    additionalChecks: mergedAdditionalChecks,
   };
 }
 
@@ -600,9 +926,19 @@ function injectAssumptions(answer: ExpertAnswerEnvelope, semanticFrame: Semantic
   if (semanticFrame.assumptions.length === 0) return answer;
   const assumptionText = `해석 가정: ${semanticFrame.assumptions.join(' / ')}`;
   const scope = answer.scope ? `${assumptionText} ${answer.scope}` : assumptionText;
+  const assumptionItem: ExpertAnswerBlockItem = {
+    label: '해석 가정',
+    detail: semanticFrame.assumptions.join(' / '),
+  };
+  const hasAssumptionItem = answer.additionalChecks.some(
+    (item) => item.label === assumptionItem.label && item.detail === assumptionItem.detail,
+  );
   return {
     ...answer,
     scope,
+    additionalChecks: hasAssumptionItem
+      ? answer.additionalChecks
+      : [...answer.additionalChecks, assumptionItem].slice(0, 8),
   };
 }
 

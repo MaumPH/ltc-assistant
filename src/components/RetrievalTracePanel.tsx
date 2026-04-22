@@ -396,6 +396,20 @@ export default function RetrievalTracePanel({ confidence, retrieval }: Retrieval
                     <div>partial {retrieval.claimCoverage.partiallySupportedClaims}</div>
                     <div>unsupported {retrieval.claimCoverage.unsupportedClaims}</div>
                   </div>
+                  {retrieval.claimCoverage.details.length > 0 && (
+                    <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
+                      {retrieval.claimCoverage.details.map((detail) => (
+                        <div key={detail.claimId} className="rounded-xl bg-white px-3 py-2 text-xs text-slate-600">
+                          <div className="font-semibold text-slate-800">
+                            {detail.claimId} / {detail.status}
+                          </div>
+                          {detail.evidenceIds.length > 0 && (
+                            <div className="mt-1 break-all text-slate-500">{detail.evidenceIds.join(', ')}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {retrieval.validationIssues.length > 0 && (

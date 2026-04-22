@@ -5,6 +5,7 @@ import { buildRagCorpusIndex, searchCorpus } from '../src/lib/ragEngine';
 import { detectPromptInjectionSignals } from '../src/lib/ragGuardrails';
 import { buildNaturalLanguageQueryProfile } from '../src/lib/ragNaturalQuery';
 import { applyRetrievalFeatureOverrides, getRetrievalFeatureFlags, getRetrievalProfile } from '../src/lib/ragProfiles';
+import { inferRetrievalPriorityClass, INTENT_PRIORITY_MATRIX } from '../src/lib/retrievalPriority';
 import { evaluateRetrievalValidation } from '../src/lib/ragSemanticValidation';
 import { buildPlannerSystemInstruction } from '../src/lib/promptAssembly';
 import { buildServiceScopeDocumentBoosts, parseServiceScopes } from '../src/lib/serviceScopes';
@@ -382,6 +383,227 @@ function testSemanticValidationFlagsMissingLegalBasisForHighRiskCostQuestion() {
   assert.equal(summary.claimCoverage.totalClaims >= 1, true);
 }
 
+function testCostReferenceLookupBuildsSupportedClaimWithoutScopeFalsePositive() {
+  const profile = buildNaturalLanguageQueryProfile('주야간보호 급여비용은 어떤 고시를 기준으로 봐야 하나요?');
+  const evidence = [
+    makeChunk('cost-notice', {
+      docTitle: '장기요양급여 제공기준 및 급여비용 산정방법 등에 관한 고시',
+      sourceType: 'notice',
+      sourceRole: 'general',
+      searchText: '주야간보호 방문요양 방문간호 급여비용 산정기준 고시',
+      text: '주야간보호 급여비용은 고시에 따른 산정기준을 확인한다.',
+    }),
+  ];
+
+  const summary = evaluateRetrievalValidation({
+    semanticFrame: profile.semanticFrame,
+    evidence,
+  });
+
+  assert.equal(summary.claimCoverage.supportedClaims, 1);
+  assert.equal(summary.claimCoverage.unsupportedClaims, 0);
+  assert.equal(summary.claimCoverage.details[0]?.status, 'supported');
+  assert.equal(summary.validationIssues.some((issue) => issue.code === 'unsupported-claim'), false);
+  assert.equal(summary.validationIssues.some((issue) => issue.code === 'mixed-service-scope'), false);
+  assert.equal(
+    summary.validationIssues.some(
+      (issue) => issue.code === 'insufficient-evidence-composition' && /recipient_grade/.test(issue.message),
+    ),
+    false,
+  );
+}
+
+function testEvaluationWorkflowClaimGetsDirectSupportFromPrimaryManual() {
+  const profile = buildNaturalLanguageQueryProfile('기피식품은 어떻게 하지');
+  profile.semanticFrame.slots.service_scope = [
+    {
+      value: '주야간보호',
+      canonical: '주야간보호',
+      confidence: 0.99,
+      source: 'query',
+      entityType: 'service',
+      status: 'promoted',
+    },
+  ];
+
+  const evidence = [
+    makeChunk('evaluation-food', {
+      docTitle: '2026년 주야간보호 평가매뉴얼',
+      sourceType: 'manual',
+      sourceRole: 'primary_evaluation',
+      mode: 'evaluation',
+      searchText: '주야간보호 기피식품 파악 기록 대체식 제공 확인',
+      text: '기피식품을 파악하고 기록하며 대체식 제공 여부를 확인한다.',
+    }),
+  ];
+
+  const summary = evaluateRetrievalValidation({
+    semanticFrame: profile.semanticFrame,
+    evidence,
+  });
+
+  assert.equal(summary.claimCoverage.supportedClaims, 1);
+  assert.equal(summary.claimCoverage.details[0]?.status, 'supported');
+  assert.equal(summary.validationIssues.some((issue) => issue.code === 'unsupported-claim'), false);
+}
+
+function testNonLegalScopeMismatchStillFlagsMixedScope() {
+  const profile = buildNaturalLanguageQueryProfile('기피식품은 어떻게 하지');
+  profile.semanticFrame.slots.service_scope = [
+    {
+      value: '주야간보호',
+      canonical: '주야간보호',
+      confidence: 0.99,
+      source: 'query',
+      entityType: 'service',
+      status: 'promoted',
+    },
+  ];
+
+  const evidence = [
+    makeChunk('wrong-scope-guide', {
+      docTitle: '방문요양 식사 운영 가이드',
+      sourceType: 'guide',
+      sourceRole: 'support_reference',
+      searchText: '방문요양 기피식품 기록 제공 절차',
+      text: '방문요양 수급자의 기피식품 제공 절차를 안내한다.',
+    }),
+  ];
+
+  const summary = evaluateRetrievalValidation({
+    semanticFrame: profile.semanticFrame,
+    evidence,
+  });
+
+  assert.equal(summary.validationIssues.some((issue) => issue.code === 'mixed-service-scope'), true);
+}
+
+function testRetrievalPriorityClassInference() {
+  const legalQuery = '주야간보호 본인부담금 얼마야';
+  const legalProfile = buildNaturalLanguageQueryProfile(legalQuery);
+  assert.equal(
+    inferRetrievalPriorityClass({
+      mode: 'integrated',
+      query: legalQuery,
+      queryProfile: legalProfile,
+    }),
+    'legal_judgment',
+  );
+
+  const evaluationQuery = '기피식품은 어떻게 해';
+  const evaluationProfile = buildNaturalLanguageQueryProfile(evaluationQuery);
+  assert.equal(
+    inferRetrievalPriorityClass({
+      mode: 'evaluation',
+      query: evaluationQuery,
+      queryProfile: evaluationProfile,
+    }),
+    'evaluation_readiness',
+  );
+
+  const lookupQuery = '2026년 주야간보호 평가매뉴얼 문서 찾아줘';
+  const lookupProfile = buildNaturalLanguageQueryProfile(lookupQuery);
+  assert.equal(
+    inferRetrievalPriorityClass({
+      mode: 'integrated',
+      query: lookupQuery,
+      queryProfile: lookupProfile,
+    }),
+    'document_lookup',
+  );
+}
+
+function testLegalPriorityBoostsNoticeOverEvaluationManual() {
+  const query = '주야간보호 본인부담금 얼마야';
+  const priorityClass = inferRetrievalPriorityClass({
+    mode: 'integrated',
+    query,
+    queryProfile: buildNaturalLanguageQueryProfile(query),
+  });
+
+  const chunks = [
+    makeChunk('legal-notice', {
+      documentId: 'legal-notice-doc',
+      docTitle: '장기요양급여비용 등에 관한 고시',
+      sourceType: 'notice',
+      sourceRole: 'general',
+      mode: 'integrated',
+      searchText: '주야간보호 본인부담금 비용 금액 산정 기준 고시',
+      text: '주야간보호 본인부담금 금액과 산정 기준은 고시에 따른다.',
+    }),
+    makeChunk('evaluation-manual-cost', {
+      documentId: 'evaluation-manual-doc',
+      docTitle: '2026년 주야간보호 평가매뉴얼',
+      sourceType: 'manual',
+      sourceRole: 'primary_evaluation',
+      mode: 'evaluation',
+      searchText: '주야간보호 본인부담금 비용 안내 평가매뉴얼',
+      text: '평가매뉴얼에는 본인부담금 확인 관련 안내가 정리되어 있다.',
+    }),
+  ];
+
+  const result = searchCorpus({
+    index: buildRagCorpusIndex(chunks),
+    query,
+    mode: 'integrated',
+    queryEmbedding: null,
+    options: {
+      retrievalPriorityClass: priorityClass,
+      retrievalPriorityPolicy: INTENT_PRIORITY_MATRIX[priorityClass],
+      selectedServiceScopes: ['day-night-care'],
+    },
+  });
+
+  assert.equal(priorityClass, 'legal_judgment');
+  assert.equal(result.fusedCandidates[0]?.id, 'legal-notice');
+}
+
+function testEvaluationPriorityBoostsPrimaryManualOverGuide() {
+  const query = '평가에서 기피식품은 어떻게 확인해';
+  const priorityClass = inferRetrievalPriorityClass({
+    mode: 'integrated',
+    query,
+    queryProfile: buildNaturalLanguageQueryProfile(query),
+  });
+
+  const chunks = [
+    makeChunk('evaluation-manual-food', {
+      documentId: 'evaluation-food-doc',
+      docTitle: '2026년 주야간보호 평가매뉴얼',
+      sourceType: 'manual',
+      sourceRole: 'primary_evaluation',
+      mode: 'evaluation',
+      searchText: '주야간보호 평가 기피식품 파악 기록 대체식품 제공 확인',
+      text: '평가에서는 급여제공 시작일까지 기피식품을 파악하고 기록했는지 확인한다.',
+    }),
+    makeChunk('operations-guide-food', {
+      documentId: 'operations-guide-doc',
+      docTitle: '식사 제공 운영가이드',
+      sourceType: 'guide',
+      sourceRole: 'support_reference',
+      mode: 'integrated',
+      searchText: '기피식품 식사 운영 가이드 실무 안내',
+      text: '실무 운영가이드는 기피식품 응대 방법을 일반적으로 설명한다.',
+    }),
+  ];
+
+  const result = searchCorpus({
+    index: buildRagCorpusIndex(chunks),
+    query,
+    mode: 'integrated',
+    queryEmbedding: null,
+    options: {
+      retrievalPriorityClass: priorityClass,
+      retrievalPriorityPolicy: INTENT_PRIORITY_MATRIX[priorityClass],
+      selectedServiceScopes: ['day-night-care'],
+      evaluationLinked: true,
+    },
+  });
+
+  assert.equal(priorityClass, 'evaluation_readiness');
+  assert.equal(result.fusedCandidates[0]?.id, 'evaluation-manual-food');
+}
+
 testHybridReadinessReason();
 testEvidenceBalanceAndAgentDecision();
 testShortKoreanQueryFallback();
@@ -399,5 +621,11 @@ testEligibilityIntentStaysEligibilityForWhoCanApplyQuery();
 testComplianceIntentStaysComplianceForAppendixQuestion();
 testEvaluationPrimaryManualOutranksOldQaAndEmployeeGuide();
 testSemanticValidationFlagsMissingLegalBasisForHighRiskCostQuestion();
+testCostReferenceLookupBuildsSupportedClaimWithoutScopeFalsePositive();
+testEvaluationWorkflowClaimGetsDirectSupportFromPrimaryManual();
+testNonLegalScopeMismatchStillFlagsMixedScope();
+testRetrievalPriorityClassInference();
+testLegalPriorityBoostsNoticeOverEvaluationManual();
+testEvaluationPriorityBoostsPrimaryManualOverGuide();
 
 console.log('RAG regression tests passed.');

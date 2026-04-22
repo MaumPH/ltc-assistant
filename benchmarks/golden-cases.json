@@ -22,7 +22,9 @@
     "expectedPrimaryIntent": "cost",
     "expectedCanonicalTerms": ["주야간보호"],
     "expectedRelationRequests": ["has-cost"],
-    "minSupportedClaims": 1
+    "minSupportedClaims": 1,
+    "maxUnsupportedClaims": 0,
+    "forbiddenValidationCodes": ["unsupported-claim", "mixed-service-scope"]
   },
   {
     "id": "integrated-workforce-standard",
@@ -33,7 +35,8 @@
     "acceptableAbstain": false,
     "expectedPrimaryIntent": "compliance",
     "expectedRelationRequests": ["requires"],
-    "minSupportedClaims": 1
+    "minSupportedClaims": 1,
+    "maxUnsupportedClaims": 0
   },
   {
     "id": "integrated-payroll-ratio-qa",
@@ -218,5 +221,24 @@
       "2026년 주야간보호 평가매뉴얼(26년꺼만)"
     ],
     "notes": "구어체 의무 여부 질문이 평가 1차 근거 문서로 연결되는지 확인"
+  },
+  {
+    "id": "evaluation-day-night-care-disliked-foods",
+    "mode": "evaluation",
+    "question": "기피식품은 어떻게 하지",
+    "expectedDoc": "2026년 주야간보호 평가매뉴얼(26년꺼만)",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "serviceScopes": ["day-night-care"],
+    "expectedEvidenceDocs": [
+      "2026년 주야간보호 평가매뉴얼(26년꺼만)"
+    ],
+    "requiredCitationDocs": [
+      "2026년 주야간보호 평가매뉴얼(26년꺼만)"
+    ],
+    "minSupportedClaims": 1,
+    "maxUnsupportedClaims": 0,
+    "forbiddenValidationCodes": ["unsupported-claim"],
+    "notes": "주야간보호 기피식품 질문이 2026 평가매뉴얼의 욕구사정/대체식품 근거로 직접 연결되는지 확인"
   }
 ]

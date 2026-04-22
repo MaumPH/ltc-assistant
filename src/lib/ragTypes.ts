@@ -83,6 +83,13 @@ export type GenerationMode = 'user' | 'server';
 
 export type RetrievalMode = 'local' | 'workflow-global' | 'drift-refine';
 
+export type RetrievalPriorityClass =
+  | 'legal_judgment'
+  | 'evaluation_readiness'
+  | 'operational_workflow'
+  | 'document_lookup'
+  | 'comparison_definition';
+
 export type ExpertAnswerType = 'verdict' | 'checklist' | 'procedure' | 'comparison' | 'definition' | 'mixed';
 
 export type BasisBucketKey = 'legal' | 'evaluation' | 'practical';
@@ -452,6 +459,8 @@ export interface ClaimPlanItem {
   predicate: string;
   object?: string;
   requiredEvidenceTypes: string[];
+  supportAnchors: string[];
+  supportBucketHints: BasisBucketKey[];
   supportingEvidenceIds: string[];
   assumptions: string[];
 }
@@ -460,11 +469,20 @@ export interface ClaimPlan {
   claims: ClaimPlanItem[];
 }
 
+export type ClaimCoverageStatus = 'supported' | 'partial' | 'unsupported';
+
+export interface ClaimCoverageDetail {
+  claimId: string;
+  status: ClaimCoverageStatus;
+  evidenceIds: string[];
+}
+
 export interface ClaimCoverage {
   totalClaims: number;
   supportedClaims: number;
   partiallySupportedClaims: number;
   unsupportedClaims: number;
+  details: ClaimCoverageDetail[];
 }
 
 export interface ValidationIssue {
@@ -506,6 +524,19 @@ export interface ExpertBasisBuckets {
   legal: ExpertBasisEntry[];
   evaluation: ExpertBasisEntry[];
   practical: ExpertBasisEntry[];
+}
+
+export interface GroundedBasisEntry {
+  label: string;
+  quote: string;
+  explanation: string;
+  citationIds: string[];
+}
+
+export interface GroundedBasisBuckets {
+  legal: GroundedBasisEntry[];
+  evaluation: GroundedBasisEntry[];
+  practical: GroundedBasisEntry[];
 }
 
 export interface EvidenceBalance {
@@ -552,6 +583,12 @@ export interface ExpertAnswerEnvelope {
   confidence: ConfidenceLevel;
   evidenceState: EvidenceState;
   keyIssueDate?: string;
+  referenceDate: string;
+  conclusion: string;
+  groundedBasis: GroundedBasisBuckets;
+  practicalInterpretation: ExpertAnswerBlockItem[];
+  additionalChecks: ExpertAnswerBlockItem[];
+  appliedScope: string;
   scope: string;
   basis: ExpertBasisBuckets;
   blocks: ExpertAnswerBlock[];
@@ -602,6 +639,7 @@ export interface BenchmarkCase {
   expectedCanonicalTerms?: string[];
   expectedRelationRequests?: OntologyRelationType[];
   expectedValidationCodes?: ValidationIssue['code'][];
+  forbiddenValidationCodes?: ValidationIssue['code'][];
   expectedMissingCriticalSlots?: SemanticSlotKey[];
   expectedRiskLevel?: SemanticRiskLevel;
   minSupportedClaims?: number;
@@ -729,6 +767,8 @@ export interface RetrievalDiagnostics {
   normalizedQuery: string;
   querySources: string[];
   profile: RetrievalProfile;
+  retrievalPriorityClass: RetrievalPriorityClass;
+  priorityPolicyName: string;
   selectedServiceScopes: ServiceScopeId[];
   serviceScopeLabels: string[];
   matchedDocumentPaths: string[];

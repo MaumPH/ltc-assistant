@@ -44,6 +44,13 @@ import {
   synthesizeExpertAnswer,
 } from './expertAnswering';
 import {
+  classifyPriorityBucket,
+  inferRetrievalPriorityClass,
+  INTENT_PRIORITY_MATRIX,
+  isEvaluationLinkedWorkflowQuery,
+  RETRIEVAL_PRIORITY_POLICY_NAME,
+} from './retrievalPriority';
+import {
   buildPreciseCitationLabel,
   compareIsoDateDesc,
   extractLinkedDocumentTitles,
@@ -127,6 +134,7 @@ import type {
   OntologyHit,
   PromptMode,
   QueryIntent,
+  RetrievalPriorityClass,
   RetrievalFeatureFlags,
   RetrievalMode,
   RetrievalDiagnostics,
@@ -248,6 +256,8 @@ export interface RetrievalInspectionResponse {
   normalizedQuery: string;
   querySources: string[];
   profile: RetrievalProfile;
+  retrievalPriorityClass: RetrievalDiagnostics['retrievalPriorityClass'];
+  priorityPolicyName: RetrievalDiagnostics['priorityPolicyName'];
   selectedServiceScopes: RetrievalDiagnostics['selectedServiceScopes'];
   serviceScopeLabels: RetrievalDiagnostics['serviceScopeLabels'];
   search: SearchRun;
@@ -969,12 +979,18 @@ interface SearchPlanningOptions {
   additionalChunkScoreBoosts?: Map<string, number>;
   extraAliases?: string[];
   queryProfile?: NaturalLanguageQueryProfile;
+  retrievalPriorityClass?: RetrievalPriorityClass;
+  priorityPolicyName?: string;
+  evaluationLinked?: boolean;
+  selectedServiceScopes?: ServiceScopeId[];
 }
 
 interface RetrievalPlanResult {
   normalizedQuery: string;
   querySources: string[];
   profile: RetrievalProfile;
+  retrievalPriorityClass: RetrievalPriorityClass;
+  priorityPolicyName: string;
   selectedServiceScopes: ServiceScopeId[];
   serviceScopeLabels: string[];
   aliases: string[];
@@ -1623,6 +1639,67 @@ function applyServiceScopeEvidenceGate(search: SearchRun, serviceScopes: readonl
   };
 }
 
+function applyIntentEvidenceGate(
+  evidence: SearchRun['evidence'],
+  priorityClass: RetrievalPriorityClass,
+): SearchRun['evidence'] {
+  if (evidence.length < 3) return evidence;
+  if (priorityClass === 'document_lookup') return evidence;
+
+  const bucketCounts = new Map<string, number>();
+  for (const candidate of evidence.slice(0, 6)) {
+    const bucket = classifyPriorityBucket(candidate);
+    bucketCounts.set(bucket, (bucketCounts.get(bucket) ?? 0) + 1);
+  }
+
+  const dominant = Array.from(bucketCounts.entries()).sort((left, right) => right[1] - left[1])[0];
+  if (!dominant || dominant[1] < 2) return evidence;
+
+  const dominantBucket = dominant[0];
+  const prioritized = evidence.filter((candidate) => classifyPriorityBucket(candidate) === dominantBucket);
+  const remainder = evidence.filter((candidate) => classifyPriorityBucket(candidate) !== dominantBucket);
+  return [...prioritized, ...remainder];
+}
+
+function buildPriorityDocumentBoosts(
+  chunks: readonly StructuredChunk[],
+  priorityClass: RetrievalPriorityClass,
+): Map<string, number> {
+  const policy = INTENT_PRIORITY_MATRIX[priorityClass];
+  const boosts = new Map<string, number>();
+
+  const bucketBoost = (bucket: string): number => {
+    switch (bucket) {
+      case 'legal':
+        return policy.legalWeight;
+      case 'evaluation_primary':
+        return policy.evaluationPrimaryWeight;
+      case 'evaluation_support':
+        return policy.evaluationSupportWeight;
+      case 'manual':
+        return policy.manualWeight;
+      case 'qa':
+        return priorityClass === 'legal_judgment' ? -policy.qaWeight : policy.qaWeight;
+      case 'guide':
+        return priorityClass === 'legal_judgment' ? -policy.guideWeight : policy.guideWeight;
+      case 'comparison':
+        return policy.comparisonWeight;
+      default:
+        return 0;
+    }
+  };
+
+  for (const chunk of chunks) {
+    const bucket = classifyPriorityBucket(chunk as SearchCandidate);
+    const boost = bucketBoost(bucket);
+    if (boost === 0) continue;
+    const current = boosts.get(chunk.documentId) ?? 0;
+    boosts.set(chunk.documentId, Math.max(current, boost));
+  }
+
+  return boosts;
+}
+
 function mergeOntologyHits(left: OntologyHit[], right: OntologyHit[]): OntologyHit[] {
   const merged = new Map<string, OntologyHit>();
   for (const hit of [...left, ...right]) {
@@ -1643,6 +1720,8 @@ function buildRetrievalDiagnostics(
   scope: RetrievalScopeContext,
   extras?: {
     profile?: RetrievalProfile;
+    retrievalPriorityClass?: RetrievalPriorityClass;
+    priorityPolicyName?: string;
     selectedServiceScopes?: ServiceScopeId[];
     serviceScopeLabels?: string[];
     selectedRetrievalMode?: RetrievalMode;
@@ -1692,6 +1771,8 @@ function buildRetrievalDiagnostics(
     normalizedQuery,
     querySources,
     profile: extras?.profile ?? getRetrievalProfile(undefined),
+    retrievalPriorityClass: extras?.retrievalPriorityClass ?? 'operational_workflow',
+    priorityPolicyName: extras?.priorityPolicyName ?? RETRIEVAL_PRIORITY_POLICY_NAME,
     selectedServiceScopes: extras?.selectedServiceScopes ?? ['all'],
     serviceScopeLabels: extras?.serviceScopeLabels ?? ['전체/공통'],
     matchedDocumentPaths: Array.from(new Set(search.evidence.map((item) => item.path))),
@@ -1744,6 +1825,7 @@ function buildRetrievalDiagnostics(
       supportedClaims: 0,
       partiallySupportedClaims: 0,
       unsupportedClaims: 0,
+      details: [],
     },
     fallbackTriggered: extras?.fallbackTriggered ?? false,
     fallbackSources: extras?.fallbackSources ?? [],
@@ -1956,6 +2038,13 @@ async function embedQuery(ai: GoogleGenAI, query: string): Promise<number[] | nu
     console.warn(`[embedding] query embedding failed: ${describeError(error)}`);
     return null;
   }
+}
+
+function applyAnswerScope(answer: ExpertAnswerEnvelope, serviceScopeLabels: readonly string[]): ExpertAnswerEnvelope {
+  return {
+    ...answer,
+    appliedScope: serviceScopeLabels.join(', ') || '전체/공통',
+  };
 }
 
 async function embedChunks(ai: GoogleGenAI, chunks: StructuredChunk[]): Promise<number> {
@@ -3964,6 +4053,8 @@ export class NodeRagService {
     const evaluationDocumentIds = new Set(
       allChunks.filter((chunk) => chunk.mode === 'evaluation').map((chunk) => chunk.documentId),
     );
+    const retrievalPriorityClass = options?.retrievalPriorityClass ?? 'operational_workflow';
+    const retrievalPriorityPolicy = INTENT_PRIORITY_MATRIX[retrievalPriorityClass];
     const routeOnlyDocumentIds = new Set(
       allChunks
         .filter((chunk) => chunk.sourceRole === 'routing_summary')
@@ -3977,6 +4068,10 @@ export class NodeRagService {
       lawRefs: options?.queryProfile?.parsedLawRefs,
       queryType: options?.queryProfile?.queryType,
       semanticFrame: options?.queryProfile?.semanticFrame,
+      selectedServiceScopes: options?.selectedServiceScopes,
+      retrievalPriorityClass,
+      retrievalPriorityPolicy,
+      evaluationLinked: options?.evaluationLinked,
     }), sectionRoutingEnabled);
     const ontologyResult =
       this.ontologyGraph && options?.queryProfile
@@ -4007,6 +4102,10 @@ export class NodeRagService {
             lawRefs: options?.queryProfile?.parsedLawRefs,
             queryType: options?.queryProfile?.queryType,
             semanticFrame: options?.queryProfile?.semanticFrame,
+            selectedServiceScopes: options?.selectedServiceScopes,
+            retrievalPriorityClass,
+            retrievalPriorityPolicy,
+            evaluationLinked: options?.evaluationLinked,
           })
         : null;
     const directSupportDocumentIds = directSupportSearch
@@ -4054,6 +4153,10 @@ export class NodeRagService {
         lawRefs: options?.queryProfile?.parsedLawRefs,
         queryType: options?.queryProfile?.queryType,
         semanticFrame: options?.queryProfile?.semanticFrame,
+        selectedServiceScopes: options?.selectedServiceScopes,
+        retrievalPriorityClass,
+        retrievalPriorityPolicy,
+        evaluationLinked: options?.evaluationLinked,
       }),
       sectionRoutingEnabled,
     ));
@@ -4069,6 +4172,10 @@ export class NodeRagService {
                 lawRefs: options?.queryProfile?.parsedLawRefs,
                 queryType: options?.queryProfile?.queryType,
                 semanticFrame: options?.queryProfile?.semanticFrame,
+                selectedServiceScopes: options?.selectedServiceScopes,
+                retrievalPriorityClass,
+                retrievalPriorityPolicy,
+                evaluationLinked: options?.evaluationLinked,
               })
             ).fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
             4,
@@ -4201,6 +4308,13 @@ export class NodeRagService {
     }
     latency.queryNormalizationMs = Date.now() - normalizationStartedAt;
     const queryProfile = enrichQueryProfileWithServiceScopeLabels(normalized.queryProfile, serviceScopeLabels);
+    const retrievalPriorityClass = inferRetrievalPriorityClass({
+      mode,
+      query: normalized.normalizedQuery,
+      queryProfile,
+    });
+    const priorityPolicyName = RETRIEVAL_PRIORITY_POLICY_NAME;
+    const evaluationLinked = isEvaluationLinkedWorkflowQuery(normalized.normalizedQuery);
     const hydeStartedAt = Date.now();
     const pseudoHyde =
       runtimeProfile.queryProcessing.hyde
@@ -4249,6 +4363,7 @@ export class NodeRagService {
     const plannerTrace: Array<{ step: string; detail: string }> = [
       { step: 'retrieval-profile', detail: runtimeProfile.id },
       { step: 'query-type', detail: queryProfile.queryType },
+      { step: 'retrieval-priority', detail: retrievalPriorityClass },
       { step: 'service-scope', detail: serviceScopeLabels.join(', ') },
       { step: 'question-archetype', detail: profile.questionArchetype },
       { step: 'preferred-answer-type', detail: profile.recommendedAnswerType },
@@ -4310,6 +4425,7 @@ export class NodeRagService {
         )
       : new Map<string, number>();
     const workflowBoosts = mergeDocumentScoreBoostMaps(
+      buildPriorityDocumentBoosts(allSearchChunks, retrievalPriorityClass),
       buildBrainDocumentBoosts(
         this.brain,
         allSearchChunks,
@@ -4331,6 +4447,10 @@ export class NodeRagService {
         additionalChunkScoreBoosts: serviceScopeChunkBoosts,
         extraAliases: selectedRetrievalMode === 'workflow-global' ? workflowAliasHints : [],
         queryProfile,
+        retrievalPriorityClass,
+        priorityPolicyName,
+        evaluationLinked,
+        selectedServiceScopes,
       },
     );
     const subquestions: string[] = [];
@@ -4362,6 +4482,10 @@ export class NodeRagService {
           additionalChunkScoreBoosts: serviceScopeChunkBoosts,
           extraAliases: workflowAliasHints,
           queryProfile: refinedQueryProfile,
+          retrievalPriorityClass,
+          priorityPolicyName,
+          evaluationLinked,
+          selectedServiceScopes,
         });
 
         refinedSearch.search.evidence.forEach((item) => {
@@ -4439,15 +4563,29 @@ export class NodeRagService {
         detail: `${preScopeGateEvidenceCount}->${search.evidence.length}`,
       });
     }
+    const preIntentGateEvidenceIds = search.evidence.map((candidate) => candidate.id).join(',');
+    search = {
+      ...search,
+      evidence: applyIntentEvidenceGate(search.evidence, retrievalPriorityClass),
+    };
+    if (search.evidence.map((candidate) => candidate.id).join(',') !== preIntentGateEvidenceIds) {
+      plannerTrace.push({
+        step: 'intent-evidence-gate',
+        detail: retrievalPriorityClass,
+      });
+    }
 
     const expandedEvidence = filterEvidenceByServiceScopes(
       expandEvidenceWithNeighbors(search.evidence, allSearchChunks),
       selectedServiceScopes,
     );
-    const evidence = constrainEvidence({
-      ...search,
-      evidence: expandedEvidence,
-    });
+    const evidence = applyIntentEvidenceGate(
+      constrainEvidence({
+        ...search,
+        evidence: expandedEvidence,
+      }),
+      retrievalPriorityClass,
+    );
     const retrievalValidation = evaluateRetrievalValidation({
       semanticFrame: queryProfile.semanticFrame,
       evidence,
@@ -4518,6 +4656,8 @@ export class NodeRagService {
       normalizedQuery: normalized.normalizedQuery,
       querySources: normalized.querySources,
       profile: runtimeProfile,
+      retrievalPriorityClass,
+      priorityPolicyName,
       selectedServiceScopes,
       serviceScopeLabels,
       aliases,
@@ -4592,6 +4732,8 @@ export class NodeRagService {
       planned.scope,
       {
         profile: planned.profile,
+        retrievalPriorityClass: planned.retrievalPriorityClass,
+        priorityPolicyName: planned.priorityPolicyName,
         selectedServiceScopes: planned.selectedServiceScopes,
         serviceScopeLabels: planned.serviceScopeLabels,
         selectedRetrievalMode: planned.selectedRetrievalMode,
@@ -4622,6 +4764,8 @@ export class NodeRagService {
       normalizedQuery: planned.normalizedQuery,
       querySources: planned.querySources,
       profile: planned.profile,
+      retrievalPriorityClass: retrieval.retrievalPriorityClass,
+      priorityPolicyName: retrieval.priorityPolicyName,
       selectedServiceScopes: retrieval.selectedServiceScopes,
       serviceScopeLabels: retrieval.serviceScopeLabels,
       search: {
@@ -4744,6 +4888,8 @@ export class NodeRagService {
       planned.scope,
       {
         profile: planned.profile,
+        retrievalPriorityClass: planned.retrievalPriorityClass,
+        priorityPolicyName: planned.priorityPolicyName,
         selectedServiceScopes: planned.selectedServiceScopes,
         serviceScopeLabels: planned.serviceScopeLabels,
         selectedRetrievalMode: planned.selectedRetrievalMode,
@@ -4810,11 +4956,14 @@ export class NodeRagService {
         ...retrieval.plannerTrace,
         { step: 'agent-decision', detail: `clarify: ${clarificationDecision.reason}` },
       ];
-      const answer = createExpertClarificationAnswer({
-        question,
-        decision: clarificationDecision,
-        serviceScopeClarification,
-      });
+      const answer = applyAnswerScope(
+        createExpertClarificationAnswer({
+          question,
+          decision: clarificationDecision,
+          serviceScopeClarification,
+        }),
+        planned.serviceScopeLabels,
+      );
       latency.totalMs = Date.now() - startedAt;
       retrieval.latency = latency;
       return {
@@ -4835,13 +4984,16 @@ export class NodeRagService {
         ...retrieval.plannerTrace,
         { step: 'agent-decision', detail: 'abstain: evidence is empty or confidence is low' },
       ];
-      const answer = createExpertAbstainAnswer({
-        question,
-        confidence: planned.search.confidence,
-        evidenceState: planned.search.confidence === 'low' ? 'not_enough' : 'partial',
-        keyIssueDate,
-        evidence: citations,
-      });
+      const answer = applyAnswerScope(
+        createExpertAbstainAnswer({
+          question,
+          confidence: planned.search.confidence,
+          evidenceState: planned.search.confidence === 'low' ? 'not_enough' : 'partial',
+          keyIssueDate,
+          evidence: citations,
+        }),
+        planned.serviceScopeLabels,
+      );
       latency.totalMs = Date.now() - startedAt;
       retrieval.latency = latency;
       return {
@@ -4899,6 +5051,7 @@ export class NodeRagService {
       evidence: planned.evidence,
       knowledgeContext: planned.knowledgeContext,
       retrievalMode: planned.selectedRetrievalMode,
+      priorityClass: planned.retrievalPriorityClass,
       evidenceState:
         planned.search.confidence === 'high'
           ? 'confirmed'
@@ -4911,11 +5064,12 @@ export class NodeRagService {
       semanticFrame: planned.queryProfile.semanticFrame,
     });
     latency.answerMs = Date.now() - answerStartedAt;
-    const answerEvidenceIds = new Set(answer.citations.map((item) => item.evidenceId));
+    const scopedAnswer = applyAnswerScope(answer, planned.serviceScopeLabels);
+    const answerEvidenceIds = new Set(scopedAnswer.citations.map((item) => item.evidenceId));
     const resolvedCitations = citations.filter((item) => answerEvidenceIds.has(item.id));
     const finalCitations = resolvedCitations.length > 0 ? resolvedCitations : citations.slice(0, 4);
     const validatedAnswer = validateAnswerEnvelope({
-      answer,
+      answer: scopedAnswer,
       semanticFrame: planned.queryProfile.semanticFrame,
       citations: finalCitations,
       evidence: planned.evidence,
@@ -4931,13 +5085,16 @@ export class NodeRagService {
         ...retrieval.plannerTrace,
         { step: 'agent-decision', detail: 'abstain: answer validation detected a blocking contradiction' },
       ];
-      finalAnswer = createExpertAbstainAnswer({
-        question,
-        confidence: 'low',
-        evidenceState: 'not_enough',
-        keyIssueDate,
-        evidence: finalCitations,
-      });
+      finalAnswer = applyAnswerScope(
+        createExpertAbstainAnswer({
+          question,
+          confidence: 'low',
+          evidenceState: 'not_enough',
+          keyIssueDate,
+          evidence: finalCitations,
+        }),
+        planned.serviceScopeLabels,
+      );
     }
     finalAnswer = planned.profile.guardrails.piiMasking ? applyPiiMasking(finalAnswer) : finalAnswer;
     if (planned.profile.guardrails.citationWarning) {
