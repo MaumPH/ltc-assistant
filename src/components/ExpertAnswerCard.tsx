@@ -84,9 +84,6 @@ function getBlockTypeLabel(blockType: ExpertAnswerBlock['type']): string {
 function buildItemMeta(item: ExpertAnswerBlockItem): string[] {
   const meta: string[] = [];
 
-  if (item.basis) {
-    meta.push(BASIS_LABELS[item.basis]);
-  }
   if (item.actor) {
     meta.push(`담당 ${item.actor}`);
   }
@@ -162,25 +159,25 @@ function ComparisonBlock({ block }: { block: ExpertAnswerBlock }) {
       {block.intro && <p className="mb-3 text-sm leading-7 text-slate-500">{block.intro}</p>}
 
       <div className="grid gap-2 md:grid-cols-2">
-        {block.items.map((item, index) => (
-          <div
-            key={`${block.title}-${item.label}-${index}`}
-            className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <p className="min-w-0 text-sm font-bold leading-6 text-slate-900">{item.label}</p>
-              <BasisBadge basis={item.basis} />
+        {block.items.map((item, index) => {
+          const meta = buildItemMeta(item);
+
+          return (
+            <div
+              key={`${block.title}-${item.label}-${index}`}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="min-w-0 text-sm font-bold leading-6 text-slate-900">{item.label}</p>
+                <BasisBadge basis={item.basis} />
+              </div>
+              <p className="mt-1 whitespace-pre-wrap text-sm leading-7 text-slate-700">{item.detail}</p>
+              {meta.length > 0 && (
+                <p className="mt-2 break-words text-xs leading-5 text-slate-500">{meta.join(' · ')}</p>
+              )}
             </div>
-            <p className="mt-1 whitespace-pre-wrap text-sm leading-7 text-slate-700">{item.detail}</p>
-            {buildItemMeta(item).filter((entry) => !Object.values(BASIS_LABELS).includes(entry)).length > 0 && (
-              <p className="mt-2 break-words text-xs leading-5 text-slate-500">
-                {buildItemMeta(item)
-                  .filter((entry) => !Object.values(BASIS_LABELS).includes(entry))
-                  .join(' · ')}
-              </p>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
