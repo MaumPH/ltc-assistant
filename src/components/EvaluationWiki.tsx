@@ -16,26 +16,19 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
+import {
+  buildJudgementSummary,
+  getEvaluationSectionClassName,
+  parseEvaluationPage,
+  prepareEvaluationSectionMarkdown,
+  splitEvaluationSections,
+  type WikiPage,
+  type WikiSection,
+} from '../lib/evaluationWiki';
 
 const evalWikiModules = {
   ...import.meta.glob('/knowledge/evaluation/*.md', { query: '?raw', import: 'default', eager: true }),
 };
-
-interface WikiPage {
-  slug: string;
-  fileName: string;
-  title: string;
-  area: string;
-  status: string;
-  updated: string;
-  tags: string[];
-  body: string;
-}
-
-interface WikiSection {
-  title: string;
-  content: string;
-}
 
 interface AreaTheme {
   color: string;
@@ -61,56 +54,16 @@ const AREA_THEMES: AreaTheme[] = [
 const SECTION_META: Record<string, { icon: LucideIcon; label?: string }> = {
   '충족/미충족 기준': { icon: CheckCircle2 },
   '확인 방법': { icon: ClipboardCheck },
+  확인방법: { icon: ClipboardCheck },
   '확정 근거': { icon: BadgeCheck },
   '관련 근거': { icon: FileText },
+  관련근거: { icon: FileText },
   '실무 해석': { icon: BookOpen },
   '준비 서류': { icon: FileCheck2 },
   주의사항: { icon: ShieldAlert },
   '관련 지표': { icon: ListChecks },
   개요: { icon: Layers3 },
 };
-
-function parsePage(fileName: string, raw: string): WikiPage {
-  const frontMatterMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
-  let title = fileName.replace('.md', '');
-  let area = '미분류';
-  let status = 'active';
-  let updated = '';
-  let tags: string[] = [];
-  let body = raw;
-
-  if (frontMatterMatch) {
-    const frontMatter = frontMatterMatch[1];
-    body = frontMatterMatch[2].trim();
-
-    const get = (key: string) =>
-      frontMatter.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))?.[1]?.trim() ?? '';
-
-    title = get('title') || title;
-    area = get('area') || area;
-    status = get('status') || 'active';
-    updated = get('updated') || '';
-
-    const tagsMatch = frontMatter.match(/^tags:\s*\[([^\]]*)\]/m);
-    if (tagsMatch) {
-      tags = tagsMatch[1]
-        .split(',')
-        .map((tag) => tag.trim().replace(/^['"]|['"]$/g, ''))
-        .filter(Boolean);
-    }
-  }
-
-  return {
-    slug: fileName.replace('.md', ''),
-    fileName,
-    title,
-    area,
-    status,
-    updated,
-    tags,
-    body,
-  };
-}
 
 function getStatusColors(status: string) {
   if (status === 'revised') return { bg: '#dbeafe', color: '#1d4ed8', border: '#bfdbfe' };
@@ -128,39 +81,6 @@ function getPageNumber(page: WikiPage) {
   return 'i';
 }
 
-function stripMarkdown(value: string) {
-  return value
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/^[-*]\s+/gm, '')
-    .replace(/\|/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function splitSections(body: string): WikiSection[] {
-  const normalized = body.replace(/\r\n/g, '\n').trim();
-  const matches = Array.from(normalized.matchAll(/^##\s+(.+)$/gm));
-
-  if (matches.length === 0) {
-    return normalized ? [{ title: '개요', content: normalized }] : [];
-  }
-
-  const sections: WikiSection[] = [];
-  const preface = normalized.slice(0, matches[0].index).trim();
-  if (preface) sections.push({ title: '개요', content: preface });
-
-  matches.forEach((match, index) => {
-    const start = (match.index ?? 0) + match[0].length;
-    const end = index + 1 < matches.length ? matches[index + 1].index ?? normalized.length : normalized.length;
-    const content = normalized.slice(start, end).trim();
-    sections.push({ title: match[1].trim(), content });
-  });
-
-  return sections;
-}
-
 function getSectionIcon(title: string) {
   return SECTION_META[title]?.icon ?? FileText;
 }
@@ -176,7 +96,7 @@ export default function EvaluationWiki() {
     return Object.entries(evalWikiModules)
       .map(([path, content]) => {
         const fileName = path.split('/').pop() || path;
-        return parsePage(fileName, content as string);
+        return parseEvaluationPage(fileName, content as string);
       })
       .sort((a, b) => a.slug.localeCompare(b.slug, 'ko'));
   }, []);
@@ -216,10 +136,10 @@ export default function EvaluationWiki() {
     });
   }, [activeGroup?.pages, deferredSearch, pages]);
 
-  const sections = useMemo(() => (selectedPage ? splitSections(selectedPage.body) : []), [selectedPage]);
+  const sections = useMemo(() => (selectedPage ? splitEvaluationSections(selectedPage.body) : []), [selectedPage]);
   const directionSection = sections.find((section) => section.title === '판단 기준');
   const contentSections = sections.filter((section) => section.title !== '판단 기준');
-  const summary = directionSection?.content ? stripMarkdown(directionSection.content) : selectedPage ? stripMarkdown(selectedPage.body).slice(0, 180) : '';
+  const summary = selectedPage ? buildJudgementSummary(directionSection?.content, selectedPage.body) : '';
 
   useEffect(() => {
     if (pages.length === 0) return;
@@ -439,16 +359,22 @@ export default function EvaluationWiki() {
                 {contentSections.map((section) => {
                   const Icon = getSectionIcon(section.title);
                   const sectionStyle = { '--wiki-color': currentTheme.color } as React.CSSProperties;
+                  const sectionClassName = getEvaluationSectionClassName(section.title);
+                  const renderedContent = prepareEvaluationSectionMarkdown(section.title, section.content);
 
                   return (
-                    <section key={section.title} className="evaluation-content-section" style={sectionStyle}>
+                    <section
+                      key={section.title}
+                      className={`evaluation-content-section evaluation-section--${sectionClassName}`}
+                      style={sectionStyle}
+                    >
                       <div className="mb-3 flex items-center gap-2">
                         <div className="h-4 w-[3px] rounded-full" style={{ background: currentTheme.color }} />
                         <Icon className="h-4 w-4" style={{ color: currentTheme.color }} />
                         <h2 className="text-sm font-bold text-slate-950">▣ {section.title}</h2>
                       </div>
                       <div className="evaluation-markdown" style={sectionStyle}>
-                        <ReactMarkdown>{section.content}</ReactMarkdown>
+                        <ReactMarkdown>{renderedContent}</ReactMarkdown>
                       </div>
                     </section>
                   );

@@ -136,8 +136,8 @@ body {
 .evaluation-markdown ol {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-  margin: 0;
+  gap: 0.55rem;
+  margin: 0.2rem 0 0;
   padding: 0;
   list-style: none;
 }
@@ -145,22 +145,89 @@ body {
 .evaluation-markdown li {
   position: relative;
   margin: 0;
-  padding: 0.68rem 0.875rem 0.68rem 1.6rem;
-  border: 1px solid #f1f5f9;
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  padding: 0.15rem 0 0.15rem 1rem;
 }
 
 .evaluation-markdown li::before {
   content: "";
   position: absolute;
-  left: 0.82rem;
-  top: 1.22rem;
-  width: 5px;
-  height: 5px;
+  left: 0;
+  top: 0.92rem;
+  width: 4px;
+  height: 4px;
   border-radius: 999px;
   background: var(--wiki-color, #2563eb);
+}
+
+.evaluation-markdown > ul > li,
+.evaluation-markdown > ol > li {
+  padding: 0.72rem 0.95rem 0.72rem 1.65rem;
+  border: 1px solid #e8eef6;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.035);
+}
+
+.evaluation-markdown > ul > li::before,
+.evaluation-markdown > ol > li::before {
+  left: 0.86rem;
+  top: 1.28rem;
+  width: 5px;
+  height: 5px;
+}
+
+.evaluation-markdown li > ul,
+.evaluation-markdown li > ol {
+  gap: 0.24rem;
+  margin-top: 0.5rem;
+  padding-top: 0.42rem;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.evaluation-markdown li li {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0.14rem 0 0.14rem 1rem;
+}
+
+.evaluation-markdown li li::before {
+  left: 0.1rem;
+  top: 0.85rem;
+  width: 3px;
+  height: 3px;
+  background: #64748b;
+}
+
+.evaluation-markdown h3,
+.evaluation-markdown h4 {
+  margin: 1rem 0 0.55rem;
+  color: #0f172a;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.evaluation-markdown h3 {
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.35rem;
+  font-size: 13px;
+}
+
+.evaluation-markdown h4 {
+  font-size: 12px;
+}
+
+.evaluation-section--criteria .evaluation-markdown > ul > li,
+.evaluation-section--methods .evaluation-markdown > ul > li,
+.evaluation-section--legal-basis .evaluation-markdown > ul > li,
+.evaluation-section--legal-basis .evaluation-markdown > ol > li {
+  border-left: 3px solid var(--wiki-color, #2563eb);
+}
+
+.evaluation-section--methods .evaluation-markdown > ul > li:has(> strong:first-child),
+.evaluation-section--criteria .evaluation-markdown > ul > li:has(> strong:first-child) {
+  background: linear-gradient(180deg, #fff 0%, #fbfdff 100%);
 }
 
 .evaluation-markdown strong {
@@ -177,12 +244,13 @@ body {
 }
 
 .evaluation-markdown blockquote {
-  margin: 0;
+  margin: 0.55rem 0 0;
   border-left: 3px solid var(--wiki-color, #2563eb);
-  border-radius: 10px;
-  background: #f8fafc;
-  padding: 0.8rem 1rem;
+  border-radius: 9px;
+  background: #fff;
+  padding: 0.9rem 1rem;
   color: #475569;
+  box-shadow: inset 0 0 0 1px #e8eef6;
 }
 
 .evaluation-markdown table {
