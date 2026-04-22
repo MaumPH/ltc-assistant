@@ -338,6 +338,14 @@ export interface KnowledgeFile {
   nulStripped?: boolean;
 }
 
+export interface KnowledgeListEntry {
+  path: string;
+  name: string;
+  size: number;
+  updatedAt?: string;
+  mode: PromptMode;
+}
+
 export interface DocumentMetadata {
   documentId: string;
   title: string;

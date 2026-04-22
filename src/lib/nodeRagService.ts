@@ -119,6 +119,7 @@ import type {
   IndexManifestEntry,
   IndexStatus,
   KnowledgeFile,
+  KnowledgeListEntry,
   KnowledgeDoctorIssue,
   LawAliasResolution,
   LawFallbackSource,
@@ -217,6 +218,13 @@ interface StoredLawFallbackRow {
   updated_at?: string | Date | null;
 }
 
+interface DiskKnowledgeState {
+  fingerprint: string;
+  files: KnowledgeFile[];
+  manifestEntries: IndexManifestEntry[];
+  issues: KnowledgeDoctorIssue[];
+}
+
 interface GroundedChatRequest {
   messages: ChatMessage[];
   mode: PromptMode;
@@ -307,9 +315,9 @@ interface RagStore {
     queryEmbedding: number[] | null,
     queryAliases?: string[],
     options?: SearchOptions,
-  ): SearchRun;
+  ): Promise<SearchRun>;
   getCompiledPages(mode: PromptMode, documentIds: string[]): CompiledPage[];
-  listKnowledgeFiles(): { name: string; size: number; updatedAt: Date }[];
+  listKnowledgeFiles(): KnowledgeListEntry[];
   getStats(): { chunks: number; compiledPages: number; storageMode: string };
   getChunks(): StructuredChunk[];
   getManifestEntries(): IndexManifestEntry[];
@@ -476,6 +484,7 @@ const EMBEDDING_MODEL = 'gemini-embedding-001';
 const EMBEDDING_DIMENSIONS = 768;
 const EMBEDDING_BATCH_SIZE = parsePositiveInteger(process.env.RAG_EMBEDDING_BATCH_SIZE, 20);
 const EMBEDDING_MAX_CHUNKS_PER_PASS = parsePositiveInteger(process.env.RAG_EMBEDDING_MAX_CHUNKS_PER_PASS, 400);
+const POSTGRES_VECTOR_TOP_K = 36;
 const EMBEDDING_REFRESH_INTERVAL_MS = parsePositiveInteger(process.env.RAG_EMBEDDING_REFRESH_INTERVAL_MS, 15 * 60 * 1000);
 const EMBEDDING_QUOTA_COOLDOWN_MS = parsePositiveInteger(process.env.RAG_EMBEDDING_QUOTA_COOLDOWN_MS, 6 * 60 * 60 * 1000);
 const LAW_FALLBACK_CONFIDENCE_THRESHOLD = (process.env.LAW_FALLBACK_CONFIDENCE_THRESHOLD || 'low').toLowerCase();
@@ -762,12 +771,14 @@ function updateManifestEntriesFromChunks(
   });
 }
 
-function manifestEntriesToKnowledgeStats(entries: IndexManifestEntry[]): Array<{ name: string; size: number; updatedAt: Date }> {
+function manifestEntriesToKnowledgeStats(entries: IndexManifestEntry[]): KnowledgeListEntry[] {
   return entries
     .map((entry) => ({
+      path: entry.path,
       name: entry.path.replace(/^\/knowledge\//, ''),
       size: entry.size,
-      updatedAt: new Date(entry.updatedAt ?? 0),
+      updatedAt: entry.updatedAt,
+      mode: entry.mode,
     }))
     .sort((left, right) => left.name.localeCompare(right.name, 'ko'));
 }
@@ -2182,7 +2193,7 @@ async function ensurePostgresSchema(client: PoolClient): Promise<void> {
 class MemoryRagStore implements RagStore {
   private readonly projectRoot: string;
   private readonly embeddingCachePath: string;
-  private knowledgeStats: { name: string; size: number; updatedAt: Date }[] = [];
+  private knowledgeStats: KnowledgeListEntry[] = [];
   private files: KnowledgeFile[] = [];
   private chunks: StructuredChunk[] = [];
   private index: RagCorpusIndex = buildRagCorpusIndex([]);
@@ -2262,13 +2273,13 @@ class MemoryRagStore implements RagStore {
     this.indexGeneratedAt = new Date().toISOString();
   }
 
-  search(
+  async search(
     query: string,
     mode: PromptMode,
     queryEmbedding: number[] | null,
     queryAliases: string[] = [],
     options?: SearchOptions,
-  ): SearchRun {
+  ): Promise<SearchRun> {
     return searchCorpus({ index: this.index, query, mode, queryEmbedding, queryAliases, options });
   }
 
@@ -2308,12 +2319,78 @@ class PostgresRagStore implements RagStore {
   private index: RagCorpusIndex = buildRagCorpusIndex([]);
   private compiledPages: CompiledPage[] = [];
   private manifestEntries: IndexManifestEntry[] = [];
-  private knowledgeStats: { name: string; size: number; updatedAt: Date }[] = [];
+  private knowledgeStats: KnowledgeListEntry[] = [];
   private indexGeneratedAt: string | undefined;
   private lastEmbeddingAttemptAt = 0;
+  private chunkById = new Map<string, StructuredChunk>();
 
   constructor(connectionString: string) {
     this.pool = new Pool({ connectionString });
+  }
+
+  private async queryPgvectorCandidates(
+    queryEmbedding: number[] | null,
+    mode: PromptMode,
+    options?: SearchOptions,
+  ): Promise<SearchCandidate[] | null> {
+    if (!queryEmbedding || queryEmbedding.length !== EMBEDDING_DIMENSIONS) return null;
+    if (options?.allowedDocumentIds && options.allowedDocumentIds.size === 0) return [];
+
+    const conditions = ['embedding is not null'];
+    const values: unknown[] = [`[${queryEmbedding.join(',')}]`];
+
+    if (mode === 'evaluation') {
+      values.push(mode);
+      conditions.push(`mode = $${values.length}`);
+    }
+
+    if (options?.allowedDocumentIds && options.allowedDocumentIds.size > 0) {
+      values.push(Array.from(options.allowedDocumentIds));
+      conditions.push(`document_id = any($${values.length}::text[])`);
+    }
+
+    if (options?.excludedEvidenceRoles && options.excludedEvidenceRoles.size > 0) {
+      values.push(Array.from(options.excludedEvidenceRoles));
+      conditions.push(`(source_role is null or not (source_role = any($${values.length}::text[])))`);
+    }
+
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query<{ id: string; similarity: number | string }>(
+        `
+          select
+            id,
+            1 - (embedding <=> $1::vector) as similarity
+          from chunks
+          where ${conditions.join(' and ')}
+          order by embedding <=> $1::vector
+          limit ${POSTGRES_VECTOR_TOP_K}
+        `,
+        values,
+      );
+
+      return result.rows
+        .map((row) => {
+          const chunk = this.chunkById.get(row.id);
+          if (!chunk) return null;
+          return {
+            ...chunk,
+            exactScore: 0,
+            lexicalScore: 0,
+            vectorScore: Math.max(0, Number(row.similarity) || 0),
+            fusedScore: 0,
+            rerankScore: 0,
+            ontologyScore: 0,
+            matchedTerms: [],
+          } satisfies SearchCandidate;
+        })
+        .filter((candidate): candidate is SearchCandidate => candidate !== null);
+    } catch (error) {
+      console.warn(`[pgvector] similarity query failed: ${describeError(error)}`);
+      return null;
+    } finally {
+      client.release();
+    }
   }
 
   private async persistEmbeddingUpdates(): Promise<void> {
@@ -2321,22 +2398,47 @@ class PostgresRagStore implements RagStore {
     try {
       await client.query('begin');
 
-      for (const chunk of this.chunks) {
-        await client.query(
-          'update chunks set embedding = $2 where id = $1',
-          [
+      for (let index = 0; index < this.chunks.length; index += 50) {
+        const batch = this.chunks.slice(index, index + 50);
+        const values: unknown[] = [];
+        const tuples = batch.map((chunk) => {
+          values.push(
             chunk.id,
             Array.isArray(chunk.embedding) && chunk.embedding.length === EMBEDDING_DIMENSIONS
               ? `[${chunk.embedding.join(',')}]`
               : null,
-          ],
+          );
+          return `($${values.length - 1}, $${values.length})`;
+        });
+        if (tuples.length === 0) continue;
+        await client.query(
+          `
+            update chunks as target
+            set embedding = case when source.embedding is null then null else source.embedding::vector end
+            from (values ${tuples.join(',')}) as source(id, embedding)
+            where target.id = source.id
+          `,
+          values,
         );
       }
 
-      for (const entry of this.manifestEntries) {
+      for (let index = 0; index < this.manifestEntries.length; index += 100) {
+        const batch = this.manifestEntries.slice(index, index + 100);
+        const values: unknown[] = [];
+        const tuples = batch.map((entry) => {
+          values.push(entry.documentId, entry.chunkCount, entry.embeddingCount);
+          return `($${values.length - 2}, $${values.length - 1}, $${values.length})`;
+        });
+        if (tuples.length === 0) continue;
         await client.query(
-          'update documents set chunk_count = $2, embedding_count = $3 where id = $1',
-          [entry.documentId, entry.chunkCount, entry.embeddingCount],
+          `
+            update documents as target
+            set chunk_count = source.chunk_count,
+                embedding_count = source.embedding_count
+            from (values ${tuples.join(',')}) as source(id, chunk_count, embedding_count)
+            where target.id = source.id
+          `,
+          values,
         );
       }
 
@@ -2426,6 +2528,7 @@ class PostgresRagStore implements RagStore {
       }
 
       this.chunks = chunkResult.rows.map(rowToChunk);
+      this.chunkById = new Map(this.chunks.map((chunk) => [chunk.id, chunk] as const));
       this.index = buildRagCorpusIndex(this.chunks);
 
       const compiledResult = await client.query<{
@@ -2517,14 +2620,27 @@ class PostgresRagStore implements RagStore {
     }
   }
 
-  search(
+  async search(
     query: string,
     mode: PromptMode,
     queryEmbedding: number[] | null,
     queryAliases: string[] = [],
     options?: SearchOptions,
-  ): SearchRun {
-    return searchCorpus({ index: this.index, query, mode, queryEmbedding, queryAliases, options });
+  ): Promise<SearchRun> {
+    const precomputedVectorCandidates = await this.queryPgvectorCandidates(queryEmbedding, mode, options);
+    return searchCorpus({
+      index: this.index,
+      query,
+      mode,
+      queryEmbedding,
+      queryAliases,
+      options: precomputedVectorCandidates
+        ? {
+            ...options,
+            precomputedVectorCandidates,
+          }
+        : options,
+    });
   }
 
   getCompiledPages(mode: PromptMode, documentIds: string[]): CompiledPage[] {
@@ -2567,11 +2683,11 @@ function mergeCorpora(...corpora: KnowledgeFile[][]): KnowledgeFile[] {
   return Array.from(filesByPath.values());
 }
 
-function collectKnowledgeStats(projectRoot: string): Array<{ name: string; size: number; updatedAt: Date }> {
+function collectKnowledgeStats(projectRoot: string): Array<{ name: string; size: number; updatedAt: string }> {
   const knowledgeRoot = path.join(projectRoot, 'knowledge');
   if (!fs.existsSync(knowledgeRoot)) return [];
 
-  const results: Array<{ name: string; size: number; updatedAt: Date }> = [];
+  const results: Array<{ name: string; size: number; updatedAt: string }> = [];
 
   const visit = (currentDir: string) => {
     const entries = fs.readdirSync(currentDir, { withFileTypes: true });
@@ -2590,13 +2706,63 @@ function collectKnowledgeStats(projectRoot: string): Array<{ name: string; size:
       results.push({
         name: path.relative(knowledgeRoot, fullPath).replace(/\\/g, '/'),
         size: stat.size,
-        updatedAt: stat.mtime,
+        updatedAt: stat.mtime.toISOString(),
       });
     }
   };
 
   visit(knowledgeRoot);
   return results.sort((left, right) => left.name.localeCompare(right.name, 'ko'));
+}
+
+function diffManifestEntries(previousEntries: IndexManifestEntry[], nextEntries: IndexManifestEntry[]) {
+  const previousByDocumentId = new Map(previousEntries.map((entry) => [entry.documentId, entry] as const));
+  const nextByDocumentId = new Map(nextEntries.map((entry) => [entry.documentId, entry] as const));
+
+  const changedDocumentIds = nextEntries
+    .filter((entry) => {
+      const previous = previousByDocumentId.get(entry.documentId);
+      return !previous || previous.contentHash !== entry.contentHash;
+    })
+    .map((entry) => entry.documentId);
+
+  const removedDocumentIds = previousEntries
+    .filter((entry) => !nextByDocumentId.has(entry.documentId))
+    .map((entry) => entry.documentId);
+
+  return {
+    changedDocumentIds,
+    removedDocumentIds,
+  };
+}
+
+function copyExistingEmbeddingsToChunkRows(
+  chunkRows: Array<Record<string, unknown>>,
+  existingChunks: StructuredChunk[],
+): Array<Record<string, unknown>> {
+  const chunksByHash = new Map(
+    existingChunks
+      .filter((chunk) => Array.isArray(chunk.embedding) && chunk.embedding.length === EMBEDDING_DIMENSIONS)
+      .map((chunk) => [chunk.chunkHash, chunk.embedding] as const),
+  );
+
+  return chunkRows.map((row) => {
+    if (Array.isArray(row.embedding) && (row.embedding as number[]).length === EMBEDDING_DIMENSIONS) {
+      return row;
+    }
+
+    const cachedEmbedding = chunksByHash.get(String(row.chunk_hash));
+    return cachedEmbedding ? { ...row, embedding: cachedEmbedding } : row;
+  });
+}
+
+function filterRowsByDocumentIds(
+  rows: Array<Record<string, unknown>>,
+  documentIds: Set<string>,
+  key: string,
+): Array<Record<string, unknown>> {
+  if (documentIds.size === 0) return [];
+  return rows.filter((row) => documentIds.has(String(row[key])));
 }
 
 function buildGroundedAnswerSchema() {
@@ -2804,6 +2970,7 @@ export class NodeRagService {
   private diskFiles: KnowledgeFile[] = [];
   private diskManifestEntries: IndexManifestEntry[] = [];
   private doctorIssues: KnowledgeDoctorIssue[] = [];
+  private diskStateCache: DiskKnowledgeState | null = null;
   private indexStatus: IndexStatus = compareIndexStatus({
     diskEntries: [],
     indexedEntries: [],
@@ -2858,7 +3025,18 @@ export class NodeRagService {
   }
 
   private getActiveFeatureFlags(profileId?: string): RetrievalFeatureFlags {
-    return getRetrievalFeatureFlags(this.getActiveProfile(profileId));
+    const featureFlags = getRetrievalFeatureFlags(this.getActiveProfile(profileId));
+    return {
+      ...featureFlags,
+      reranker:
+        featureFlags.reranker &&
+        this.backendReadiness.reranker.enabled &&
+        this.backendReadiness.reranker.status === 'ready',
+      externalElasticsearch:
+        featureFlags.externalElasticsearch &&
+        this.backendReadiness.elasticsearch.enabled &&
+        this.backendReadiness.elasticsearch.status === 'ready',
+    };
   }
 
   getAdminProfiles(): AdminProfilesResponse {
@@ -3100,6 +3278,7 @@ export class NodeRagService {
   private async performReindex(): Promise<void> {
     const files = await loadKnowledgeFilesForIndex(this.projectRoot);
     const structuredChunks = buildStructuredChunks(files);
+    const previousManifestEntries = this.store.getManifestEntries();
     const ontologyRows = buildOntologyRows(
       buildOntologyGraph(
         this.brain,
@@ -3110,9 +3289,14 @@ export class NodeRagService {
     );
     const documentVersionRows = buildDocumentVersionRows(files);
     const sectionRows = buildSectionRows(files);
-    const chunkRows = buildChunkRows(files);
-    if (this.embeddingAi) {
-      await embedIndexRows(this.embeddingAi, chunkRows);
+    const chunkRows = copyExistingEmbeddingsToChunkRows(buildChunkRows(files), this.store.getChunks());
+    const { changedDocumentIds, removedDocumentIds } = diffManifestEntries(
+      previousManifestEntries,
+      buildIndexManifestEntriesFromRows(files, chunkRows),
+    );
+    const changedDocumentIdSet = new Set(changedDocumentIds);
+    if (this.embeddingAi && changedDocumentIdSet.size > 0) {
+      await embedIndexRows(this.embeddingAi, filterRowsByDocumentIds(chunkRows, changedDocumentIdSet, 'document_id'));
     }
     const manifestEntries = buildIndexManifestEntriesFromRows(files, chunkRows);
     const documentRows = buildDocumentRows(files, manifestEntries);
@@ -3147,20 +3331,25 @@ export class NodeRagService {
     if (databaseUrl && this.store instanceof PostgresRagStore) {
       await upsertRowsToPostgres({
         connectionString: databaseUrl,
-        documentRows,
-        documentVersionRows,
-        sectionRows,
-        chunkRows,
+        documentRows: filterRowsByDocumentIds(documentRows, changedDocumentIdSet, 'id'),
+        documentVersionRows: filterRowsByDocumentIds(documentVersionRows, changedDocumentIdSet, 'document_id'),
+        sectionRows: filterRowsByDocumentIds(sectionRows, changedDocumentIdSet, 'document_id'),
+        chunkRows: filterRowsByDocumentIds(chunkRows, changedDocumentIdSet, 'document_id'),
         compiledRows,
         ontologyEntityRows: ontologyRows.entityRows,
         ontologyAliasRows: ontologyRows.aliasRows,
         ontologyEdgeRows: ontologyRows.edgeRows,
         indexMetadataRow,
+        changedDocumentIds,
+        removedDocumentIds,
+        replaceCompiledRows: true,
+        replaceOntologyRows: true,
       });
     }
 
     this.runtimeCache.clear();
     this.queryEmbeddingCache.clear();
+    this.diskStateCache = null;
     this.initialized = false;
     await this.initialize();
   }
@@ -3315,15 +3504,26 @@ export class NodeRagService {
     };
   }
 
-  private loadDiskKnowledgeState(): { files: KnowledgeFile[]; manifestEntries: IndexManifestEntry[]; issues: KnowledgeDoctorIssue[] } {
+  private loadDiskKnowledgeState(): Omit<DiskKnowledgeState, 'fingerprint'> {
+    const fingerprint = sha1(
+      collectKnowledgeStats(this.projectRoot)
+        .map((entry) => `${entry.name}:${entry.size}:${entry.updatedAt}`)
+        .join('\n'),
+    );
+    if (this.diskStateCache?.fingerprint === fingerprint) {
+      return this.diskStateCache;
+    }
+
     const corpora = loadKnowledgeCorporaFromDisk(this.projectRoot);
     const files = mergeCorpora(corpora.integrated, corpora.evaluation);
     const chunks = buildStructuredChunks(files);
-    return {
+    this.diskStateCache = {
+      fingerprint,
       files,
       manifestEntries: buildKnowledgeManifest(files, chunks),
       issues: buildKnowledgeDoctorIssues(files, chunks),
     };
+    return this.diskStateCache;
   }
 
   private getAllSearchChunks(): StructuredChunk[] {
@@ -3621,13 +3821,13 @@ export class NodeRagService {
     return buildWorkflowBriefs(this.brain, pages, chunks);
   }
 
-  private executeSearch(
+  private async executeSearch(
     mode: PromptMode,
     normalizedQuery: string,
     queryEmbedding: number[] | null,
     aliases: string[],
     options?: SearchPlanningOptions,
-  ): SearchExecutionResult {
+  ): Promise<SearchExecutionResult> {
     const combinedAliases = uniqueNonEmptyLines([...(options?.extraAliases ?? []), ...aliases]);
     const searchQuery = uniqueNonEmptyLines([normalizedQuery, ...combinedAliases]).join('\n');
     const sectionRoutingEnabled = options?.profile?.retrieval.sectionRouting ?? false;
@@ -3652,19 +3852,19 @@ export class NodeRagService {
         options?.additionalDocumentScoreBoosts ?? new Map<string, number>(),
       );
       const initialSearch = applySectionRoutingBoost(
-        this.store.search(
-        searchQuery,
-        mode,
-        queryEmbedding,
-        combinedAliases,
-        {
-          documentScoreBoosts: baseDocumentScoreBoosts,
-          chunkScoreBoosts: options?.additionalChunkScoreBoosts,
-          lawRefs: options?.queryProfile?.parsedLawRefs,
-          queryType: options?.queryProfile?.queryType,
-          semanticFrame: options?.queryProfile?.semanticFrame,
-        },
-      ),
+        await this.store.search(
+          searchQuery,
+          mode,
+          queryEmbedding,
+          combinedAliases,
+          {
+            documentScoreBoosts: baseDocumentScoreBoosts,
+            chunkScoreBoosts: options?.additionalChunkScoreBoosts,
+            lawRefs: options?.queryProfile?.parsedLawRefs,
+            queryType: options?.queryProfile?.queryType,
+            semanticFrame: options?.queryProfile?.semanticFrame,
+          },
+        ),
         sectionRoutingEnabled,
       );
       const ontologyResult =
@@ -3717,7 +3917,7 @@ export class NodeRagService {
       ]).join('\n');
 
       const rerankedSearch = applyGroundingGate(applySectionRoutingBoost(
-        this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
+        await this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
           documentScoreBoosts,
           chunkScoreBoosts: options?.additionalChunkScoreBoosts,
           excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
@@ -3727,18 +3927,17 @@ export class NodeRagService {
         }),
         sectionRoutingEnabled,
       ));
+      const promotedPrimarySearch = await this.store.search(expansionQuery, mode, queryEmbedding, expansionAliases, {
+        allowedDocumentIds: primaryExpansionDocumentIds,
+        documentScoreBoosts,
+        chunkScoreBoosts: options?.additionalChunkScoreBoosts,
+        excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+        lawRefs: options?.queryProfile?.parsedLawRefs,
+        queryType: options?.queryProfile?.queryType,
+        semanticFrame: options?.queryProfile?.semanticFrame,
+      });
       const promotedPrimaryCandidates = uniqueDocumentCandidates(
-        this.store
-          .search(expansionQuery, mode, queryEmbedding, expansionAliases, {
-            allowedDocumentIds: primaryExpansionDocumentIds,
-            documentScoreBoosts,
-            chunkScoreBoosts: options?.additionalChunkScoreBoosts,
-            excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
-            lawRefs: options?.queryProfile?.parsedLawRefs,
-            queryType: options?.queryProfile?.queryType,
-            semanticFrame: options?.queryProfile?.semanticFrame,
-          })
-          .fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
+        promotedPrimarySearch.fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
         4,
       );
 
@@ -3771,7 +3970,7 @@ export class NodeRagService {
         .map((chunk) => chunk.documentId),
     );
 
-    const routingSearch = applySectionRoutingBoost(this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
+    const routingSearch = applySectionRoutingBoost(await this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
       allowedDocumentIds: evaluationDocumentIds,
       documentScoreBoosts: baseDocumentScoreBoosts,
       chunkScoreBoosts: options?.additionalChunkScoreBoosts,
@@ -3799,19 +3998,20 @@ export class NodeRagService {
         .filter((chunk) => chunk.mode === 'integrated' && chunk.sourceRole === 'support_reference')
         .map((chunk) => chunk.documentId),
     );
-    const directSupportDocumentIds =
+    const directSupportSearch =
       integratedSupportDocumentIds.size > 0
-        ? selectDirectSupportReferenceIds(
-            this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
-              allowedDocumentIds: integratedSupportDocumentIds,
-              documentScoreBoosts: baseDocumentScoreBoosts,
-              chunkScoreBoosts: options?.additionalChunkScoreBoosts,
-              lawRefs: options?.queryProfile?.parsedLawRefs,
-              queryType: options?.queryProfile?.queryType,
-              semanticFrame: options?.queryProfile?.semanticFrame,
-            }),
-          )
-        : new Set<string>();
+        ? await this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
+            allowedDocumentIds: integratedSupportDocumentIds,
+            documentScoreBoosts: baseDocumentScoreBoosts,
+            chunkScoreBoosts: options?.additionalChunkScoreBoosts,
+            lawRefs: options?.queryProfile?.parsedLawRefs,
+            queryType: options?.queryProfile?.queryType,
+            semanticFrame: options?.queryProfile?.semanticFrame,
+          })
+        : null;
+    const directSupportDocumentIds = directSupportSearch
+      ? selectDirectSupportReferenceIds(directSupportSearch)
+      : new Set<string>();
 
     const allowedDocumentIds = new Set<string>([
       ...evaluationDocumentIds,
@@ -3846,7 +4046,7 @@ export class NodeRagService {
     ]).join('\n');
 
     const baseSearch = applyGroundingGate(applySectionRoutingBoost(
-      this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
+      await this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
         allowedDocumentIds,
         documentScoreBoosts,
         chunkScoreBoosts: options?.additionalChunkScoreBoosts,
@@ -3860,8 +4060,8 @@ export class NodeRagService {
     const promotedPrimaryCandidates =
       primaryExpansionDocumentIds.size > 0
         ? uniqueDocumentCandidates(
-            this.store
-              .search(expansionQuery, mode, queryEmbedding, expansionAliases, {
+            (
+              await this.store.search(expansionQuery, mode, queryEmbedding, expansionAliases, {
                 allowedDocumentIds: primaryExpansionDocumentIds,
                 documentScoreBoosts,
                 chunkScoreBoosts: options?.additionalChunkScoreBoosts,
@@ -3870,7 +4070,7 @@ export class NodeRagService {
                 queryType: options?.queryProfile?.queryType,
                 semanticFrame: options?.queryProfile?.semanticFrame,
               })
-              .fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
+            ).fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
             4,
           )
         : [];
@@ -4120,7 +4320,7 @@ export class NodeRagService {
     const workflowAliasHints = workflowBriefs.flatMap((brief) => [brief.label, brief.summary]);
     let selectedRetrievalMode: RetrievalMode = profile.preferredRetrievalMode;
     const retrievalStartedAt = Date.now();
-    let { search, scope, ontologyHits, graphExpansionTrace, sectionRouting } = this.executeSearch(
+    let { search, scope, ontologyHits, graphExpansionTrace, sectionRouting } = await this.executeSearch(
       mode,
       normalized.normalizedQuery,
       queryEmbedding,
@@ -4152,12 +4352,16 @@ export class NodeRagService {
       for (const subquestion of refined) {
         const refinedAliases = uniqueNonEmptyLines([...aliases, subquestion]);
         const refinedEmbedding = await this.getQueryEmbedding([subquestion, ...refinedAliases].join('\n'));
-        const refinedSearch = this.executeSearch(mode, subquestion, refinedEmbedding, refinedAliases, {
+        const refinedQueryProfile = enrichQueryProfileWithServiceScopeLabels(
+          buildNaturalQueryProfile(subquestion),
+          serviceScopeLabels,
+        );
+        const refinedSearch = await this.executeSearch(mode, subquestion, refinedEmbedding, refinedAliases, {
           profile: runtimeProfile,
           additionalDocumentScoreBoosts: workflowBoosts,
           additionalChunkScoreBoosts: serviceScopeChunkBoosts,
           extraAliases: workflowAliasHints,
-          queryProfile: enrichQueryProfileWithServiceScopeLabels(buildNaturalQueryProfile(subquestion), serviceScopeLabels),
+          queryProfile: refinedQueryProfile,
         });
 
         refinedSearch.search.evidence.forEach((item) => {
@@ -4254,13 +4458,33 @@ export class NodeRagService {
         evidence,
       }),
     });
-    if (retrievalValidation.validationIssues.some((issue) => issue.severity === 'block')) {
+    const evidenceHaystack = evidence
+      .map((chunk) => `${chunk.docTitle} ${chunk.parentSectionTitle} ${chunk.searchText}`.toLowerCase())
+      .join('\n');
+    const missingEvidenceFocusTerms = (search.focusTerms ?? []).filter(
+      (term) => !isGenericQueryTerm(term) && !evidenceHaystack.includes(term.toLowerCase()),
+    );
+    const insufficientCompositionCount = retrievalValidation.validationIssues.filter(
+      (issue) => issue.code === 'insufficient-evidence-composition',
+    ).length;
+    const hasBlockingValidation = retrievalValidation.validationIssues.some((issue) => issue.severity === 'block');
+    const hasBasisConfusion = retrievalValidation.validationIssues.some((issue) => issue.code === 'basis-confusion');
+    const hasUnsupportedPrimaryClaim = retrievalValidation.validationIssues.some((issue) => issue.code === 'unsupported-claim');
+    const shouldForceAbstainConfidence =
+      hasBlockingValidation ||
+      hasBasisConfusion ||
+      (insufficientCompositionCount >= 2 && missingEvidenceFocusTerms.length > 0) ||
+      (hasUnsupportedPrimaryClaim && missingEvidenceFocusTerms.length >= 2);
+
+    if (shouldForceAbstainConfidence) {
+      const mismatchSignals = new Set([...(search.mismatchSignals ?? []), 'semantic-validation-failed']);
+      if (missingEvidenceFocusTerms.length > 0) {
+        mismatchSignals.add('focus-terms-missing-in-evidence');
+      }
       search = {
         ...search,
         confidence: 'low',
-        mismatchSignals: Array.from(
-          new Set([...(search.mismatchSignals ?? []), 'semantic-validation-failed']),
-        ),
+        mismatchSignals: Array.from(mismatchSignals),
         groundingGatePassed: false,
       };
     }
@@ -4912,6 +5136,7 @@ export async function loadKnowledgeFilesForIndex(projectRoot: string): Promise<K
 }
 
 export async function embedIndexRows(ai: GoogleGenAI, rows: Array<Record<string, unknown>>): Promise<void> {
+  const rowsById = new Map(rows.map((row) => [String(row.id), row] as const));
   const chunkLike = rows.map((row) => ({
     id: String(row.id),
     searchText: String(row.search_text),
@@ -4940,7 +5165,7 @@ export async function embedIndexRows(ai: GoogleGenAI, rows: Array<Record<string,
       );
       responses.forEach((response, responseIndex) => {
         const embedding = prepareEmbedding(response.embeddings[0]?.values);
-        const row = rows.find((item) => item.id === batch[responseIndex].id);
+        const row = rowsById.get(batch[responseIndex].id);
         if (row) row.embedding = embedding;
       });
     } catch (error) {
@@ -4972,6 +5197,36 @@ export function buildCompiledRows(files: KnowledgeFile[]): Array<Record<string, 
   }));
 }
 
+async function insertRowsInBatches(params: {
+  client: PoolClient;
+  table: string;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+  mapRow: (row: Record<string, unknown>) => unknown[];
+  batchSize?: number;
+}): Promise<void> {
+  const batchSize = Math.max(1, params.batchSize ?? 25);
+  for (let index = 0; index < params.rows.length; index += batchSize) {
+    const batch = params.rows.slice(index, index + batchSize);
+    if (batch.length === 0) continue;
+
+    const values: unknown[] = [];
+    const placeholders = batch.map((row) => {
+      const rowValues = params.mapRow(row);
+      const rowPlaceholders = rowValues.map((value) => {
+        values.push(value);
+        return `$${values.length}`;
+      });
+      return `(${rowPlaceholders.join(',')})`;
+    });
+
+    await params.client.query(
+      `insert into ${params.table} (${params.columns.join(',')}) values ${placeholders.join(',')}`,
+      values,
+    );
+  }
+}
+
 export async function upsertRowsToPostgres(params: {
   connectionString: string;
   documentRows: Array<Record<string, unknown>>;
@@ -4983,193 +5238,175 @@ export async function upsertRowsToPostgres(params: {
   ontologyAliasRows?: Array<Record<string, unknown>>;
   ontologyEdgeRows?: Array<Record<string, unknown>>;
   indexMetadataRow: Record<string, unknown>;
+  changedDocumentIds?: string[];
+  removedDocumentIds?: string[];
+  replaceCompiledRows?: boolean;
+  replaceOntologyRows?: boolean;
 }): Promise<void> {
   const pool = new Pool({ connectionString: params.connectionString });
   const client = await pool.connect();
   try {
     const pg = <T>(value: T): T => sanitizePostgresValue(value);
+    const staleDocumentIds = Array.from(
+      new Set([...(params.changedDocumentIds ?? []), ...(params.removedDocumentIds ?? [])]),
+    );
 
     await ensurePostgresSchema(client);
     await client.query('begin');
-    await client.query('delete from rag_index_metadata');
-    await client.query('delete from sections');
-    await client.query('delete from document_versions');
-    await client.query('delete from chunks');
-    await client.query('delete from compiled_pages');
-    await client.query('delete from ontology_aliases');
-    await client.query('delete from ontology_edges');
-    await client.query('delete from ontology_entities');
-    await client.query('delete from documents');
-
-    for (const row of params.documentRows) {
-      await client.query(
-        `
-        insert into documents (
-          id,
-          title,
-          file_name,
-          path,
-          mode,
-          source_role,
-          source_type,
-          document_group,
-          effective_date,
-          published_date,
-          content_hash,
-          file_size,
-          source_mtime,
-          chunk_count,
-          embedding_count
-        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-        `,
-        [
-          pg(row.id),
-          pg(row.title),
-          pg(row.file_name),
-          pg(row.path),
-          pg(row.mode),
-          pg(row.source_role),
-          pg(row.source_type),
-          pg(row.document_group),
-          row.effective_date,
-          row.published_date,
-          pg(row.content_hash),
-          row.file_size,
-          row.source_mtime,
-          row.chunk_count,
-          row.embedding_count,
-        ],
-      );
+    if (staleDocumentIds.length > 0) {
+      await client.query('delete from documents where id = any($1::text[])', [staleDocumentIds]);
+    }
+    if (params.replaceCompiledRows) {
+      await client.query('delete from compiled_pages');
+    }
+    if (params.replaceOntologyRows) {
+      await client.query('delete from ontology_entities');
     }
 
-    for (const row of params.documentVersionRows) {
-      await client.query(
-        `
-        insert into document_versions (
-          id,
-          document_id,
-          version_hash,
-          raw_content
-        ) values ($1,$2,$3,$4)
-        `,
-        [pg(row.id), pg(row.document_id), pg(row.version_hash), pg(row.raw_content)],
-      );
-    }
+    await insertRowsInBatches({
+      client,
+      table: 'documents',
+      columns: [
+        'id',
+        'title',
+        'file_name',
+        'path',
+        'mode',
+        'source_role',
+        'source_type',
+        'document_group',
+        'effective_date',
+        'published_date',
+        'content_hash',
+        'file_size',
+        'source_mtime',
+        'chunk_count',
+        'embedding_count',
+      ],
+      rows: params.documentRows,
+      batchSize: 20,
+      mapRow: (row) => [
+        pg(row.id),
+        pg(row.title),
+        pg(row.file_name),
+        pg(row.path),
+        pg(row.mode),
+        pg(row.source_role),
+        pg(row.source_type),
+        pg(row.document_group),
+        row.effective_date,
+        row.published_date,
+        pg(row.content_hash),
+        row.file_size,
+        row.source_mtime,
+        row.chunk_count,
+        row.embedding_count,
+      ],
+    });
 
-    for (const row of params.sectionRows) {
-      await client.query(
-        `
-        insert into sections (
-          id,
-          document_id,
-          title,
-          depth,
-          section_path,
-          article_no,
-          line_start,
-          line_end,
-          content
-        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-        `,
-        [
-          pg(row.id),
-          pg(row.document_id),
-          pg(row.title),
-          row.depth,
-          JSON.stringify(pg(row.section_path)),
-          pg(row.article_no),
-          row.line_start,
-          row.line_end,
-          pg(row.content),
-        ],
-      );
-    }
+    await insertRowsInBatches({
+      client,
+      table: 'document_versions',
+      columns: ['id', 'document_id', 'version_hash', 'raw_content'],
+      rows: params.documentVersionRows,
+      batchSize: 10,
+      mapRow: (row) => [pg(row.id), pg(row.document_id), pg(row.version_hash), pg(row.raw_content)],
+    });
 
-    for (const row of params.chunkRows) {
-      await client.query(
-        `
-        insert into chunks (
-          id,
-          document_id,
-          chunk_index,
-          title,
-          text,
-          search_text,
-          mode,
-          source_type,
-          source_role,
-          document_group,
-          doc_title,
-          file_name,
-          path,
-          effective_date,
-          published_date,
-          section_path,
-          article_no,
-          matched_labels,
-          linked_document_titles,
-          chunk_hash,
-          parent_section_id,
-          parent_section_title,
-          window_index,
-          span_start,
-          span_end,
-          citation_group_id,
-          embedding
-        ) values (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27
-        )
-        `,
-        [
-          pg(row.id),
-          pg(row.document_id),
-          row.chunk_index,
-          pg(row.title),
-          pg(row.text),
-          pg(row.search_text),
-          pg(row.mode),
-          pg(row.source_type),
-          pg(row.source_role),
-          pg(row.document_group),
-          pg(row.doc_title),
-          pg(row.file_name),
-          pg(row.path),
-          row.effective_date,
-          row.published_date,
-          JSON.stringify(pg(row.section_path)),
-          pg(row.article_no),
-          JSON.stringify(pg(row.matched_labels)),
-          JSON.stringify(pg(row.linked_document_titles)),
-          pg(row.chunk_hash),
-          pg(row.parent_section_id),
-          pg(row.parent_section_title),
-          row.window_index,
-          row.span_start,
-          row.span_end,
-          pg(row.citation_group_id),
-          Array.isArray(row.embedding) && (row.embedding as number[]).length === EMBEDDING_DIMENSIONS
-            ? `[${(row.embedding as number[]).join(',')}]`
-            : null,
-        ],
-      );
-    }
+    await insertRowsInBatches({
+      client,
+      table: 'sections',
+      columns: ['id', 'document_id', 'title', 'depth', 'section_path', 'article_no', 'line_start', 'line_end', 'content'],
+      rows: params.sectionRows,
+      batchSize: 20,
+      mapRow: (row) => [
+        pg(row.id),
+        pg(row.document_id),
+        pg(row.title),
+        row.depth,
+        JSON.stringify(pg(row.section_path)),
+        pg(row.article_no),
+        row.line_start,
+        row.line_end,
+        pg(row.content),
+      ],
+    });
 
-    for (const row of params.compiledRows) {
-      await client.query(
-        `
-        insert into compiled_pages (
-          id,
-          page_type,
-          title,
-          mode,
-          source_document_ids,
-          backlinks,
-          summary,
-          body,
-          tags
-        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-        `,
-        [
+    await insertRowsInBatches({
+      client,
+      table: 'chunks',
+      columns: [
+        'id',
+        'document_id',
+        'chunk_index',
+        'title',
+        'text',
+        'search_text',
+        'mode',
+        'source_type',
+        'source_role',
+        'document_group',
+        'doc_title',
+        'file_name',
+        'path',
+        'effective_date',
+        'published_date',
+        'section_path',
+        'article_no',
+        'matched_labels',
+        'linked_document_titles',
+        'chunk_hash',
+        'parent_section_id',
+        'parent_section_title',
+        'window_index',
+        'span_start',
+        'span_end',
+        'citation_group_id',
+        'embedding',
+      ],
+      rows: params.chunkRows,
+      batchSize: 10,
+      mapRow: (row) => [
+        pg(row.id),
+        pg(row.document_id),
+        row.chunk_index,
+        pg(row.title),
+        pg(row.text),
+        pg(row.search_text),
+        pg(row.mode),
+        pg(row.source_type),
+        pg(row.source_role),
+        pg(row.document_group),
+        pg(row.doc_title),
+        pg(row.file_name),
+        pg(row.path),
+        row.effective_date,
+        row.published_date,
+        JSON.stringify(pg(row.section_path)),
+        pg(row.article_no),
+        JSON.stringify(pg(row.matched_labels)),
+        JSON.stringify(pg(row.linked_document_titles)),
+        pg(row.chunk_hash),
+        pg(row.parent_section_id),
+        pg(row.parent_section_title),
+        row.window_index,
+        row.span_start,
+        row.span_end,
+        pg(row.citation_group_id),
+        Array.isArray(row.embedding) && (row.embedding as number[]).length === EMBEDDING_DIMENSIONS
+          ? `[${(row.embedding as number[]).join(',')}]`
+          : null,
+      ],
+    });
+
+    if (params.replaceCompiledRows) {
+      await insertRowsInBatches({
+        client,
+        table: 'compiled_pages',
+        columns: ['id', 'page_type', 'title', 'mode', 'source_document_ids', 'backlinks', 'summary', 'body', 'tags'],
+        rows: params.compiledRows,
+        batchSize: 20,
+        mapRow: (row) => [
           pg(row.id),
           pg(row.page_type),
           pg(row.title),
@@ -5180,51 +5417,33 @@ export async function upsertRowsToPostgres(params: {
           pg(row.body),
           JSON.stringify(pg(row.tags)),
         ],
-      );
+      });
     }
 
-    for (const row of params.ontologyEntityRows ?? []) {
-      await client.query(
-        `
-        insert into ontology_entities (
-          id,
-          entity_type,
-          label,
-          metadata
-        ) values ($1,$2,$3,$4)
-        `,
-        [pg(row.id), pg(row.entity_type), pg(row.label), JSON.stringify(pg(row.metadata ?? {}))],
-      );
-    }
-
-    for (const row of params.ontologyAliasRows ?? []) {
-      await client.query(
-        `
-        insert into ontology_aliases (
-          id,
-          entity_id,
-          alias,
-          alias_type,
-          weight
-        ) values ($1,$2,$3,$4,$5)
-        `,
-        [pg(row.id), pg(row.entity_id), pg(row.alias), pg(row.alias_type), row.weight],
-      );
-    }
-
-    for (const row of params.ontologyEdgeRows ?? []) {
-      await client.query(
-        `
-        insert into ontology_edges (
-          id,
-          from_entity_id,
-          to_entity_id,
-          relation,
-          weight,
-          metadata
-        ) values ($1,$2,$3,$4,$5,$6)
-        `,
-        [
+    if (params.replaceOntologyRows) {
+      await insertRowsInBatches({
+        client,
+        table: 'ontology_entities',
+        columns: ['id', 'entity_type', 'label', 'metadata'],
+        rows: params.ontologyEntityRows ?? [],
+        batchSize: 50,
+        mapRow: (row) => [pg(row.id), pg(row.entity_type), pg(row.label), JSON.stringify(pg(row.metadata ?? {}))],
+      });
+      await insertRowsInBatches({
+        client,
+        table: 'ontology_aliases',
+        columns: ['id', 'entity_id', 'alias', 'alias_type', 'weight'],
+        rows: params.ontologyAliasRows ?? [],
+        batchSize: 50,
+        mapRow: (row) => [pg(row.id), pg(row.entity_id), pg(row.alias), pg(row.alias_type), row.weight],
+      });
+      await insertRowsInBatches({
+        client,
+        table: 'ontology_edges',
+        columns: ['id', 'from_entity_id', 'to_entity_id', 'relation', 'weight', 'metadata'],
+        rows: params.ontologyEdgeRows ?? [],
+        batchSize: 50,
+        mapRow: (row) => [
           pg(row.id),
           pg(row.from_entity_id),
           pg(row.to_entity_id),
@@ -5232,7 +5451,7 @@ export async function upsertRowsToPostgres(params: {
           row.weight,
           JSON.stringify(pg(row.metadata ?? {})),
         ],
-      );
+      });
     }
 
     await client.query(
@@ -5247,6 +5466,14 @@ export async function upsertRowsToPostgres(params: {
           embedding_count,
           mode_counts
         ) values ($1,$2,$3,$4,$5,$6,$7,$8)
+        on conflict (id) do update set
+          generated_at = excluded.generated_at,
+          storage_mode = excluded.storage_mode,
+          manifest_hash = excluded.manifest_hash,
+          document_count = excluded.document_count,
+          chunk_count = excluded.chunk_count,
+          embedding_count = excluded.embedding_count,
+          mode_counts = excluded.mode_counts
       `,
       [
         pg(params.indexMetadataRow.id),

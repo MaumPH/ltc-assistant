@@ -117,7 +117,7 @@ const CATEGORY_DOT_STYLES: Record<Category, string> = {
   시행령: 'bg-blue-500',
   시행규칙: 'bg-cyan-500',
   고시: 'bg-emerald-500',
-  '별표·별지': 'bg-amber-500',
+  '별표·부표': 'bg-amber-500',
   '평가·매뉴얼': 'bg-violet-500',
   참고자료: 'bg-slate-400',
 };

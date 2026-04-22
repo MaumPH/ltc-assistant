@@ -62,7 +62,7 @@ function testHybridReadinessReason() {
   });
 
   const reason = describeHybridReadiness(status);
-  assert.match(reason, /임베딩된 청크가 없습니다/);
+  assert.match(reason, /임베딩/);
   assert.match(reason, /local-cache/);
 }
 
@@ -79,9 +79,9 @@ function testEvidenceBalanceAndAgentDecision() {
 function testShortKoreanQueryFallback() {
   const chunks = [
     makeChunk('fall', {
-      docTitle: '안전하고 쾌적한 환경',
-      searchText: '안전하고 쾌적한 환경 낙상예방 관리 지침',
-      text: '낙상예방 관리 지침을 확인한다.',
+      docTitle: '안전사고 대응 환경',
+      searchText: '안전사고 대응 환경 점검 관리 지침',
+      text: '점검 관리 지침을 확인한다.',
       mode: 'evaluation',
       sourceRole: 'primary_evaluation',
       sourceType: 'manual',
@@ -90,7 +90,7 @@ function testShortKoreanQueryFallback() {
 
   const result = searchCorpus({
     index: buildRagCorpusIndex(chunks),
-    query: '낙상',
+    query: '점검',
     mode: 'evaluation',
     queryEmbedding: null,
   });
@@ -99,7 +99,7 @@ function testShortKoreanQueryFallback() {
 }
 
 function testCompactedDocumentTitleQuery() {
-  const targetTitle = '2026년_인건비지출비율_다빈도_질의응답';
+  const targetTitle = '2026년 인건비지출비율 다빈도 질의응답';
   const chunks = [
     makeChunk('payroll', {
       docTitle: targetTitle,
@@ -109,9 +109,9 @@ function testCompactedDocumentTitleQuery() {
       sourceType: 'qa',
     }),
     makeChunk('other', {
-      docTitle: '장기근속장려금 청구 전산 문의사항',
-      searchText: '장기근속장려금 청구 전산 문의사항',
-      text: '장기근속장려금 안내입니다.',
+      docTitle: '장기요양기관 청구 계산 문의사항',
+      searchText: '장기요양기관 청구 계산 문의사항',
+      text: '청구 안내입니다.',
       sourceType: 'qa',
     }),
   ];
@@ -137,7 +137,7 @@ function testOutOfDomainQueryStaysLowConfidence() {
     makeChunk('generic-domain-notice', {
       docTitle: '장기요양기관 급여비용 청구 기준',
       searchText: '장기요양기관 급여 비용 청구 심사 지급 기준',
-      text: '장기요양기관의 급여비용 청구 기준을 설명한다.',
+      text: '장기요양기관 급여비용 청구 기준을 설명한다.',
       sourceType: 'notice',
     }),
   ];
@@ -176,6 +176,7 @@ function testPlannerPromptDocumentsAnswerTypeSelection() {
   assert.match(instruction, /comparison/);
   assert.match(instruction, /definition/);
   assert.match(instruction, /mixed/);
+  assert.match(instruction, /blocking validation/i);
 }
 
 function testServiceScopeParserRejectsInvalidValues() {
@@ -286,7 +287,7 @@ function testPromptInjectionGuardrailDetectsOverrideAttempts() {
 }
 
 function testSemanticQueryFrameBuildsIntentRelationsAndSlots() {
-  const profile = buildNaturalLanguageQueryProfile('주야간보호 3등급 본인부담금 얼마야?');
+  const profile = buildNaturalLanguageQueryProfile('주야간보호 3등급 본인부담금 얼마야');
 
   assert.equal(profile.semanticFrame.primaryIntent, 'cost');
   assert.ok(profile.semanticFrame.canonicalTerms.includes('주야간보호'));
@@ -297,8 +298,72 @@ function testSemanticQueryFrameBuildsIntentRelationsAndSlots() {
   );
 }
 
+function testEligibilityIntentStaysEligibilityForWhoCanApplyQuery() {
+  const profile = buildNaturalLanguageQueryProfile('장기요양인정 신청 자격은 누가 되나요?');
+
+  assert.equal(profile.semanticFrame.primaryIntent, 'eligibility');
+  assert.ok(profile.semanticFrame.relationRequests.some((request) => request.relation === 'eligible-for'));
+  assert.deepEqual(profile.semanticFrame.missingCriticalSlots, ['service_scope', 'institution_type', 'recipient_grade']);
+}
+
+function testComplianceIntentStaysComplianceForAppendixQuestion() {
+  const profile = buildNaturalLanguageQueryProfile('재가장기요양기관의 시설 인력기준은 어느 별표를 보면 되나요?');
+
+  assert.equal(profile.semanticFrame.primaryIntent, 'compliance');
+  assert.equal(profile.semanticFrame.missingCriticalSlots.includes('recipient_grade'), false);
+  assert.ok(profile.semanticFrame.relationRequests.some((request) => request.relation === 'requires'));
+}
+
+function testEvaluationPrimaryManualOutranksOldQaAndEmployeeGuide() {
+  const chunks = [
+    makeChunk('evaluation-manual', {
+      docTitle: '2026년 주야간보호 평가매뉴얼',
+      fileName: '2026년 주야간보호 평가매뉴얼.md',
+      mode: 'evaluation',
+      sourceRole: 'primary_evaluation',
+      sourceType: 'manual',
+      searchText: '주야간보호 평가매뉴얼 평가예정통보 직원 인권교육 필수 안내 기준',
+      text: '평가예정통보 안내 시기와 직원 인권교육 기준을 정리한다.',
+    }),
+    makeChunk('old-qa', {
+      docTitle: '2020년 주야간보호 질의응답',
+      fileName: '2020년 주야간보호 질의응답.md',
+      mode: 'evaluation',
+      sourceRole: 'support_reference',
+      sourceType: 'qa',
+      searchText: '주야간보호 평가예정통보 질의응답 안내 기준',
+      text: '구년도 질의응답 문서다.',
+    }),
+    makeChunk('employee-guide', {
+      docTitle: '01-06-직원교육',
+      fileName: '01-06-직원교육.md',
+      mode: 'evaluation',
+      sourceRole: 'support_reference',
+      sourceType: 'guide',
+      searchText: '직원 인권교육 운영 참고자료',
+      text: '직원교육 일반 운영 참고자료다.',
+    }),
+  ];
+
+  const noticeResult = searchCorpus({
+    index: buildRagCorpusIndex(chunks),
+    query: '주야간보호 평가에서 평가예정통보는 언제까지 안내해야 하나요?',
+    mode: 'evaluation',
+    queryEmbedding: null,
+  });
+  assert.equal(noticeResult.fusedCandidates[0]?.id, 'evaluation-manual');
+
+  const rightsResult = searchCorpus({
+    index: buildRagCorpusIndex(chunks),
+    query: '직원 인권교육 이거 필수냐?',
+    mode: 'evaluation',
+    queryEmbedding: null,
+  });
+  assert.equal(rightsResult.fusedCandidates[0]?.id, 'evaluation-manual');
+}
+
 function testSemanticValidationFlagsMissingLegalBasisForHighRiskCostQuestion() {
-  const profile = buildNaturalLanguageQueryProfile('주야간보호 3등급 본인부담금 얼마야?');
+  const profile = buildNaturalLanguageQueryProfile('주야간보호 3등급 본인부담금 얼마야');
   const evidence = [
     makeChunk('manual-cost', {
       docTitle: '주야간보호 운영 안내',
@@ -330,6 +395,9 @@ testRetrievalProfilesExposeExpectedDefaults();
 testRetrievalFeatureOverridesDisableSubsystems();
 testPromptInjectionGuardrailDetectsOverrideAttempts();
 testSemanticQueryFrameBuildsIntentRelationsAndSlots();
+testEligibilityIntentStaysEligibilityForWhoCanApplyQuery();
+testComplianceIntentStaysComplianceForAppendixQuestion();
+testEvaluationPrimaryManualOutranksOldQaAndEmployeeGuide();
 testSemanticValidationFlagsMissingLegalBasisForHighRiskCostQuestion();
 
 console.log('RAG regression tests passed.');

@@ -16,6 +16,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
+import { fetchKnowledgeFile, fetchKnowledgeList, type KnowledgeListItem } from '../lib/knowledge';
 import {
   buildJudgementSummary,
   getEvaluationSectionClassName,
@@ -25,10 +26,6 @@ import {
   type WikiPage,
   type WikiSection,
 } from '../lib/evaluationWiki';
-
-const evalWikiModules = {
-  ...import.meta.glob('/knowledge/evaluation/*.md', { query: '?raw', import: 'default', eager: true }),
-};
 
 interface AreaTheme {
   color: string;
@@ -50,6 +47,15 @@ const AREA_THEMES: AreaTheme[] = [
   { color: '#d97706', bg: '#fffbeb', border: '#fde68a' },
   { color: '#64748b', bg: '#f8fafc', border: '#e2e8f0' },
 ];
+
+function parseKnowledgePage(item: KnowledgeListItem, raw: string): WikiPage {
+  const parsed = parseEvaluationPage(item.name, raw);
+  return {
+    ...parsed,
+    slug: item.name.replace(/\.(md|txt)$/i, ''),
+    updated: parsed.updated || item.updatedAt || '',
+  };
+}
 
 const SECTION_META: Record<string, { icon: LucideIcon; label?: string }> = {
   '충족/미충족 기준': { icon: CheckCircle2 },
@@ -86,19 +92,41 @@ function getSectionIcon(title: string) {
 }
 
 export default function EvaluationWiki() {
+  const [pages, setPages] = useState<WikiPage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [activeArea, setActiveArea] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [isMobileIndexOpen, setIsMobileIndexOpen] = useState(false);
   const deferredSearch = useDeferredValue(search);
 
-  const pages = useMemo<WikiPage[]>(() => {
-    return Object.entries(evalWikiModules)
-      .map(([path, content]) => {
-        const fileName = path.split('/').pop() || path;
-        return parseEvaluationPage(fileName, content as string);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+
+    void (async () => {
+      const list = await fetchKnowledgeList(controller.signal);
+      const evaluationItems = list.filter((item) => item.source === 'eval');
+      const loadedPages = await Promise.all(
+        evaluationItems.map(async (item) => parseKnowledgePage(item, await fetchKnowledgeFile(item.path, controller.signal))),
+      );
+      if (controller.signal.aborted) return;
+      loadedPages.sort((a, b) => a.slug.localeCompare(b.slug, 'ko'));
+      setPages(loadedPages);
+    })()
+      .catch((loadError) => {
+        if (controller.signal.aborted) return;
+        setError(loadError instanceof Error ? loadError.message : '평가 문서를 불러오지 못했습니다.');
       })
-      .sort((a, b) => a.slug.localeCompare(b.slug, 'ko'));
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
+
+    return () => controller.abort();
   }, []);
 
   const areaGroups = useMemo<AreaGroup[]>(() => {
@@ -265,6 +293,30 @@ export default function EvaluationWiki() {
     </>
   );
 
+  if (loading) {
+    return (
+      <div className="flex flex-1 items-center justify-center bg-slate-50 p-8">
+        <div className="max-w-md text-center">
+          <FileText className="mx-auto mb-4 h-12 w-12 text-slate-300" />
+          <h2 className="mb-2 text-lg font-semibold text-slate-700">평가 문서를 불러오는 중입니다</h2>
+          <p className="text-sm leading-relaxed text-slate-500">지식 문서를 API로 불러와 평가 위키를 구성하고 있습니다.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-1 items-center justify-center bg-slate-50 p-8">
+        <div className="max-w-md text-center">
+          <FileText className="mx-auto mb-4 h-12 w-12 text-slate-300" />
+          <h2 className="mb-2 text-lg font-semibold text-slate-700">평가 문서를 불러오지 못했습니다</h2>
+          <p className="text-sm leading-relaxed text-slate-500">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
   if (pages.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center bg-slate-50 p-8">
@@ -273,7 +325,7 @@ export default function EvaluationWiki() {
           <h2 className="mb-2 text-lg font-semibold text-slate-700">평가 지침 파일이 없습니다</h2>
           <p className="text-sm leading-relaxed text-slate-500">
             <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">knowledge/evaluation/</code> 폴더에 문서를 추가하면
-            여기에 표시됩니다.
+            여기에서 바로 확인할 수 있습니다.
           </p>
         </div>
       </div>

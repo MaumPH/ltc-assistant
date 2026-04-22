@@ -363,19 +363,48 @@ function extractLexiconHits(query: string, lexiconEntries: LexiconEntry[]): Lexi
     .sort((left, right) => safeNumber(right.confidence, 0.75) - safeNumber(left.confidence, 0.75));
 }
 
+function looksLikeExplicitDocumentLookup(query: string): boolean {
+  return (
+    /((어느|어떤|해당|관련)\s*(문서|서류|자료|양식|서식))/u.test(query) ||
+    /((문서|서류|자료|양식|서식).*(찾|보여|알려|확인|다운로드|첨부))/u.test(query) ||
+    /((찾|보여|알려|확인).*(문서|서류|자료|양식|서식))/u.test(query)
+  );
+}
+
+function hasEligibilityCue(query: string): boolean {
+  return /누가|대상자?|자격|해당자|신청\s*자격|이용\s*대상|수급자|가능한\s*사람/u.test(query);
+}
+
+function hasComplianceCue(query: string): boolean {
+  return (
+    /기준|별표|인력기준|시설기준|배치기준|운영기준|필수|의무|언제까지|기한|통보|평가예정통보|안내해야/u.test(query) ||
+    /어느\s*별표/u.test(query)
+  );
+}
+
+function hasWorkflowCue(query: string): boolean {
+  return /작성|수립|절차|순서|진행|신고/u.test(query);
+}
+
 function inferNaturalLanguagePrimaryIntent(query: string, queryType: NaturalLanguageQueryType): SemanticPrimaryIntent {
+  const explicitDocumentLookup = looksLikeExplicitDocumentLookup(query);
+  const eligibilityCue = hasEligibilityCue(query);
+  const complianceCue = hasComplianceCue(query);
+
   if (/예외|감경|면제|제외|단서/u.test(query)) return 'exception';
   if (/본인부담|비용|금액|수가|본인부담금/u.test(query)) return 'cost';
   if (/제재|처분|위반|벌점/u.test(query)) return 'sanction';
-  if (/서류|문서|양식|서식|제출/u.test(query)) return 'document';
-  if (/작성|수립|절차|순서|진행|신청|신고|청구/u.test(query)) return 'workflow';
+  if (eligibilityCue) return 'eligibility';
+  if (complianceCue) return 'compliance';
+  if (explicitDocumentLookup) return 'document';
+  if (hasWorkflowCue(query)) return 'workflow';
   if (queryType === 'comparison') return 'comparison';
   if (queryType === 'definition') return 'definition';
   if (queryType === 'procedure' || queryType === 'checklist') return 'workflow';
   if (queryType === 'exemption') return 'exception';
   if (queryType === 'consequence') return 'sanction';
   if (queryType === 'scope') return 'cost';
-  if (queryType === 'requirement') return 'eligibility';
+  if (queryType === 'requirement') return eligibilityCue ? 'eligibility' : 'compliance';
   return 'compliance';
 }
 
@@ -603,8 +632,14 @@ function buildRelationRequests(
 }
 
 function buildCriticalSlotList(primaryIntent: SemanticPrimaryIntent): SemanticSlotKey[] {
-  if (primaryIntent === 'eligibility' || primaryIntent === 'compliance' || primaryIntent === 'cost') {
+  if (primaryIntent === 'eligibility') {
     return ['service_scope', 'institution_type', 'recipient_grade'];
+  }
+  if (primaryIntent === 'compliance') {
+    return ['service_scope', 'institution_type'];
+  }
+  if (primaryIntent === 'cost') {
+    return ['service_scope', 'recipient_grade'];
   }
   if (primaryIntent === 'document' || primaryIntent === 'workflow') {
     return ['service_scope', 'document_type'];

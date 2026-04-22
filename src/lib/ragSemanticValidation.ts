@@ -39,9 +39,19 @@ export interface RetrievalValidationSummary {
 const DEFAULT_RULES: ValidationRule[] = [
   {
     id: 'eligibility-core-evidence',
-    description: 'Eligibility and compliance questions need legal and practical support.',
-    primary_intents: ['eligibility', 'compliance'],
+    description: 'Eligibility questions need legal and practical support.',
+    primary_intents: ['eligibility'],
     required_slots: ['service_scope', 'institution_type', 'recipient_grade'],
+    required_evidence: {
+      legal: 1,
+      practical: 1,
+    },
+  },
+  {
+    id: 'compliance-core-evidence',
+    description: 'Compliance questions need legal support and a grounded operational basis.',
+    primary_intents: ['compliance'],
+    required_slots: ['service_scope', 'institution_type'],
     required_evidence: {
       legal: 1,
       practical: 1,
