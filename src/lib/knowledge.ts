@@ -1,4 +1,5 @@
 import type { KnowledgeListEntry } from './ragTypes';
+import { getApiUrl } from './apiUrl';
 import { CATEGORY_ORDER, categorizeKnowledgeFileName, type Category } from './knowledgeCategories';
 
 export { buildContext, searchKnowledge, chunksToContext, getAllChunks, type KnowledgeFile, type Chunk } from './ragCore';
@@ -56,7 +57,7 @@ export function mapKnowledgeEntry(entry: KnowledgeListEntry): KnowledgeListItem 
 }
 
 export async function fetchKnowledgeList(signal?: AbortSignal): Promise<KnowledgeListItem[]> {
-  const response = await fetch('/api/knowledge', { signal });
+  const response = await fetch(getApiUrl('/api/knowledge'), { signal });
   if (!response.ok) {
     throw new Error(`knowledge list request failed: ${response.status}`);
   }
@@ -66,7 +67,7 @@ export async function fetchKnowledgeList(signal?: AbortSignal): Promise<Knowledg
 }
 
 export async function fetchKnowledgeFile(filePath: string, signal?: AbortSignal): Promise<string> {
-  const response = await fetch(`/api/knowledge/file?path=${encodeURIComponent(filePath)}`, { signal });
+  const response = await fetch(getApiUrl(`/api/knowledge/file?path=${encodeURIComponent(filePath)}`), { signal });
   if (!response.ok) {
     throw new Error(`knowledge file request failed: ${response.status}`);
   }
