@@ -581,6 +581,7 @@ export interface ExpertAnswerEnvelope {
   answerType: ExpertAnswerType;
   headline: string;
   summary: string;
+  directAnswer?: string;
   confidence: ConfidenceLevel;
   evidenceState: EvidenceState;
   keyIssueDate?: string;
