@@ -37,3 +37,19 @@ test('day-night care food preference workflow questions keep workflow routing', 
   assert.equal(result.semanticFrame.primaryIntent, 'workflow');
   assert.equal(result.retrievalPriorityClass, 'evaluation_readiness');
 });
+
+test('day-night care food and satisfaction explanation prioritizes indicator evidence', async () => {
+  await service.initialize();
+
+  const result = await service.inspectRetrieval('기피식품과 수급자 만족도 조사 관련 설명해줘', 'evaluation', undefined, [
+    'day-night-care',
+  ]);
+  const evidencePaths = result.search.evidence.map((candidate) => candidate.path);
+
+  assert.equal(result.semanticFrame.primaryIntent, 'definition');
+  assert.ok(['medium', 'high'].includes(result.search.confidence), `expected medium+ confidence, got ${result.search.confidence}`);
+  assert.ok(
+    evidencePaths.some((filePath) => filePath.includes('/knowledge/evaluation/04-05-식사간식.md')),
+    `expected meal/snack indicator evidence, got ${evidencePaths.join(', ')}`,
+  );
+});

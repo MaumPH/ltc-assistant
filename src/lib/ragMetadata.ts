@@ -216,8 +216,9 @@ export function extractDateFromFileName(fileName: string): string | undefined {
   return undefined;
 }
 
-export function detectSourceType(fileName: string): SourceType {
+export function detectSourceType(fileName: string, filePath?: string): SourceType {
   const lowered = fileName.toLowerCase();
+  const normalizedPath = filePath ? toPosixPath(filePath) : '';
 
   if (lowered.includes('법(') || lowered.includes('법률')) return 'law';
   if (lowered.includes('시행령')) return 'ordinance';
@@ -233,7 +234,6 @@ export function detectSourceType(fileName: string): SourceType {
   ) {
     return 'qa';
   }
-  if (lowered.includes('매뉴얼') || lowered.includes('운영지침')) return 'manual';
   if (
     lowered.includes('안내') ||
     lowered.includes('바로알기') ||
@@ -243,6 +243,9 @@ export function detectSourceType(fileName: string): SourceType {
     return 'guide';
   }
   if (lowered.includes('index') || lowered.includes('정리본') || lowered.includes('위키')) return 'wiki';
+  if (normalizedPath.includes('/knowledge/evaluation/')) return 'evaluation';
+  if (normalizedPath.includes('/knowledge/eval/') && lowered.includes('평가매뉴얼')) return 'evaluation';
+  if (lowered.includes('매뉴얼') || lowered.includes('운영지침')) return 'manual';
   return 'other';
 }
 
@@ -276,6 +279,7 @@ export function inferDocumentGroup(fileName: string, sourceType: SourceType): st
   if (sourceType === 'comparison') return 'comparison';
   if (sourceType === 'wiki') return 'wiki';
   if (sourceType === 'guide') return 'guide';
+  if (sourceType === 'evaluation') return 'evaluation';
   if (fileName.toLowerCase().includes('평가')) return 'evaluation';
   return 'general';
 }
@@ -290,15 +294,15 @@ export function inferSourceRole(params: {
   const title = stripExtension(params.fileName);
 
   if (normalizedPath.includes('/knowledge/evaluation/')) {
-    return 'routing_summary';
+    return normalizedPath.endsWith('/index.md') ? 'routing_summary' : 'primary_evaluation';
   }
 
   if (normalizedPath.includes('/knowledge/eval/')) {
-    if (params.sourceType === 'manual' && /평가매뉴얼/.test(title)) {
+    if ((params.sourceType === 'evaluation' || params.sourceType === 'manual') && /평가매뉴얼/.test(title)) {
       return 'primary_evaluation';
     }
 
-    if (params.sourceType === 'manual' && /업무의 이해/.test(title)) {
+    if ((params.sourceType === 'evaluation' || params.sourceType === 'manual' || params.sourceType === 'other') && /업무의 이해/.test(title)) {
       return 'support_reference';
     }
 
@@ -323,7 +327,7 @@ export function inferSourceRole(params: {
 export function toDocumentMetadata(file: KnowledgeFile): DocumentMetadata {
   const normalizedPath = toPosixPath(file.path);
   const title = stripExtension(file.name);
-  const sourceType = detectSourceType(file.name);
+  const sourceType = detectSourceType(file.name, normalizedPath);
   const mode = detectModeFromPath(normalizedPath);
   return {
     documentId: sha1(`${normalizedPath}:${title}`),
