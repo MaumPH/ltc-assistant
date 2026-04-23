@@ -45,6 +45,9 @@ type ClarificationDimension =
   | 'workflow_stage'
   | 'target_subject';
 
+const ANSWER_PLAN_MODEL_TIMEOUT_MS = 20_000;
+const SYNTHESIS_MODEL_TIMEOUT_MS = 75_000;
+
 export interface ClarificationDecision {
   needsClarification: boolean;
   reason: string;
@@ -101,6 +104,17 @@ function sanitizeCitationIds(value: unknown, allowedIds: Set<string>, limit = 6)
   return uniqueStrings(
     value.map((item) => (typeof item === 'string' ? item : '')).filter((item) => allowedIds.has(item)),
   ).slice(0, limit);
+}
+
+function withModelTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
 }
 
 function trimQuote(value: string, max = 220): string {
@@ -654,6 +668,10 @@ export async function generateAnswerPlan(params: {
     return fallback;
   }
 
+  if (params.recommendedAnswerType === 'definition') {
+    return fallback;
+  }
+
   const allowedEvidenceIds = new Set(params.evidence.map((item) => item.id));
   const allowedWorkflowEvents = new Set(params.brain.workflowEvents.map((item) => item.id));
   const systemInstruction = buildPlannerSystemInstruction({
@@ -673,32 +691,36 @@ export async function generateAnswerPlan(params: {
   });
 
   try {
-    const response = await params.ai.models.generateContent({
-      model: params.model,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: buildPlanPrompt({
-                question: params.question,
-                retrievalMode: params.retrievalMode,
-                workflowEventLabels: summarizeWorkflowEvents(params.brain, params.workflowEventIds),
-                evidence: params.evidence,
-                briefs: params.workflowBriefs,
-                heuristicPlan: fallback,
-              }),
-            },
-          ],
+    const response = await withModelTimeout(
+      params.ai.models.generateContent({
+        model: params.model,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: buildPlanPrompt({
+                  question: params.question,
+                  retrievalMode: params.retrievalMode,
+                  workflowEventLabels: summarizeWorkflowEvents(params.brain, params.workflowEventIds),
+                  evidence: params.evidence,
+                  briefs: params.workflowBriefs,
+                  heuristicPlan: fallback,
+                }),
+              },
+            ],
+          },
+        ],
+        config: {
+          systemInstruction,
+          temperature: 0,
+          responseMimeType: 'application/json',
+          responseJsonSchema: buildPlanSchema(),
         },
-      ],
-      config: {
-        systemInstruction,
-        temperature: 0,
-        responseMimeType: 'application/json',
-        responseJsonSchema: buildPlanSchema(),
-      },
-    });
+      }),
+      ANSWER_PLAN_MODEL_TIMEOUT_MS,
+      'answer planner',
+    );
 
     const parsed = JSON.parse(response.text || '{}') as Partial<AnswerPlan>;
     return normalizePlan(parsed, fallback, allowedEvidenceIds, allowedWorkflowEvents);
@@ -1448,35 +1470,39 @@ export async function synthesizeExpertAnswer(params: {
   });
 
   try {
-    const response = await params.ai.models.generateContent({
-      model: params.model,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: buildSynthesisPrompt({
-                question: params.question,
-                plan: params.plan,
-                claimPlan: params.claimPlan,
-                semanticFrame: params.semanticFrame,
-                evidenceState: params.evidenceState,
-                confidence: params.confidence,
-                priorityClass: params.priorityClass,
-                keyIssueDate: params.keyIssueDate,
-                workflowEventLabels: summarizeWorkflowEvents(params.brain, params.plan.workflowEvents),
-              }),
-            },
-          ],
+    const response = await withModelTimeout(
+      params.ai.models.generateContent({
+        model: params.model,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: buildSynthesisPrompt({
+                  question: params.question,
+                  plan: params.plan,
+                  claimPlan: params.claimPlan,
+                  semanticFrame: params.semanticFrame,
+                  evidenceState: params.evidenceState,
+                  confidence: params.confidence,
+                  priorityClass: params.priorityClass,
+                  keyIssueDate: params.keyIssueDate,
+                  workflowEventLabels: summarizeWorkflowEvents(params.brain, params.plan.workflowEvents),
+                }),
+              },
+            ],
+          },
+        ],
+        config: {
+          systemInstruction,
+          temperature: 0.1,
+          responseMimeType: 'application/json',
+          responseJsonSchema: buildAnswerSchema(),
         },
-      ],
-      config: {
-        systemInstruction,
-        temperature: 0.1,
-        responseMimeType: 'application/json',
-        responseJsonSchema: buildAnswerSchema(),
-      },
-    });
+      }),
+      SYNTHESIS_MODEL_TIMEOUT_MS,
+      'answer synthesis',
+    );
 
     const parsed = JSON.parse(response.text || '{}') as Partial<ExpertAnswerEnvelope>;
     return normalizeExpertAnswer(parsed, fallback, allowedCitationIds);
