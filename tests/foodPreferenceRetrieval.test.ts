@@ -53,3 +53,17 @@ test('day-night care food and satisfaction explanation prioritizes indicator evi
     `expected meal/snack indicator evidence, got ${evidencePaths.join(', ')}`,
   );
 });
+
+test('integrated food and satisfaction explanation ranks the meal indicator evidence first', async () => {
+  await service.initialize();
+
+  const result = await service.inspectRetrieval('기피식품과 수급자 만족도 조사 관련 설명해줘', 'integrated', undefined, [
+    'day-night-care',
+  ]);
+
+  assert.equal(result.semanticFrame.primaryIntent, 'definition');
+  assert.ok(
+    result.search.evidence[0]?.path.includes('/knowledge/evaluation/04-05-식사간식.md'),
+    `expected top evidence to be meal/snack indicator, got ${result.search.evidence[0]?.path}`,
+  );
+});
