@@ -152,11 +152,12 @@ export function compareIndexStatus(params: {
       : embeddingCoverage.totalChunks > 0 && embeddingCoverage.embeddedChunks < embeddingCoverage.totalChunks
         ? 'partial_embeddings'
         : 'fresh';
+  const manifestHash = state === 'stale' ? diskManifestHash : indexedManifestHash;
 
   return {
     state,
     storageMode: params.storageMode,
-    manifestHash: indexedManifestHash,
+    manifestHash,
     diskManifestHash,
     indexedManifestHash,
     diskDocumentCount: params.diskEntries.length,

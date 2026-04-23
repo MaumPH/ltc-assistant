@@ -7,6 +7,9 @@ export { CATEGORY_ORDER, type Category } from './knowledgeCategories';
 
 export type KnowledgeSource = 'general' | 'eval';
 
+type KnowledgeListResponseEntry = Omit<KnowledgeListEntry, 'path' | 'mode'> &
+  Partial<Pick<KnowledgeListEntry, 'path' | 'mode'>>;
+
 export interface KnowledgeDocument extends KnowledgeListEntry {
   category: Category;
   displayTitle: string;
@@ -27,7 +30,18 @@ export function categorize(fileName: string): Category {
 
 function getKnowledgeSource(filePath: string, mode?: string): KnowledgeSource {
   if (mode === 'evaluation') return 'eval';
-  return /\/knowledge\/(?:eval|evaluation)\//.test(filePath) ? 'eval' : 'general';
+  return /(?:^|\/)knowledge\/(?:eval|evaluation)\//.test(filePath.replace(/\\/g, '/')) ? 'eval' : 'general';
+}
+
+function normalizeKnowledgePath(entry: KnowledgeListResponseEntry): string {
+  const rawPath = (entry.path?.trim() || entry.name || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  if (rawPath.startsWith('knowledge/')) return `/${rawPath}`;
+  return `/knowledge/${rawPath}`;
+}
+
+function inferKnowledgeMode(filePath: string, mode?: KnowledgeListEntry['mode']): KnowledgeListEntry['mode'] {
+  if (mode === 'evaluation' || mode === 'integrated') return mode;
+  return getKnowledgeSource(filePath) === 'eval' ? 'evaluation' : 'integrated';
 }
 
 function toDisplayTitle(fileName: string): string {
@@ -45,10 +59,14 @@ function sortDocuments(a: KnowledgeDocument, b: KnowledgeDocument): number {
   return a.name.localeCompare(b.name, 'ko');
 }
 
-export function mapKnowledgeEntry(entry: KnowledgeListEntry): KnowledgeListItem {
-  const source = getKnowledgeSource(entry.path, entry.mode);
+export function mapKnowledgeEntry(entry: KnowledgeListResponseEntry): KnowledgeListItem {
+  const path = normalizeKnowledgePath(entry);
+  const mode = inferKnowledgeMode(path, entry.mode);
+  const source = getKnowledgeSource(path, mode);
   return {
     ...entry,
+    path,
+    mode,
     category: categorize(entry.name),
     displayTitle: toDisplayTitle(entry.name),
     source,
@@ -62,7 +80,7 @@ export async function fetchKnowledgeList(signal?: AbortSignal): Promise<Knowledg
     throw new Error(`knowledge list request failed: ${response.status}`);
   }
 
-  const entries = (await response.json()) as KnowledgeListEntry[];
+  const entries = (await response.json()) as KnowledgeListResponseEntry[];
   return entries.map(mapKnowledgeEntry).sort(sortDocuments);
 }
 
