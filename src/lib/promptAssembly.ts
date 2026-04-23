@@ -68,6 +68,8 @@ function buildContractInstructions(contract: PromptContract, retrievalMode: Retr
     '- If blocking validation remains unresolved, do not give a 판정형 verdict; stay conservative and surface what is missing.',
     '- In evaluation mode, prefer 1차 평가매뉴얼 over same-year Q&A, then prior-year Q&A, then general operational documents.',
     '- If the newest date and the strongest authority point in different directions, separate them explicitly instead of flattening the conflict.',
+    '- For `definition` intent queries, directly explain the concept from retrieved evidence; do not ask the user to choose a workflow stage such as planning, record writing, or outcome review.',
+    '- For evaluation indicator terms such as avoided foods or satisfaction surveys, explain both the definition and practical requirements supported by the selected evidence.',
     '- Self-check before returning: the answer type must match the semantic intent, and the highest-authority citation must be present in the final citations.',
     '- Prefer practical completeness over rhetorical flourish.',
     retrievalMode ? `- The selected retrieval mode is \`${retrievalMode}\`. Keep the structure aligned with what that retrieval path can justify.` : null,
