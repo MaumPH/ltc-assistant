@@ -731,6 +731,7 @@ function buildAnswerSchema() {
       },
       headline: { type: 'string' },
       summary: { type: 'string' },
+      directAnswer: { type: 'string' },
       confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
       evidenceState: { type: 'string', enum: ['confirmed', 'partial', 'conflict', 'not_enough'] },
       keyIssueDate: { type: 'string' },
@@ -1288,6 +1289,7 @@ function normalizeExpertAnswer(
         : fallback.answerType,
     headline: sanitizeText(candidate.headline, fallback.headline),
     summary: sanitizeText(candidate.summary, fallback.summary),
+    directAnswer: sanitizeText(candidate.directAnswer) || fallback.directAnswer,
     confidence:
       candidate.confidence === 'high' || candidate.confidence === 'medium' || candidate.confidence === 'low'
         ? candidate.confidence
@@ -1397,7 +1399,10 @@ export async function synthesizeExpertAnswer(params: {
     extraInstructions: [
       'Return semantic JSON only.',
       'Do not emit presentation markdown, HTML, or numbered headings.',
-      'Use this exact output flow: [기준 시점] -> [결론] -> [확정 근거] -> [실무 해석] -> [출처].',
+      'Use this exact output flow: [기준 시점] -> [답변] -> [결론] -> [확정 근거] -> [실무 해석] -> [출처].',
+      'Write directAnswer as 3-5 sentences that directly answer the user question: concept definition first, then concrete identification or recording criteria, then practical application.',
+      'Use the selected evidence conditions directly in directAnswer without vague restatement or unsupported advice.',
+      'In evaluation mode, directAnswer must reflect concrete evaluation indicator criteria, including numbered ①②③ items when those items are present in the evidence.',
       'The groundedBasis field must separate legal, evaluation, and practical evidence.',
       'Each groundedBasis item must prefer a direct quote-like sentence from evidence, not a vague paraphrase.',
       'Citations and grounded basis entries must use only the provided evidence ids.',
@@ -1760,6 +1765,9 @@ export function renderExpertAnswerMarkdown(answer: ExpertAnswerEnvelope): string
     '## [기준 시점]',
     answer.referenceDate,
     '',
+    answer.directAnswer ? '## [답변]' : null,
+    answer.directAnswer || null,
+    answer.directAnswer ? '' : null,
     '## [결론]',
     answer.conclusion,
     '',

@@ -89,6 +89,7 @@ function normalizeAnswerForRender(answer: ExpertAnswerEnvelope): ExpertAnswerEnv
     answerType: answer.answerType ?? 'mixed',
     headline: answer.headline || '답변',
     summary: answer.summary || '',
+    directAnswer: answer.directAnswer || undefined,
     confidence: normalizeConfidence(answer.confidence),
     evidenceState: normalizeEvidenceState(answer.evidenceState),
     referenceDate: answer.referenceDate || '확인 필요',
@@ -324,6 +325,13 @@ export default function ExpertAnswerCard({ answer }: ExpertAnswerCardProps) {
             <p className="mt-1 text-xs leading-5 text-slate-500">핵심 기준일: {renderAnswer.keyIssueDate}</p>
           )}
         </section>
+
+        {renderAnswer.directAnswer && (
+          <section className="rounded-[24px] border border-blue-100 bg-blue-50/60 px-5 py-5">
+            <SectionEyebrow>[답변]</SectionEyebrow>
+            <p className="mt-3 whitespace-pre-wrap text-base leading-8 text-slate-800">{renderAnswer.directAnswer}</p>
+          </section>
+        )}
 
         <section className="rounded-[24px] bg-slate-950 px-5 py-5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
           <SectionEyebrow>[결론]</SectionEyebrow>
