@@ -345,49 +345,6 @@ npm run rag:bench
 
 ---
 
-## 자주 생기는 문제
-
-### 평가 지침 정리 또는 지식기반에서 `knowledge list request failed: 404`가 뜹니다.
-
-프론트엔드가 백엔드 API가 아닌 정적 호스팅 origin으로 `/api/knowledge`를 호출할 때 발생합니다.
-
-확인할 것:
-
-- 같은 origin 실행이면 `npm run dev`로 Express 서버를 통해 접속했는지 확인
-- 분리 배포면 `VITE_RAG_API_BASE_URL`이 실제 백엔드 주소인지 확인
-- 백엔드에서 `GET /api/knowledge`가 200을 반환하는지 확인
-
-```bash
-curl http://localhost:3000/api/knowledge
-```
-
-### 채팅 답변 후 화면이 하얗게 변합니다.
-
-브라우저 렌더링 중 예외가 발생한 상태입니다. 최신 코드에서는 일부 답변 필드가 누락되어도 답변 카드가 기본값으로 렌더링되도록 방어되어 있습니다.
-
-확인할 것:
-
-- 브라우저 개발자 도구 Console 에러
-- `/api/chat` 응답 상태와 JSON payload
-- `npm run build` 성공 여부
-
-### 채팅 버튼이 비활성화됩니다.
-
-`RAG_GENERATION_MODE=user`에서는 사용자 Gemini API 키가 필요합니다. 상단 개인 키 버튼에서 키를 입력하세요.
-
-### Postgres 모드에서 검색 품질이 낮습니다.
-
-임베딩이 아직 충분히 채워지지 않았을 수 있습니다.
-
-```bash
-npm run rag:index
-curl http://localhost:3000/api/index/status
-```
-
-`pendingEmbeddingChunks`, `retrievalReadiness`, `nextEmbeddingRetryAt` 값을 확인하세요.
-
----
-
 ## 개발 메모
 
 - `rg`가 Windows/OneDrive 환경에서 접근 거부될 수 있습니다. 이 경우 PowerShell `Select-String`으로 검색하세요.
