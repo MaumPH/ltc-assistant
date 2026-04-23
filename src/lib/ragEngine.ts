@@ -52,8 +52,10 @@ const CANDIDATE_METADATA_TERMS = new Set([
   'manual-source',
   'synthesis-source',
   'evaluation-mode',
+  'evaluation-indicator',
   'date-match',
 ]);
+const FOOD_PREFERENCE_EVALUATION_MATCH_RE = /기피식품|식사만족도|식사만족|대체식품|욕구사정|식사간식/u;
 
 const DOCUMENT_QUERY_NOISE_TERMS = [
   '문서를찾아줘',
@@ -515,6 +517,16 @@ function scoreEvaluationAuthority(candidate: SearchCandidate): number {
   return score;
 }
 
+function isThinEvaluationIndicatorChunk(candidate: SearchCandidate): boolean {
+  if (candidate.sourceType !== 'evaluation' || candidate.sourceRole !== 'primary_evaluation') return false;
+
+  const meaningfulText = candidate.text
+    .replace(/해당\s*없음/gu, '')
+    .replace(/[\s#*_`>|:.\-()[\]{}]/g, '')
+    .trim();
+  return meaningfulText.length < 24;
+}
+
 function rerankCandidate(
   candidate: SearchCandidate,
   intent: QueryIntent,
@@ -524,6 +536,7 @@ function rerankCandidate(
   const ontologyScore = options?.documentScoreBoosts?.get(candidate.documentId) ?? 0;
   const chunkScoreBoost = options?.chunkScoreBoosts?.get(candidate.id) ?? 0;
   const semanticScore = scoreSemanticAlignment(candidate, options?.semanticFrame);
+  let matchedTerms = candidate.matchedTerms;
   let score = candidate.fusedScore * 100;
   score += candidate.exactScore * 1.8;
   score += candidate.lexicalScore * 15;
@@ -539,8 +552,25 @@ function rerankCandidate(
   if (intent === 'synthesis' && candidate.sourceType === 'comparison') score += 6;
   if (mode === 'evaluation' && candidate.mode === 'evaluation') score += 6;
 
+  if (
+    mode === 'evaluation' &&
+    candidate.sourceType === 'evaluation' &&
+    candidate.sourceRole === 'primary_evaluation' &&
+    candidate.matchedTerms.some((term) => !CANDIDATE_METADATA_TERMS.has(term))
+  ) {
+    score += 6;
+    if (candidate.matchedTerms.some((term) => FOOD_PREFERENCE_EVALUATION_MATCH_RE.test(term))) {
+      score += 56;
+    }
+    matchedTerms = Array.from(new Set([...candidate.matchedTerms, 'evaluation-indicator']));
+  }
+
   if (mode === 'evaluation') {
     score += scoreEvaluationAuthority(candidate);
+  }
+
+  if (isThinEvaluationIndicatorChunk(candidate)) {
+    score -= 96;
   }
 
   if (mode === 'integrated' && intent === 'legal-exact') {
@@ -580,6 +610,7 @@ function rerankCandidate(
 
   return {
     ...candidate,
+    matchedTerms,
     rerankScore: score,
     ontologyScore: ontologyScore + semanticScore,
   };

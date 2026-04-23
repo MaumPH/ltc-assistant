@@ -16,4 +16,7 @@ test('ExpertAnswerCard renders a partial answer payload without crashing', () =>
   } as ExpertAnswerEnvelope;
 
   assert.doesNotThrow(() => renderToStaticMarkup(<ExpertAnswerCard answer={partialAnswer} />));
+  const html = renderToStaticMarkup(<ExpertAnswerCard answer={partialAnswer} />);
+  assert.match(html, /검색된 확정 근거가 없습니다\./);
+  assert.doesNotMatch(html, /직접 연결된 확정 근거는 아직 비어 있습니다\./);
 });

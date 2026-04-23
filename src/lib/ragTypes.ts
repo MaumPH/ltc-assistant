@@ -14,6 +14,7 @@ export type SourceType =
   | 'guide'
   | 'wiki'
   | 'comparison'
+  | 'evaluation'
   | 'other';
 
 export type SourceRole = 'routing_summary' | 'primary_evaluation' | 'support_reference' | 'general';

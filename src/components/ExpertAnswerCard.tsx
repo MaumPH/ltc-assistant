@@ -298,6 +298,9 @@ export default function ExpertAnswerCard({ answer }: ExpertAnswerCardProps) {
     detail: followUp,
   }));
   const additionalChecks = [...renderAnswer.additionalChecks, ...followUpItems].slice(0, 10);
+  const visibleGroundedBasis = (['legal', 'evaluation', 'practical'] as const).filter(
+    (basis) => renderAnswer.groundedBasis[basis].length > 0,
+  );
 
   return (
     <article className="w-full overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.07)]">
@@ -335,19 +338,22 @@ export default function ExpertAnswerCard({ answer }: ExpertAnswerCardProps) {
             </div>
             {renderAnswer.scope && <p className="max-w-2xl text-sm leading-7 text-slate-500">{renderAnswer.scope}</p>}
           </div>
-          <div className="grid gap-4 xl:grid-cols-3">
-            <GroundedBasisColumn basis="legal" entries={renderAnswer.groundedBasis.legal} citationIndexById={citationIndexById} />
-            <GroundedBasisColumn
-              basis="evaluation"
-              entries={renderAnswer.groundedBasis.evaluation}
-              citationIndexById={citationIndexById}
-            />
-            <GroundedBasisColumn
-              basis="practical"
-              entries={renderAnswer.groundedBasis.practical}
-              citationIndexById={citationIndexById}
-            />
-          </div>
+          {visibleGroundedBasis.length === 0 ? (
+            <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-7 text-slate-500">
+              검색된 확정 근거가 없습니다.
+            </p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">
+              {visibleGroundedBasis.map((basis) => (
+                <GroundedBasisColumn
+                  key={basis}
+                  basis={basis}
+                  entries={renderAnswer.groundedBasis[basis]}
+                  citationIndexById={citationIndexById}
+                />
+              ))}
+            </div>
+          )}
         </section>
 
         <ItemSection
