@@ -745,9 +745,11 @@ function inferConfidence(intent: QueryIntent, evidence: SearchCandidate[], misma
   const exactHeavy = top.exactScore >= 25 || Boolean(top.articleNo && top.matchedTerms.includes(top.articleNo));
   const mixedDocs = new Set(evidence.map((item) => item.docTitle)).size >= 3;
   const focusMatchedEvidenceCount = evidence.filter((item) => item.matchedTerms.some((term) => !CANDIDATE_METADATA_TERMS.has(term))).length;
+  const evalEvidenceCount = evidence.filter((item) => item.mode === 'evaluation').length;
 
   if (exactHeavy && top.rerankScore >= 72 && focusMatchedEvidenceCount >= 1) return 'high';
   if (intent === 'synthesis' && mixedDocs && focusMatchedEvidenceCount >= 1) return 'medium';
+  if (evalEvidenceCount >= 3 && focusMatchedEvidenceCount >= 1) return 'medium';
   if (top.rerankScore >= 42 && focusMatchedEvidenceCount >= 1) return 'medium';
   return 'low';
 }
