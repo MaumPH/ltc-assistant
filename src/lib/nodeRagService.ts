@@ -1640,6 +1640,24 @@ function applyServiceScopeEvidenceGate(search: SearchRun, serviceScopes: readonl
   };
 }
 
+function prioritizeConcreteFocusEvidence(search: SearchRun, focusSources: string[]): SearchRun {
+  const focusTerms = uniqueNonEmptyLines(focusSources.flatMap((source) => deriveFocusTerms(source))).filter(
+    (term) => !isGenericQueryTerm(term),
+  );
+  if (focusTerms.length === 0 || search.evidence.length < 4) return search;
+
+  const concreteEvidence = search.evidence.filter((candidate) => {
+    const focusMatches = getCandidateFocusMatches(candidate, focusTerms).filter((term) => !isGenericQueryTerm(term));
+    return focusMatches.length >= 1 && candidate.lexicalScore > 0;
+  });
+  if (concreteEvidence.length < 3) return search;
+
+  return {
+    ...search,
+    evidence: concreteEvidence.slice(0, search.evidence.length),
+  };
+}
+
 function applyIntentEvidenceGate(
   evidence: SearchRun['evidence'],
   priorityClass: RetrievalPriorityClass,
@@ -3082,6 +3100,7 @@ export class NodeRagService {
   private readonly queryEmbeddingCache = new Map<string, number[] | null>();
   private embeddingRefreshTimer: NodeJS.Timeout | null = null;
   private initialized = false;
+  private initializePromise: Promise<void> | null = null;
 
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
@@ -3443,6 +3462,7 @@ export class NodeRagService {
     this.queryEmbeddingCache.clear();
     this.diskStateCache = null;
     this.initialized = false;
+    this.initializePromise = null;
     await this.initialize();
   }
 
@@ -3612,6 +3632,7 @@ export class NodeRagService {
     this.diskStateCache = {
       fingerprint,
       files,
+      chunks,
       manifestEntries: buildKnowledgeManifest(files, chunks),
       issues: buildKnowledgeDoctorIssues(files, chunks),
     };
@@ -3619,7 +3640,7 @@ export class NodeRagService {
   }
 
   private getAllSearchChunks(): StructuredChunk[] {
-    return [...this.store.getChunks(), ...this.fallbackChunks];
+    return [...this.store.getChunks(), ...this.diskOverlayChunks, ...this.fallbackChunks];
   }
 
   private rebuildOntologyGraph(): void {
@@ -3715,7 +3736,7 @@ export class NodeRagService {
     this.diskFiles = diskState.files;
     this.diskManifestEntries = diskState.manifestEntries;
     this.doctorIssues = diskState.issues;
-    this.indexStatus = compareIndexStatus({
+    const indexStatus = compareIndexStatus({
       diskEntries: this.diskManifestEntries,
       indexedEntries: this.store.getManifestEntries(),
       storageMode: this.store.getStats().storageMode,
@@ -3723,12 +3744,32 @@ export class NodeRagService {
       issues: this.doctorIssues,
       nextEmbeddingRetryAt: getNextEmbeddingRetryAt(),
     });
+    this.updateDiskOverlayChunks(diskState.chunks, indexStatus);
     this.indexStatus = {
-      ...this.indexStatus,
+      ...indexStatus,
       backendReadiness: this.backendReadiness,
       queue: cloneWorkerQueueStatus(this.workerQueue),
     };
     return this.indexStatus;
+  }
+
+  private updateDiskOverlayChunks(diskChunks: StructuredChunk[], indexStatus: IndexStatus): void {
+    const overlayPaths = new Set([...indexStatus.missingDocuments, ...indexStatus.staleDocuments]);
+    if (overlayPaths.size === 0) {
+      if (this.diskOverlayChunks.length > 0) {
+        this.diskOverlayChunks = [];
+        this.diskOverlayIndex = buildRagCorpusIndex([]);
+      }
+      return;
+    }
+
+    const overlayChunks = diskChunks.filter((chunk) => overlayPaths.has(chunk.path));
+    const overlayFingerprint = overlayChunks.map((chunk) => chunk.id).join('\n');
+    const currentFingerprint = this.diskOverlayChunks.map((chunk) => chunk.id).join('\n');
+    if (overlayFingerprint === currentFingerprint) return;
+
+    this.diskOverlayChunks = overlayChunks;
+    this.diskOverlayIndex = buildRagCorpusIndex(overlayChunks);
   }
 
   private rememberRetrieval(retrieval: RetrievalDiagnostics, query: string): void {
@@ -3904,13 +3945,43 @@ export class NodeRagService {
   }
 
   private buildWorkflowBriefIndex(): WorkflowBrief[] {
-    const chunks = this.store.getChunks();
+    const chunks = this.getAllSearchChunks();
     const documentIds = Array.from(new Set(chunks.map((chunk) => chunk.documentId)));
     const pages = [
       ...this.store.getCompiledPages('integrated', documentIds),
       ...this.store.getCompiledPages('evaluation', documentIds),
     ];
     return buildWorkflowBriefs(this.brain, pages, chunks);
+  }
+
+  private async searchStore(
+    query: string,
+    mode: PromptMode,
+    queryEmbedding: number[] | null,
+    queryAliases: string[] = [],
+    options?: SearchOptions,
+  ): Promise<SearchRun> {
+    const baseSearch = await this.store.search(query, mode, queryEmbedding, queryAliases, options);
+    if (this.diskOverlayChunks.length === 0) {
+      return baseSearch;
+    }
+
+    const overlayOptions = options
+      ? {
+          ...options,
+          precomputedVectorCandidates: undefined,
+        }
+      : undefined;
+    const overlaySearch = searchCorpus({
+      index: this.diskOverlayIndex,
+      query,
+      mode,
+      queryEmbedding: null,
+      queryAliases,
+      options: overlayOptions,
+    });
+
+    return mergeSearchRuns(baseSearch, overlaySearch);
   }
 
   private async executeSearch(
@@ -3944,7 +4015,7 @@ export class NodeRagService {
         options?.additionalDocumentScoreBoosts ?? new Map<string, number>(),
       );
       const initialSearch = applySectionRoutingBoost(
-        await this.store.search(
+        await this.searchStore(
           searchQuery,
           mode,
           queryEmbedding,
@@ -4009,7 +4080,7 @@ export class NodeRagService {
       ]).join('\n');
 
       const rerankedSearch = applyGroundingGate(applySectionRoutingBoost(
-        await this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
+        await this.searchStore(searchQuery, mode, queryEmbedding, combinedAliases, {
           documentScoreBoosts,
           chunkScoreBoosts: options?.additionalChunkScoreBoosts,
           excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
@@ -4019,7 +4090,7 @@ export class NodeRagService {
         }),
         sectionRoutingEnabled,
       ));
-      const promotedPrimarySearch = await this.store.search(expansionQuery, mode, queryEmbedding, expansionAliases, {
+      const promotedPrimarySearch = await this.searchStore(expansionQuery, mode, queryEmbedding, expansionAliases, {
         allowedDocumentIds: primaryExpansionDocumentIds,
         documentScoreBoosts,
         chunkScoreBoosts: options?.additionalChunkScoreBoosts,
@@ -4064,7 +4135,7 @@ export class NodeRagService {
         .map((chunk) => chunk.documentId),
     );
 
-    const routingSearch = applySectionRoutingBoost(await this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
+    const routingSearch = applySectionRoutingBoost(await this.searchStore(searchQuery, mode, queryEmbedding, combinedAliases, {
       allowedDocumentIds: evaluationDocumentIds,
       documentScoreBoosts: baseDocumentScoreBoosts,
       chunkScoreBoosts: options?.additionalChunkScoreBoosts,
@@ -4098,7 +4169,7 @@ export class NodeRagService {
     );
     const directSupportSearch =
       integratedSupportDocumentIds.size > 0
-        ? await this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
+        ? await this.searchStore(searchQuery, mode, queryEmbedding, combinedAliases, {
             allowedDocumentIds: integratedSupportDocumentIds,
             documentScoreBoosts: baseDocumentScoreBoosts,
             chunkScoreBoosts: options?.additionalChunkScoreBoosts,
@@ -4148,7 +4219,7 @@ export class NodeRagService {
     ]).join('\n');
 
     const baseSearch = applyGroundingGate(applySectionRoutingBoost(
-      await this.store.search(searchQuery, mode, queryEmbedding, combinedAliases, {
+      await this.searchStore(searchQuery, mode, queryEmbedding, combinedAliases, {
         allowedDocumentIds,
         documentScoreBoosts,
         chunkScoreBoosts: options?.additionalChunkScoreBoosts,
@@ -4167,7 +4238,7 @@ export class NodeRagService {
       primaryExpansionDocumentIds.size > 0
         ? uniqueDocumentCandidates(
             (
-              await this.store.search(expansionQuery, mode, queryEmbedding, expansionAliases, {
+              await this.searchStore(expansionQuery, mode, queryEmbedding, expansionAliases, {
                 allowedDocumentIds: primaryExpansionDocumentIds,
                 documentScoreBoosts,
                 chunkScoreBoosts: options?.additionalChunkScoreBoosts,
@@ -4227,10 +4298,26 @@ export class NodeRagService {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    await this.rebuildRuntimeState();
-    await this.refreshBackendReadiness();
-    this.startBackgroundEmbeddingRefresh();
-    this.initialized = true;
+    if (this.initializePromise) {
+      await this.initializePromise;
+      return;
+    }
+
+    this.initializePromise = (async () => {
+      await this.rebuildRuntimeState();
+      await this.refreshBackendReadiness();
+      this.startBackgroundEmbeddingRefresh();
+      this.initialized = true;
+    })();
+
+    try {
+      await this.initializePromise;
+    } catch (error) {
+      this.initialized = false;
+      throw error;
+    } finally {
+      this.initializePromise = null;
+    }
   }
 
   getStats() {
@@ -4558,6 +4645,11 @@ export class NodeRagService {
     }
 
     search = applyOriginalFocusGate(search, normalized.normalizedQuery, normalized.aliases);
+    search = prioritizeConcreteFocusEvidence(search, [
+      normalized.normalizedQuery,
+      ...queryProfile.searchVariants,
+      ...aliases,
+    ]);
     const preScopeGateEvidenceCount = search.evidence.length;
     search = applyServiceScopeEvidenceGate(search, selectedServiceScopes);
     if (search.evidence.length !== preScopeGateEvidenceCount) {

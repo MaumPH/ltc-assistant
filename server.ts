@@ -328,8 +328,18 @@ async function startServer() {
     }
   });
 
-  app.get('/api/knowledge', (_req, res) => {
-    res.json(ragService.listKnowledgeFiles());
+  app.get('/api/knowledge', async (_req, res) => {
+    try {
+      await ragService.initialize();
+      res.setHeader('Cache-Control', 'public, max-age=60');
+      res.json(ragService.listKnowledgeFiles());
+    } catch (error) {
+      logServerError('knowledge list failed', error);
+      res.status(500).json({
+        error: 'Failed to load knowledge list',
+        details: getSafeErrorMessage(error),
+      });
+    }
   });
 
   app.get('/api/index/status', async (_req, res) => {
@@ -734,12 +744,10 @@ async function startServer() {
     });
   }
 
+  await ragService.initialize();
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
-  });
-
-  void ragService.initialize().catch((error) => {
-    logServerError('initial RAG initialize failed', error);
   });
 }
 

@@ -111,6 +111,10 @@ const GENERIC_QUERY_TERMS = new Set([
   '알려주세요',
   '설명해줘',
   '설명해주세요',
+  '설명해',
+  '대해',
+  '조사',
+  '조사에',
   '찾아줘',
   '찾아주세요',
   '어떤',
@@ -586,11 +590,19 @@ function scoreSemanticAlignment(candidate: SearchCandidate, semanticFrame: Seman
 
   const haystack = `${candidate.docTitle} ${candidate.parentSectionTitle} ${candidate.searchText}`.toLowerCase();
   let score = 0;
+  const concreteTermMatches: string[] = [];
 
   for (const term of semanticFrame.canonicalTerms.slice(0, 12)) {
     if (term && haystack.includes(term.toLowerCase())) {
       score += 2.5;
+      if (term.length >= 2 && !GENERIC_QUERY_TERMS.has(term)) {
+        concreteTermMatches.push(term);
+      }
     }
+  }
+
+  if (semanticFrame.primaryIntent === 'workflow' && concreteTermMatches.length >= 3) {
+    score += 120 + concreteTermMatches.length * 35;
   }
 
   for (const values of Object.values(semanticFrame.slots)) {
