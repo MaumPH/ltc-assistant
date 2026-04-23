@@ -111,6 +111,10 @@ function isFoodPreferenceEvaluationQuery(query: string): boolean {
   return FOOD_PREFERENCE_EVALUATION_RE.test(query);
 }
 
+function hasDefinitionExplanationSignal(query: string): boolean {
+  return /설명|이란\s*(뭐|무엇|어떤)|뭔가요|의미가|뜻이/u.test(query);
+}
+
 const QUERY_TYPE_PATTERNS: Array<{ type: NaturalLanguageQueryType; patterns: RegExp[] }> = [
   { type: 'comparison', patterns: [/차이/u, /비교/u, /구분/u, /\bvs\b/i] },
   { type: 'checklist', patterns: [/체크리스트/u, /뭐\s*준비/u, /무엇\s*준비/u, /확인사항/u, /챙겨/u] },
@@ -119,7 +123,7 @@ const QUERY_TYPE_PATTERNS: Array<{ type: NaturalLanguageQueryType; patterns: Reg
   { type: 'scope', patterns: [/얼마/u, /금액/u, /범위/u, /기간/u, /언제까지/u] },
   { type: 'consequence', patterns: [/위반/u, /제재/u, /처분/u, /벌점/u] },
   { type: 'exemption', patterns: [/예외/u, /감경/u, /면제/u, /제외/u] },
-  { type: 'definition', patterns: [/뭐야/u, /무엇/u, /정의/u, /개념/u, /뜻/u] },
+  { type: 'definition', patterns: [/뭐야/u, /무엇/u, /정의/u, /개념/u, /뜻/u, /설명/u, /이란/u] },
 ];
 
 const QUERY_TERM_EXPANSIONS: Array<{ triggers: string[]; expansions: string[] }> = [
@@ -402,7 +406,10 @@ function inferNaturalLanguagePrimaryIntent(query: string, queryType: NaturalLang
   const eligibilityCue = hasEligibilityCue(query);
   const complianceCue = hasComplianceCue(query);
 
-  if (isFoodPreferenceEvaluationQuery(query)) return 'workflow';
+  if (isFoodPreferenceEvaluationQuery(query)) {
+    if (hasDefinitionExplanationSignal(query)) return 'definition';
+    return 'workflow';
+  }
   if (/예외|감경|면제|제외|단서/u.test(query)) return 'exception';
   if (/본인부담|비용|금액|수가|본인부담금/u.test(query)) return 'cost';
   if (/제재|처분|위반|벌점/u.test(query)) return 'sanction';
@@ -421,7 +428,10 @@ function inferNaturalLanguagePrimaryIntent(query: string, queryType: NaturalLang
 }
 
 export function inferNaturalLanguageQueryType(query: string): NaturalLanguageQueryType {
-  if (isFoodPreferenceEvaluationQuery(query)) return 'checklist';
+  if (isFoodPreferenceEvaluationQuery(query)) {
+    if (hasDefinitionExplanationSignal(query)) return 'definition';
+    return 'checklist';
+  }
 
   for (const entry of QUERY_TYPE_PATTERNS) {
     if (entry.patterns.some((pattern) => pattern.test(query))) {
