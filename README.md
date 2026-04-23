@@ -2,7 +2,7 @@
 
 장기요양기관 실무와 평가 준비를 위한 근거 기반 AI 어시스턴트입니다.
 
-법령, 시행령, 시행규칙, 고시, 평가매뉴얼, Q&A, 업무 매뉴얼을 한곳에 묶고, 질문 의도에 맞는 근거를 찾아 답변합니다. 통합채팅, 평가채팅, 평가 지침 정리, 지식기반 탐색, 운영 대시보드, RAG 관리자 화면을 함께 제공합니다.
+법령, 시행령, 시행규칙, 고시, 평가매뉴얼, Q&A, 업무 매뉴얼을 한곳에 묶고, 질문 의도에 맞는 근거를 찾아 답변합니다. 통합채팅, 평가채팅, 평가 지침 정리, 지식기반 탐색, 운영 대시보드, RAG 관리 기능을 함께 제공합니다.
 
 [![React 19](https://img.shields.io/badge/React-19-61dafb)](https://react.dev/)
 [![Vite 6](https://img.shields.io/badge/Vite-6-646cff)](https://vite.dev/)
@@ -47,7 +47,7 @@
 
 ### 관리자 화면
 
-RAG 상태, 인덱스 상태, 검색 프로필, 재색인 요청, 평가 실험, 온톨로지 검토를 관리자 화면에서 확인합니다. `ADMIN_DASHBOARD_PASSWORD`가 설정되어 있어야 접근할 수 있습니다.
+RAG 상태, 인덱스 상태, 검색 프로필, 재색인 요청, 평가 실험, 온톨로지 검토를 관리자 화면에서 확인합니다. 관리자 인증이 설정되어 있어야 접근할 수 있습니다.
 
 ---
 
@@ -158,11 +158,10 @@ Windows PowerShell에서는 직접 파일을 복사하세요.
 | `VITE_RAG_API_BASE_URL` | 없음 | 분리 배포 시 프론트엔드가 호출할 백엔드 origin |
 | `RAG_FRONTEND_ORIGIN` | 없음 | 분리 배포 시 CORS 허용 origin |
 | `RAG_CSP_CONNECT_SRC` | 없음 | 프로덕션 CSP `connect-src` 추가 origin |
-| `ADMIN_DASHBOARD_PASSWORD` | 없음 | 관리자 화면 비밀번호 |
 | `RAG_CHAT_RATE_LIMIT_MAX` | `20` | 분당 채팅 요청 제한 |
 | `RAG_INSPECT_RATE_LIMIT_MAX` | `20` | 분당 검색 inspect 요청 제한 |
-| `LAW_MCP_ENABLED` | `true` | Korean Law MCP fallback 사용 여부 |
-| `LAW_MCP_BASE_URL` | `http://127.0.0.1:3100` | law sidecar HTTP 주소 |
+
+운영에 쓰는 실제 API 키, DB 비밀번호, 관리자 인증값은 README에 기록하지 말고 `.env` 또는 배포 환경의 secret manager에만 둡니다.
 
 분리 배포 예시:
 
@@ -200,35 +199,12 @@ npm run dev
 
 ```env
 RAG_STORAGE_MODE=postgres
-DATABASE_URL=postgres://ltc_rag:change-this-password@127.0.0.1:5432/ltc_rag
+DATABASE_URL=postgres://<user>:<password>@<host>:5432/<database>
 RAG_EMBEDDING_API_KEY=replace-with-a-fresh-key
 RAG_GENERATION_MODE=user
 ```
 
-자세한 배포 절차는 [docs/mini-pc-deploy.md](docs/mini-pc-deploy.md)를 참고하세요.
-
----
-
-## Korean Law MCP fallback
-
-프로젝트는 기본적으로 로컬 `knowledge/` 문서를 우선 사용합니다. 법령 근거가 얇거나 검색 신뢰도가 낮을 때만 선택적으로 Korean Law MCP sidecar를 호출할 수 있습니다.
-
-빠른 실행:
-
-```powershell
-$env:LAW_OC="your-law-api-key"
-npm run dev:law-sidecar
-```
-
-기본 sidecar 명령:
-
-```bash
-npx -y korean-law-mcp --mode http --port 3100
-```
-
-앱 서버는 `LAW_MCP_BASE_URL`로 sidecar를 호출합니다. 법제처 API 키인 `LAW_OC`는 sidecar 프로세스에만 넣고, 앱 서버에는 넣지 않는 구성이 권장됩니다.
-
-자세한 내용은 [docs/law-sidecar.md](docs/law-sidecar.md)를 참고하세요.
+운영 배포 절차와 실제 접속 정보는 공개 README가 아닌 별도 운영 문서에서 관리하세요.
 
 ---
 
@@ -248,7 +224,6 @@ npx -y korean-law-mcp --mode http --port 3100
 | `npm run rag:bench` | golden benchmark 실행 |
 | `npm run rag:eval` | 평가 trial 실행 |
 | `npm run ontology:generate` | 온톨로지 후보 생성 |
-| `npm run dev:law-sidecar` | 앱 서버와 Korean Law MCP sidecar를 함께 실행 |
 
 ---
 
@@ -265,12 +240,8 @@ npx -y korean-law-mcp --mode http --port 3100
 | `GET` | `/api/chat/capabilities` | 채팅 모델, 키 요구 여부, 준비 상태 |
 | `POST` | `/api/chat` | 근거 기반 답변 생성 |
 | `POST` | `/api/retrieval/inspect` | 검색 결과와 semantic validation 진단 |
-| `POST` | `/api/admin/session` | 관리자 로그인 |
-| `GET` | `/api/admin/rag/health` | 관리자용 RAG 상태 |
-| `POST` | `/api/admin/rag/reindex` | 재색인 요청 |
-| `POST` | `/api/admin/rag/inspect` | 관리자용 검색 inspect |
 
-관리자 API는 `ADMIN_DASHBOARD_PASSWORD`로 로그인한 세션이 필요합니다.
+관리자용 내부 경로는 공개 README에서 생략합니다.
 
 ---
 
@@ -296,12 +267,7 @@ npx -y korean-law-mcp --mode http --port 3100
 ┌──────────────▼──────────────┐   ┌──────────▼─────────────┐
 │ Local knowledge/ corpus      │   │ Postgres + pgvector     │
 │ md/txt structured chunks     │   │ optional persistent RAG  │
-└──────────────┬──────────────┘   └──────────┬─────────────┘
-               │                             │
-┌──────────────▼─────────────────────────────▼─────────────┐
-│ Optional Korean Law MCP sidecar                           │
-│ low-confidence legal fallback only                        │
-└──────────────────────────────────────────────────────────┘
+└─────────────────────────────┘   └────────────────────────┘
 ```
 
 | 영역 | 기술 |
@@ -311,7 +277,7 @@ npx -y korean-law-mcp --mode http --port 3100
 | AI | `@google/genai`, Gemini generation/embedding |
 | Retrieval | local structured chunks, lexical/vector hybrid, rerank diagnostics |
 | Storage | memory mode, optional Postgres + pgvector |
-| Security | helmet CSP, CORS allowlist, express-rate-limit, admin token session |
+| Security | helmet CSP, CORS allowlist, express-rate-limit |
 | Evaluation | golden benchmark, regression tests, claim coverage, validation issues |
 
 ---
@@ -345,14 +311,7 @@ npm run rag:bench
 
 `.github/workflows/deploy.yml`은 `main` push 시 GitHub Pages 빌드를 수행합니다.
 
-현재 workflow는 다음 값을 사용합니다.
-
-```yaml
-VITE_BASE_PATH: /${{ github.event.repository.name }}/
-VITE_RAG_API_BASE_URL: https://rag.maumph.uk
-```
-
-즉, 정적 프론트엔드는 GitHub Pages에서 제공하고, API는 별도 백엔드 origin으로 호출하는 구조입니다.
+정적 프론트엔드는 GitHub Pages에서 제공하고, API는 배포 환경에서 지정한 백엔드 origin으로 호출하는 구조입니다. 실제 백엔드 도메인은 공개 README에 기록하지 않습니다.
 
 ### 백엔드
 
@@ -363,9 +322,7 @@ VITE_RAG_API_BASE_URL: https://rag.maumph.uk
 - Postgres + pgvector
 - `npm run rag:index`로 사전 인덱싱
 - `deploy/ltc-rag.service`로 systemd 서비스 운영
-- Cloudflare Tunnel 또는 reverse proxy로 HTTPS 노출
-
-자세한 절차는 [docs/mini-pc-deploy.md](docs/mini-pc-deploy.md)에 정리되어 있습니다.
+- HTTPS reverse proxy 또는 이에 준하는 보안 경계 구성
 
 ---
 
@@ -377,7 +334,6 @@ VITE_RAG_API_BASE_URL: https://rag.maumph.uk
 | 임베딩 생성 | Gemini API | 문서 청크 또는 질의 텍스트 |
 | 사용자 키 기반 답변 생성 | Gemini API | 질문 + 검색된 근거 청크 |
 | 서버 키 기반 답변 생성 | Gemini API | 질문 + 검색된 근거 청크 |
-| Korean Law MCP fallback | sidecar / 법제처 API | fallback 질의 |
 | 관리자 세션 | 서버 메모리 | 없음 |
 
 주의:
@@ -430,16 +386,6 @@ curl http://localhost:3000/api/index/status
 
 `pendingEmbeddingChunks`, `retrievalReadiness`, `nextEmbeddingRetryAt` 값을 확인하세요.
 
-### Korean Law MCP fallback이 동작하지 않습니다.
-
-sidecar가 켜져 있는지 확인합니다.
-
-```bash
-curl http://127.0.0.1:3100/health
-```
-
-앱 서버에는 `LAW_MCP_ENABLED=true`, `LAW_MCP_BASE_URL=http://127.0.0.1:3100`이 필요합니다.
-
 ---
 
 ## 개발 메모
@@ -447,7 +393,6 @@ curl http://127.0.0.1:3100/health
 - `rg`가 Windows/OneDrive 환경에서 접근 거부될 수 있습니다. 이 경우 PowerShell `Select-String`으로 검색하세요.
 - OneDrive placeholder 상태의 `node_modules` 파일은 Node가 `UNKNOWN: unknown error, read`를 낼 수 있습니다. 해당 패키지 폴더를 지우고 `npm install`을 다시 실행하면 로컬 파일로 복구됩니다.
 - GitHub Actions는 PR에서 `npm run lint`, `npm run build`를 수행합니다.
-- `npm audit` 기준 critical 취약점이 표시될 수 있습니다. 의존성 업데이트 전에는 빌드/런타임 영향을 별도 검토하세요.
 
 ---
 
@@ -461,9 +406,9 @@ curl http://127.0.0.1:3100/health
 │  └─ lib/               # RAG, 검색, 검증, 지식 문서, API helper
 ├─ knowledge/            # 로컬 지식 문서
 ├─ benchmarks/           # golden cases와 benchmark 결과
-├─ scripts/              # RAG 인덱싱, 벤치, 온톨로지, sidecar 실행
+├─ scripts/              # RAG 인덱싱, 벤치, 온톨로지 실행
 ├─ tests/                # Node test 기반 회귀 테스트
-├─ docs/                 # 배포와 law sidecar 운영 문서
+├─ docs/                 # 배포와 운영 문서
 ├─ db/                   # Postgres/pgvector schema
 ├─ deploy/               # systemd 서비스 예시
 ├─ server.ts             # Express API 서버
@@ -474,8 +419,6 @@ curl http://127.0.0.1:3100/health
 
 ## 참고 문서
 
-- [docs/mini-pc-deploy.md](docs/mini-pc-deploy.md)
-- [docs/law-sidecar.md](docs/law-sidecar.md)
 - [env.example](env.example)
 - [benchmarks/golden-cases.json](benchmarks/golden-cases.json)
 
