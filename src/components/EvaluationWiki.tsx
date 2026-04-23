@@ -244,7 +244,7 @@ export default function EvaluationWiki() {
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 pb-4 pt-1">
+      <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-1">
         <div className="space-y-1">
           {filteredPages.map((page) => {
             const group = areaGroups.find((item) => item.area === page.area) ?? selectedGroup;
@@ -335,13 +335,13 @@ export default function EvaluationWiki() {
   return (
     <>
       <div className="flex min-h-0 flex-1 overflow-hidden bg-[#f8fbff]">
-        <aside className="hidden w-[260px] shrink-0 flex-col overflow-hidden border-r border-slate-100 bg-white/95 md:flex">
+        <aside className="hidden min-h-0 w-[260px] shrink-0 flex-col overflow-hidden border-r border-slate-100 bg-white/95 md:flex">
           {navigationContent}
         </aside>
 
-        <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 md:px-8 md:py-7">
+        <main className="min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 md:px-8 md:py-7">
           {selectedPage ? (
-            <div className="mx-auto flex max-w-[920px] flex-col gap-6">
+            <div className="mx-auto flex min-w-0 max-w-[920px] flex-col gap-6">
               <div className="flex items-center justify-between gap-3 md:hidden">
                 <button
                   type="button"
@@ -407,7 +407,7 @@ export default function EvaluationWiki() {
                 )}
               </header>
 
-              <div className="flex flex-col gap-6 pb-8">
+              <div className="min-w-0 flex flex-col gap-6 pb-8">
                 {contentSections.map((section) => {
                   const Icon = getSectionIcon(section.title);
                   const sectionStyle = { '--wiki-color': currentTheme.color } as React.CSSProperties;
@@ -450,7 +450,7 @@ export default function EvaluationWiki() {
             aria-label="지표 목록 닫기"
           />
 
-          <div className="absolute inset-x-0 bottom-0 max-h-[84dvh] overflow-hidden rounded-t-[28px] bg-white shadow-2xl">
+          <div className="absolute inset-x-0 bottom-0 flex max-h-[84dvh] min-h-0 flex-col overflow-hidden rounded-t-[28px] bg-white shadow-2xl">
             <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-slate-200" />
 
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4">
@@ -469,7 +469,7 @@ export default function EvaluationWiki() {
             </div>
 
             <div
-              className="flex max-h-[calc(84dvh-4.5rem)] flex-col"
+              className="flex min-h-0 max-h-[calc(84dvh-4.5rem)] flex-col"
               style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
             >
               {navigationContent}

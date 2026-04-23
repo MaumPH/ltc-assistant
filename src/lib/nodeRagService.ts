@@ -3100,6 +3100,7 @@ export class NodeRagService {
   private readonly queryEmbeddingCache = new Map<string, number[] | null>();
   private embeddingRefreshTimer: NodeJS.Timeout | null = null;
   private initialized = false;
+  private initializePromise: Promise<void> | null = null;
 
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
@@ -3461,6 +3462,7 @@ export class NodeRagService {
     this.queryEmbeddingCache.clear();
     this.diskStateCache = null;
     this.initialized = false;
+    this.initializePromise = null;
     await this.initialize();
   }
 
@@ -4296,10 +4298,26 @@ export class NodeRagService {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    await this.rebuildRuntimeState();
-    await this.refreshBackendReadiness();
-    this.startBackgroundEmbeddingRefresh();
-    this.initialized = true;
+    if (this.initializePromise) {
+      await this.initializePromise;
+      return;
+    }
+
+    this.initializePromise = (async () => {
+      await this.rebuildRuntimeState();
+      await this.refreshBackendReadiness();
+      this.startBackgroundEmbeddingRefresh();
+      this.initialized = true;
+    })();
+
+    try {
+      await this.initializePromise;
+    } catch (error) {
+      this.initialized = false;
+      throw error;
+    } finally {
+      this.initializePromise = null;
+    }
   }
 
   getStats() {
