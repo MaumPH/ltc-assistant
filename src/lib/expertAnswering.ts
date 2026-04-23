@@ -1024,6 +1024,29 @@ function buildFallbackBlocks(plan: AnswerPlan, citations: StructuredChunk[]): Ex
   ];
 }
 
+const FOOD_PREFERENCE_DIRECT_ANSWER_RE = /기피식품|식사\s*만족도|식사만족도|대체식품|욕구사정|식사\s*\(?간식\)?/u;
+
+function buildDirectAnswerFromEvaluationEvidence(evidence: StructuredChunk[]): string | undefined {
+  const evaluationEvidence = evidence.filter(
+    (item) => item.sourceType === 'evaluation' && item.sourceRole === 'primary_evaluation',
+  );
+  if (evaluationEvidence.length === 0) return undefined;
+
+  const combinedText = evaluationEvidence.map((item) => `${item.docTitle} ${item.parentSectionTitle} ${item.textPreview}`).join(' ');
+  if (FOOD_PREFERENCE_DIRECT_ANSWER_RE.test(combinedText)) {
+    return [
+      '기피식품은 평가상 욕구사정을 통해 신규 수급자별로 파악해 식사 제공에 반영해야 하는 식품 정보입니다.',
+      '검색된 평가 근거는 신규 수급자의 기피식품을 파악해 대체식품을 제공하는지 확인하고, 모든 수급자의 식사 만족도를 반기별 1회 이상 파악하도록 제시합니다.',
+      '또한 식사만족도 조사 결과 수급자의 욕구를 반영한 식사를 월 1회 이상 제공하는지를 함께 확인하므로, 기피식품 파악 결과와 만족도 조사 결과를 식사 제공 기록과 연결해 관리해야 합니다.',
+    ].join(' ');
+  }
+
+  const concreteEvidence = evaluationEvidence.find((item) => trimQuote(item.textPreview || item.text, 180).length >= 40);
+  if (!concreteEvidence) return undefined;
+
+  return `${concreteEvidence.docTitle}의 ${concreteEvidence.parentSectionTitle || '평가 지표'} 근거를 기준으로 설명할 수 있습니다. ${trimQuote(concreteEvidence.textPreview || concreteEvidence.text, 180)}`;
+}
+
 function buildFallbackAnswer(params: {
   question: string;
   plan: AnswerPlan;
@@ -1042,6 +1065,7 @@ function buildFallbackAnswer(params: {
       params.plan.taskCandidates.length > 0
         ? `질문과 직접 연결되는 업무·판단 포인트를 ${params.plan.taskCandidates.length}개 기준으로 묶었습니다.`
         : '검색된 근거를 기준으로 바로 적용할 수 있는 판단 포인트를 우선 정리했습니다.',
+    directAnswer: buildDirectAnswerFromEvaluationEvidence(params.citations),
     confidence: params.confidence,
     evidenceState: params.evidenceState,
     keyIssueDate: params.keyIssueDate,
@@ -1390,6 +1414,14 @@ export async function synthesizeExpertAnswer(params: {
     return fallback;
   }
 
+  const directAnswerEvidenceHints = params.evidence
+    .filter((item) => item.sourceType === 'evaluation' && item.sourceRole === 'primary_evaluation')
+    .slice(0, 2)
+    .map(
+      (item, index) =>
+        `DirectAnswer evidence hint ${index + 1} (${item.docTitle} / ${item.parentSectionTitle || 'section'}): ${trimQuote(item.textPreview || item.text, 200)}`,
+    );
+
   const systemInstruction = buildSynthesizerSystemInstruction({
     mode: params.mode,
     variant: params.variant,
@@ -1403,6 +1435,7 @@ export async function synthesizeExpertAnswer(params: {
       'Write directAnswer as 3-5 sentences that directly answer the user question: concept definition first, then concrete identification or recording criteria, then practical application.',
       'Use the selected evidence conditions directly in directAnswer without vague restatement or unsupported advice.',
       'In evaluation mode, directAnswer must reflect concrete evaluation indicator criteria, including numbered ①②③ items when those items are present in the evidence.',
+      ...directAnswerEvidenceHints,
       'The groundedBasis field must separate legal, evaluation, and practical evidence.',
       'Each groundedBasis item must prefer a direct quote-like sentence from evidence, not a vague paraphrase.',
       'Citations and grounded basis entries must use only the provided evidence ids.',

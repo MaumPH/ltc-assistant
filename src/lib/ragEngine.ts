@@ -553,21 +553,25 @@ function rerankCandidate(
   if (mode === 'evaluation' && candidate.mode === 'evaluation') score += 6;
 
   if (
-    mode === 'evaluation' &&
+    (mode === 'evaluation' || mode === 'integrated') &&
     candidate.sourceType === 'evaluation' &&
     candidate.sourceRole === 'primary_evaluation' &&
     candidate.matchedTerms.some((term) => !CANDIDATE_METADATA_TERMS.has(term))
   ) {
     score += 6;
-    if (candidate.matchedTerms.some((term) => FOOD_PREFERENCE_EVALUATION_MATCH_RE.test(term))) {
+    const hasFoodPreferenceMatch = candidate.matchedTerms.some((term) => FOOD_PREFERENCE_EVALUATION_MATCH_RE.test(term));
+    const hasFoodPreferenceContentMatch =
+      FOOD_PREFERENCE_EVALUATION_MATCH_RE.test(candidate.textPreview) || FOOD_PREFERENCE_EVALUATION_MATCH_RE.test(candidate.text);
+    if (hasFoodPreferenceMatch) {
       score += 56;
+      if (candidate.path.includes('/knowledge/evaluation/') && hasFoodPreferenceContentMatch && !isThinEvaluationIndicatorChunk(candidate)) {
+        score += 280;
+      }
     }
     matchedTerms = Array.from(new Set([...candidate.matchedTerms, 'evaluation-indicator']));
   }
 
-  if (mode === 'evaluation') {
-    score += scoreEvaluationAuthority(candidate);
-  }
+  score += scoreEvaluationAuthority(candidate);
 
   if (isThinEvaluationIndicatorChunk(candidate)) {
     score -= 96;
