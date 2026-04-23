@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { inferBasisBucketFromChunk } from './brain';
+import { isRecipientOnboardingWorkflowQuery } from './ragNaturalQuery';
 import type {
   BasisBucketKey,
   ClaimCoverage,
@@ -288,6 +289,113 @@ function buildClaimSupportAnchors(params: {
   ]).filter((anchor) => !isGenericSupportAnchor(anchor));
 }
 
+interface WorkflowFacetDefinition {
+  id: string;
+  subject: string;
+  object: string;
+  anchors: string[];
+  buckets: BasisBucketKey[];
+}
+
+const RECIPIENT_ONBOARDING_WORKFLOW_FACETS: WorkflowFacetDefinition[] = [
+  {
+    id: 'contract',
+    subject: '수급자 정보 확인 및 장기요양급여 제공계약',
+    object: '급여 개시 전 계약과 본인 여부, 등급, 인정 유효기간, 개인별장기요양이용계획서 확인',
+    anchors: [
+      '장기요양급여 제공계약',
+      '계약서',
+      '장기요양급여 개시 전',
+      '본인 여부',
+      '장기요양등급',
+      '장기요양인정 유효기간',
+      '개인별장기요양이용계획서',
+      '시행규칙 제16조',
+      '제16조',
+    ],
+    buckets: ['legal'],
+  },
+  {
+    id: 'care-plan',
+    subject: '장기요양급여 제공 계획서 작성 및 통보',
+    object: '급여 제공 시작 전 계획서 작성, 설명, 확인서명, 공단 통보',
+    anchors: [
+      '장기요양급여 제공 계획서',
+      '급여제공계획',
+      '급여제공계획서',
+      '제공을 시작하기 전에',
+      '수급자 또는 보호자에게 설명',
+      '확인 서명',
+      '공단에 통보',
+      '시행령 제13조',
+      '제13조',
+      '시행규칙 제21조의2',
+    ],
+    buckets: ['legal', 'evaluation'],
+  },
+  {
+    id: 'initial-assessment',
+    subject: '초기 욕구사정 및 위험도 평가',
+    object: '급여제공 시작일까지 욕구사정, 낙상평가, 욕창평가, 인지기능 평가 실시',
+    anchors: [
+      '욕구사정',
+      '낙상평가',
+      '낙상 위험도',
+      '욕창평가',
+      '욕창 위험도',
+      '인지기능 평가',
+      '위험도평가',
+      '급여제공 시작일까지',
+      '신규수급자는',
+      '해당급여 직원이 대면',
+    ],
+    buckets: ['evaluation'],
+  },
+  {
+    id: 'food-preference',
+    subject: '기피식품 파악',
+    object: '급여제공 시작일까지 종교, 건강, 비선호 등으로 섭취하기 어려운 식재료 파악',
+    anchors: [
+      '기피식품',
+      '기피식품 파악',
+      '영양상태',
+      '식사제공 유의사항',
+      '섭취하기 어려운 식재료',
+      '급여제공 시작일까지',
+    ],
+    buckets: ['evaluation'],
+  },
+];
+
+function buildRecipientOnboardingWorkflowClaims(params: {
+  question: string;
+  semanticFrame: SemanticFrame;
+  subject: string;
+}): ClaimPlanItem[] {
+  if (params.semanticFrame.primaryIntent !== 'workflow' || !isRecipientOnboardingWorkflowQuery(params.question)) {
+    return [];
+  }
+
+  const serviceScopeAnchors = collectSlotValues(params.semanticFrame, 'service_scope');
+  return RECIPIENT_ONBOARDING_WORKFLOW_FACETS.map((facet) => ({
+    id: `claim-workflow-${facet.id}`,
+    claimType: 'workflow_step',
+    canonicalSubject: facet.subject,
+    predicate: 'follows-step',
+    object: facet.object,
+    requiredEvidenceTypes: facet.buckets,
+    supportAnchors: uniqueStrings([
+      facet.subject,
+      facet.object,
+      ...facet.anchors,
+      ...serviceScopeAnchors,
+    ]).filter((anchor) => !isGenericSupportAnchor(anchor)),
+    supportBucketHints: facet.buckets,
+    supportingEvidenceIds: [],
+    assumptions: [],
+  }));
+}
+
 function buildChunkSupportFields(chunk: StructuredChunk): Array<{ weight: number; value: string }> {
   return [
     { weight: 3.2, value: chunk.docTitle },
@@ -347,8 +455,8 @@ function analyzeClaimEvidenceSupport(
       const bucket = inferBasisBucketFromChunk(chunk);
       if (claim.supportBucketHints.includes(bucket)) score += 1.2;
       if (isLegalSourceType(chunk.sourceType) && claim.claimType === 'cost') score += 1.8;
-      if (claim.claimType === 'workflow' && chunk.sourceRole === 'primary_evaluation') score += 2.2;
-      if (claim.claimType === 'workflow' && bucket === 'evaluation') score += 1.4;
+      if ((claim.claimType === 'workflow' || claim.claimType === 'workflow_step') && chunk.sourceRole === 'primary_evaluation') score += 2.2;
+      if ((claim.claimType === 'workflow' || claim.claimType === 'workflow_step') && bucket === 'evaluation') score += 1.4;
       if (claim.claimType === 'compliance' && isLegalSourceType(chunk.sourceType)) score += 1.4;
       if (claim.claimType === 'document' && chunk.articleNo) score += 0.8;
 
@@ -468,7 +576,9 @@ export function buildClaimPlan(params: {
         ? ['legal', 'practical']
         : params.semanticFrame.primaryIntent === 'cost'
           ? ['legal']
-          : ['legal', 'evaluation', 'practical'],
+          : params.semanticFrame.primaryIntent === 'workflow'
+            ? ['evaluation', 'practical']
+            : ['legal', 'evaluation', 'practical'],
     ),
     supportAnchors: buildClaimSupportAnchors({
       semanticFrame: params.semanticFrame,
@@ -480,6 +590,14 @@ export function buildClaimPlan(params: {
     assumptions: params.semanticFrame.assumptions,
   };
   mainClaim.supportingEvidenceIds = analyzeClaimEvidenceSupport(mainClaim, params.semanticFrame, params.evidence).supportedEvidenceIds;
+  const workflowStepClaims = buildRecipientOnboardingWorkflowClaims({
+    question: params.question,
+    semanticFrame: params.semanticFrame,
+    subject,
+  });
+  for (const claim of workflowStepClaims) {
+    claim.supportingEvidenceIds = analyzeClaimEvidenceSupport(claim, params.semanticFrame, params.evidence).supportedEvidenceIds;
+  }
 
   const assumptionClaims: ClaimPlanItem[] = params.semanticFrame.assumptions.map((assumption, index) => ({
     id: `claim-assumption-${index + 1}`,
@@ -495,7 +613,7 @@ export function buildClaimPlan(params: {
   }));
 
   return {
-    claims: [mainClaim, ...assumptionClaims],
+    claims: [mainClaim, ...workflowStepClaims, ...assumptionClaims],
   };
 }
 
@@ -705,7 +823,7 @@ export function evaluateRetrievalValidation(params: {
     if (!detail || detail.status !== 'unsupported') continue;
     issues.push({
       code: 'unsupported-claim',
-      severity: 'warning',
+      severity: claim.claimType === 'workflow' || claim.claimType === 'workflow_step' ? 'info' : 'warning',
       message: `No direct supporting evidence was found for ${claim.canonicalSubject} -> ${claim.predicate}.`,
       claimId: claim.id,
     });

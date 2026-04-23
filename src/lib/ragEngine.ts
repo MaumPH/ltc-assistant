@@ -571,7 +571,10 @@ function rerankCandidate(
     matchedTerms = Array.from(new Set([...candidate.matchedTerms, 'evaluation-indicator']));
   }
 
-  score += scoreEvaluationAuthority(candidate);
+  const evaluationAuthorityScore = scoreEvaluationAuthority(candidate);
+  score += options?.retrievalPriorityClass === 'legal_judgment'
+    ? Math.min(evaluationAuthorityScore, 8)
+    : evaluationAuthorityScore;
 
   if (isThinEvaluationIndicatorChunk(candidate)) {
     score -= 96;
