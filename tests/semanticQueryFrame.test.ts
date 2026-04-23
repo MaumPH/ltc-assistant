@@ -48,3 +48,13 @@ test('selected service scope label fills service scope slot for short staffing q
     ),
   );
 });
+
+test('food preference evaluation questions stay in workflow intent', () => {
+  const question = '\uAE30\uD53C\uC2DD\uD488\uACFC \uC2DD\uD488\uC120\uD638\uB3C4 \uC870\uC0AC\uC5D0 \uB300\uD574 \uC124\uBA85\uD574';
+  const profile = buildNaturalLanguageQueryProfile(question);
+
+  assert.equal(profile.queryType, 'checklist');
+  assert.equal(profile.semanticFrame.primaryIntent, 'workflow');
+  assert.ok(profile.searchVariants.includes('식사만족도'));
+  assert.ok(profile.searchVariants.includes('대체식품'));
+});

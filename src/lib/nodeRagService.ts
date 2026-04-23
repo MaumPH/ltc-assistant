@@ -229,6 +229,7 @@ interface StoredLawFallbackRow {
 interface DiskKnowledgeState {
   fingerprint: string;
   files: KnowledgeFile[];
+  chunks: StructuredChunk[];
   manifestEntries: IndexManifestEntry[];
   issues: KnowledgeDoctorIssue[];
 }
@@ -3054,6 +3055,8 @@ export class NodeRagService {
   private readonly embeddingAi: GoogleGenAI | null;
   private readonly generationMode: GenerationMode;
   private ontologyGraph: OntologyGraph | null = null;
+  private diskOverlayChunks: StructuredChunk[] = [];
+  private diskOverlayIndex: RagCorpusIndex = buildRagCorpusIndex([]);
   private fallbackChunks: StructuredChunk[] = [];
   private workflowBriefs: WorkflowBrief[] = [];
   private diskFiles: KnowledgeFile[] = [];

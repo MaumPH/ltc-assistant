@@ -104,6 +104,13 @@ const LAW_ALIAS_ENTRIES: LawAliasEntry[] = [
   },
 ];
 
+const FOOD_PREFERENCE_EVALUATION_RE =
+  /기피\s*식품|기피식품|식품\s*선호|식품선호|선호도\s*조사|식사\s*만족|식사만족|희망\s*식사|희망식사|대체\s*식품|대체식품|대체\s*식단|대체식단|욕구\s*사정|욕구사정|식사\s*\(?간식\)?|식사간식|급식|식단표|영양사/u;
+
+function isFoodPreferenceEvaluationQuery(query: string): boolean {
+  return FOOD_PREFERENCE_EVALUATION_RE.test(query);
+}
+
 const QUERY_TYPE_PATTERNS: Array<{ type: NaturalLanguageQueryType; patterns: RegExp[] }> = [
   { type: 'comparison', patterns: [/차이/u, /비교/u, /구분/u, /\bvs\b/i] },
   { type: 'checklist', patterns: [/체크리스트/u, /뭐\s*준비/u, /무엇\s*준비/u, /확인사항/u, /챙겨/u] },
@@ -116,6 +123,10 @@ const QUERY_TYPE_PATTERNS: Array<{ type: NaturalLanguageQueryType; patterns: Reg
 ];
 
 const QUERY_TERM_EXPANSIONS: Array<{ triggers: string[]; expansions: string[] }> = [
+  {
+    triggers: ['기피식품', '식품선호', '식품선호도', '선호도 조사', '식사만족도', '식사 만족도'],
+    expansions: ['기피식품', '식사만족도', '식사 만족도', '희망 식사', '대체식품', '대체 식품', '욕구사정', '식사간식'],
+  },
   { triggers: ['뭐야', '무엇', '정의', '개념', '뜻'], expansions: ['정의', '개념', '무엇인가'] },
   { triggers: ['뭐 준비', '무엇 준비', '챙겨'], expansions: ['체크리스트', '확인사항', '준비서류'] },
   { triggers: ['어떻게', '방법', '절차'], expansions: ['절차', '방법', '순서'] },
@@ -391,6 +402,7 @@ function inferNaturalLanguagePrimaryIntent(query: string, queryType: NaturalLang
   const eligibilityCue = hasEligibilityCue(query);
   const complianceCue = hasComplianceCue(query);
 
+  if (isFoodPreferenceEvaluationQuery(query)) return 'workflow';
   if (/예외|감경|면제|제외|단서/u.test(query)) return 'exception';
   if (/본인부담|비용|금액|수가|본인부담금/u.test(query)) return 'cost';
   if (/제재|처분|위반|벌점/u.test(query)) return 'sanction';
@@ -409,6 +421,8 @@ function inferNaturalLanguagePrimaryIntent(query: string, queryType: NaturalLang
 }
 
 export function inferNaturalLanguageQueryType(query: string): NaturalLanguageQueryType {
+  if (isFoodPreferenceEvaluationQuery(query)) return 'checklist';
+
   for (const entry of QUERY_TYPE_PATTERNS) {
     if (entry.patterns.some((pattern) => pattern.test(query))) {
       return entry.type;

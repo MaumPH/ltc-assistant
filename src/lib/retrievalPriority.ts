@@ -98,6 +98,8 @@ export const INTENT_PRIORITY_MATRIX: Record<RetrievalPriorityClass, RetrievalPri
 
 const EVALUATION_READINESS_RE =
   /평가|인정|불인정|평가대응|평가예정통보|지표|현장|언제까지\s*기록|무엇을\s*확인|확인사항|증빙/u;
+const FOOD_PREFERENCE_EVALUATION_RE =
+  /기피\s*식품|기피식품|식품\s*선호|식품선호|선호도\s*조사|식사\s*만족|식사만족|희망\s*식사|희망식사|대체\s*식품|대체식품|대체\s*식단|대체식단|욕구\s*사정|욕구사정|식사\s*\(?간식\)?|식사간식|급식|식단표|영양사/u;
 const DOCUMENT_LOOKUP_RE =
   /문서|자료|매뉴얼|Q&A|고시|법|시행규칙|시행령|별표|조항|서식|어디\s*보면|찾아/u;
 const LEGAL_REFERENCE_RE = /법|시행규칙|시행령|고시|조|항|호|별표/u;
@@ -107,7 +109,7 @@ function looksLikeDocumentLookup(query: string): boolean {
 }
 
 function hasEvaluationReadinessCue(query: string): boolean {
-  return EVALUATION_READINESS_RE.test(query);
+  return EVALUATION_READINESS_RE.test(query) || FOOD_PREFERENCE_EVALUATION_RE.test(query);
 }
 
 function looksLikeLegalJudgment(query: string, profile: NaturalLanguageQueryProfile): boolean {
