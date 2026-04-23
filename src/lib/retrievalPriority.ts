@@ -5,6 +5,7 @@ import type {
   SearchCandidate,
   SourceType,
 } from './ragTypes';
+import { isRecipientOnboardingWorkflowQuery } from './ragNaturalQuery';
 
 export interface RetrievalPriorityPolicy {
   priorityClass: RetrievalPriorityClass;
@@ -140,6 +141,7 @@ export function inferRetrievalPriorityClass(params: {
   }
 
   if (params.mode === 'evaluation') {
+    if (isRecipientOnboardingWorkflowQuery(normalizedQuery)) return 'evaluation_readiness';
     return looksLikeLegalJudgment(normalizedQuery, params.queryProfile) ? 'legal_judgment' : 'evaluation_readiness';
   }
 
@@ -163,7 +165,7 @@ function isLegalSource(sourceType: SourceType): boolean {
 }
 
 export function isEvaluationLinkedWorkflowQuery(query: string): boolean {
-  return hasEvaluationReadinessCue(query);
+  return hasEvaluationReadinessCue(query) || isRecipientOnboardingWorkflowQuery(query);
 }
 
 export function scoreCandidateByPriority(params: {

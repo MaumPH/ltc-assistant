@@ -3,10 +3,10 @@ import { buildEvidenceBalance, describeHybridReadiness, inferAgentDecision } fro
 import { compareIndexStatus } from '../src/lib/ragIndex';
 import { buildRagCorpusIndex, searchCorpus } from '../src/lib/ragEngine';
 import { detectPromptInjectionSignals } from '../src/lib/ragGuardrails';
-import { buildNaturalLanguageQueryProfile } from '../src/lib/ragNaturalQuery';
+import { buildNaturalLanguageQueryProfile, enrichQueryProfileWithServiceScopeLabels } from '../src/lib/ragNaturalQuery';
 import { applyRetrievalFeatureOverrides, getRetrievalFeatureFlags, getRetrievalProfile } from '../src/lib/ragProfiles';
 import { inferRetrievalPriorityClass, INTENT_PRIORITY_MATRIX } from '../src/lib/retrievalPriority';
-import { evaluateRetrievalValidation } from '../src/lib/ragSemanticValidation';
+import { buildClaimPlan, evaluateRetrievalValidation } from '../src/lib/ragSemanticValidation';
 import { buildPlannerSystemInstruction } from '../src/lib/promptAssembly';
 import { buildServiceScopeDocumentBoosts, parseServiceScopes } from '../src/lib/serviceScopes';
 import type { StructuredChunk } from '../src/lib/ragTypes';
@@ -513,6 +513,34 @@ function testRetrievalPriorityClassInference() {
   );
 }
 
+function testRecipientOnboardingQueryBuildsWorkflowFacetPlan() {
+  const query = '신규수급자가 오면 해야할 업무는?';
+  const queryProfile = enrichQueryProfileWithServiceScopeLabels(
+    buildNaturalLanguageQueryProfile(query),
+    ['주야간보호'],
+  );
+
+  assert.equal(queryProfile.queryType, 'checklist');
+  assert.equal(queryProfile.semanticFrame.primaryIntent, 'workflow');
+  assert.deepEqual(queryProfile.semanticFrame.missingCriticalSlots, []);
+
+  const claimPlan = buildClaimPlan({
+    question: query,
+    semanticFrame: queryProfile.semanticFrame,
+    evidence: [],
+  });
+  const workflowStepIds = claimPlan.claims
+    .filter((claim) => claim.claimType === 'workflow_step')
+    .map((claim) => claim.id);
+
+  assert.deepEqual(workflowStepIds, [
+    'claim-workflow-contract',
+    'claim-workflow-care-plan',
+    'claim-workflow-initial-assessment',
+    'claim-workflow-food-preference',
+  ]);
+}
+
 function testLegalPriorityBoostsNoticeOverEvaluationManual() {
   const query = '주야간보호 본인부담금 얼마야';
   const priorityClass = inferRetrievalPriorityClass({
@@ -625,6 +653,7 @@ testCostReferenceLookupBuildsSupportedClaimWithoutScopeFalsePositive();
 testEvaluationWorkflowClaimGetsDirectSupportFromPrimaryManual();
 testNonLegalScopeMismatchStillFlagsMixedScope();
 testRetrievalPriorityClassInference();
+testRecipientOnboardingQueryBuildsWorkflowFacetPlan();
 testLegalPriorityBoostsNoticeOverEvaluationManual();
 testEvaluationPriorityBoostsPrimaryManualOverGuide();
 

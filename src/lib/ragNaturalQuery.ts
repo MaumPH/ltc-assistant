@@ -115,6 +115,25 @@ function hasDefinitionExplanationSignal(query: string): boolean {
   return /설명|이란\s*(뭐|무엇|어떤)|뭔가요|의미가|뜻이/u.test(query);
 }
 
+function hasDefinitionQuerySignal(query: string): boolean {
+  return /뭐야|무엇|정의|개념|뜻|설명|이란|뭔가요|의미/u.test(query);
+}
+
+export function isRecipientOnboardingWorkflowQuery(query: string): boolean {
+  const compact = query.replace(/\s+/g, '');
+  const recipientContext = /신규\s*수급자|새\s*수급자|수급자|어르신|보호자/u.test(query);
+  const onboardingContext =
+    /신규|새\s*수급자|입소\s*초기|계약\s*초기|급여\s*제공\s*시작|처음|오면|왔을\s*때|처음\s*오/u.test(query) ||
+    /신규수급자|입소초기|계약초기|급여제공시작|오면|왔을때|처음/u.test(compact);
+  const workCue =
+    /해야\s*할|해야하는|해야\s*되는|할\s*일|업무|절차|체크리스트|준비|챙겨|무엇|뭐/u.test(query) ||
+    /해야할|해야하는|해야되는|할일/u.test(compact);
+  const explicitEligibilityOnly =
+    /대상|자격|가능한\s*사람|누가|신청\s*자격|이용\s*대상/u.test(query) && !workCue;
+
+  return recipientContext && onboardingContext && workCue && !explicitEligibilityOnly;
+}
+
 const QUERY_TYPE_PATTERNS: Array<{ type: NaturalLanguageQueryType; patterns: RegExp[] }> = [
   { type: 'comparison', patterns: [/차이/u, /비교/u, /구분/u, /\bvs\b/i] },
   { type: 'checklist', patterns: [/체크리스트/u, /뭐\s*준비/u, /무엇\s*준비/u, /확인사항/u, /챙겨/u] },
@@ -387,7 +406,7 @@ function looksLikeExplicitDocumentLookup(query: string): boolean {
 }
 
 function hasEligibilityCue(query: string): boolean {
-  return /누가|대상자?|자격|해당자|신청\s*자격|이용\s*대상|수급자|가능한\s*사람/u.test(query);
+  return /누가|대상자?|자격|해당자|신청\s*자격|이용\s*대상|수급자\s*(대상|자격|조건|가능)|가능한\s*사람/u.test(query);
 }
 
 function hasComplianceCue(query: string): boolean {
@@ -398,7 +417,7 @@ function hasComplianceCue(query: string): boolean {
 }
 
 function hasWorkflowCue(query: string): boolean {
-  return /작성|수립|절차|순서|진행|신고/u.test(query);
+  return /작성|수립|절차|순서|진행|신고|업무|할\s*일|체크리스트/u.test(query);
 }
 
 function inferNaturalLanguagePrimaryIntent(query: string, queryType: NaturalLanguageQueryType): SemanticPrimaryIntent {
@@ -406,6 +425,8 @@ function inferNaturalLanguagePrimaryIntent(query: string, queryType: NaturalLang
   const eligibilityCue = hasEligibilityCue(query);
   const complianceCue = hasComplianceCue(query);
 
+  if (queryType === 'definition' && hasDefinitionQuerySignal(query)) return 'definition';
+  if (isRecipientOnboardingWorkflowQuery(query)) return 'workflow';
   if (isFoodPreferenceEvaluationQuery(query)) {
     if (hasDefinitionExplanationSignal(query)) return 'definition';
     return 'workflow';
@@ -432,6 +453,7 @@ export function inferNaturalLanguageQueryType(query: string): NaturalLanguageQue
     if (hasDefinitionExplanationSignal(query)) return 'definition';
     return 'checklist';
   }
+  if (isRecipientOnboardingWorkflowQuery(query)) return 'checklist';
 
   for (const entry of QUERY_TYPE_PATTERNS) {
     if (entry.patterns.some((pattern) => pattern.test(query))) {
@@ -665,8 +687,11 @@ function buildCriticalSlotList(primaryIntent: SemanticPrimaryIntent): SemanticSl
   if (primaryIntent === 'cost') {
     return ['service_scope', 'recipient_grade'];
   }
-  if (primaryIntent === 'document' || primaryIntent === 'workflow') {
+  if (primaryIntent === 'document') {
     return ['service_scope', 'document_type'];
+  }
+  if (primaryIntent === 'workflow') {
+    return ['service_scope'];
   }
   if (primaryIntent === 'exception') {
     return ['exception_context', 'service_scope'];

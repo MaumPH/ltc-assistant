@@ -107,7 +107,9 @@ import type {
   BackendReadinessItem,
   CacheHitSummary,
   BenchmarkCase,
+  BasisBucketKey,
   CandidateDiagnostic,
+  ClaimPlanItem,
   ClaimCoverage,
   ExpertAnswerEnvelope,
   ChatCapabilities,
@@ -1116,24 +1118,35 @@ function buildOperationalDocumentBoosts(chunks: StructuredChunk[], query: string
     return new Map<string, number>();
   }
 
-  const signals: Array<{ term: string; weight: number }> = [
-    { term: '신규수급자', weight: 18 },
-    { term: '급여제공시작일부터14일이내', weight: 18 },
-    { term: '8가지지침', weight: 18 },
-    { term: '욕창예방', weight: 6 },
-    { term: '낙상예방', weight: 6 },
-    { term: '탈수예방', weight: 6 },
-    { term: '배변도움', weight: 6 },
-    { term: '관절구축예방', weight: 6 },
-    { term: '치매예방', weight: 6 },
-    { term: '감염예방', weight: 6 },
-    { term: '노인인권보호', weight: 6 },
-    { term: '기피식품', weight: 8 },
-    { term: '급여제공계획', weight: 8 },
-    { term: '공단통보', weight: 8 },
+  const facets: Array<{ id: string; terms: string[]; weight: number }> = [
+    {
+      id: 'contract',
+      terms: ['장기요양급여제공계약', '계약서', '장기요양급여개시전', '본인여부', '장기요양등급', '개인별장기요양이용계획서', '제16조'],
+      weight: 18,
+    },
+    {
+      id: 'care-plan',
+      terms: ['장기요양급여제공계획서', '급여제공계획', '제공을시작하기전에', '확인서명', '공단에통보', '제13조', '제21조의2'],
+      weight: 18,
+    },
+    {
+      id: 'assessment',
+      terms: ['욕구사정', '낙상평가', '낙상위험도', '욕창평가', '욕창위험도', '인지기능평가', '급여제공시작일까지', '신규수급자'],
+      weight: 18,
+    },
+    {
+      id: 'food-preference',
+      terms: ['기피식품', '기피식품파악', '영양상태', '식사제공유의사항', '섭취하기어려운식재료'],
+      weight: 14,
+    },
+    {
+      id: 'guidance',
+      terms: ['8가지지침', '욕창예방', '낙상예방', '탈수예방', '배변도움', '관절구축예방', '치매예방', '감염예방', '노인인권보호'],
+      weight: 8,
+    },
   ];
   const scoreByDocument = new Map<string, number>();
-  const matchedSignalsByDocument = new Map<string, Set<string>>();
+  const matchedFacetsByDocument = new Map<string, Set<string>>();
 
   for (const chunk of chunks) {
     if (chunk.sourceRole === 'routing_summary') continue;
@@ -1144,28 +1157,33 @@ function buildOperationalDocumentBoosts(chunks: StructuredChunk[], query: string
       compactTitle.includes('평가매뉴얼') || compactTitle.includes('업무의이해')
         ? 8
         : 0;
-    const matchedSignals = matchedSignalsByDocument.get(chunk.documentId) ?? new Set<string>();
+    const matchedFacets = matchedFacetsByDocument.get(chunk.documentId) ?? new Set<string>();
 
-    for (const signal of signals) {
-      if (compactSearchText.includes(signal.term) || compactTitle.includes(signal.term)) {
-        matchedSignals.add(signal.term);
+    for (const facet of facets) {
+      if (facet.terms.some((term) => compactSearchText.includes(term) || compactTitle.includes(term))) {
+        matchedFacets.add(facet.id);
       }
     }
 
-    matchedSignalsByDocument.set(chunk.documentId, matchedSignals);
+    matchedFacetsByDocument.set(chunk.documentId, matchedFacets);
     if (titleBonus > 0) {
       scoreByDocument.set(chunk.documentId, Math.max(scoreByDocument.get(chunk.documentId) ?? 0, titleBonus));
     }
   }
 
-  const rankedDocuments = Array.from(matchedSignalsByDocument.entries())
-    .map(([documentId, matchedSignals]) => ({
-      documentId,
-      score:
-        (scoreByDocument.get(documentId) ?? 0) +
-        Array.from(matchedSignals).reduce((sum, signal) => sum + (signals.find((item) => item.term === signal)?.weight ?? 0), 0),
-    }))
-    .filter((entry) => entry.score >= 18)
+  const rankedDocuments = Array.from(matchedFacetsByDocument.entries())
+    .map(([documentId, matchedFacets]) => {
+      const facetIds = Array.from(matchedFacets);
+      return {
+        documentId,
+        facetIds,
+        score:
+          (scoreByDocument.get(documentId) ?? 0) +
+          facetIds.length * 10 +
+          facetIds.reduce((sum, facetId) => sum + (facets.find((item) => item.id === facetId)?.weight ?? 0), 0),
+      };
+    })
+    .filter((entry) => entry.score >= 22 && (entry.facetIds.length >= 2 || !entry.facetIds.includes('guidance')))
     .sort((left, right) => right.score - left.score)
     .slice(0, 6);
 
@@ -1611,6 +1629,12 @@ function mergeSearchRuns(base: SearchRun, extra: SearchRun): SearchRun {
   };
 }
 
+function isLegalTableOfContentsCandidate(candidate: SearchCandidate): boolean {
+  if (!['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType)) return false;
+  const haystack = `${candidate.parentSectionTitle} ${candidate.textPreview}`;
+  return candidate.articleNo === '제1조' && /제2조.+제3조.+제4조.+제5조/u.test(haystack);
+}
+
 function filterEvidenceByServiceScopes(
   evidence: SearchRun['evidence'],
   serviceScopes: readonly ServiceScopeId[],
@@ -1618,6 +1642,8 @@ function filterEvidenceByServiceScopes(
   if (serviceScopes.every((scope) => scope === 'all')) return evidence;
 
   const filtered = evidence.filter((candidate) =>
+    ['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType) ||
+    candidate.sourceRole === 'primary_evaluation' ||
     isChunkCompatibleWithServiceScopes(candidate, serviceScopes),
   );
   if (filtered.length === 0) return evidence;
@@ -1625,7 +1651,20 @@ function filterEvidenceByServiceScopes(
   const selectedScopeEvidence = filtered.filter((candidate) =>
     chunkMatchesSelectedServiceScopes(candidate, serviceScopes),
   );
-  return selectedScopeEvidence.length >= 3 ? selectedScopeEvidence : filtered;
+  if (selectedScopeEvidence.length < 3) return filtered;
+
+  const legalSupportEvidence = filtered.filter(
+    (candidate) => ['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType) && !isLegalTableOfContentsCandidate(candidate),
+  );
+  const selectedIds = new Set(selectedScopeEvidence.map((candidate) => candidate.id));
+  const primaryEvaluationEvidence = filtered.filter(
+    (candidate) => candidate.sourceRole === 'primary_evaluation' && !selectedIds.has(candidate.id),
+  );
+  return [
+    ...legalSupportEvidence.filter((candidate) => !selectedIds.has(candidate.id)).slice(0, 3),
+    ...primaryEvaluationEvidence.slice(0, 6),
+    ...selectedScopeEvidence,
+  ].sort((left, right) => right.rerankScore - left.rerankScore);
 }
 
 function applyServiceScopeEvidenceGate(search: SearchRun, serviceScopes: readonly ServiceScopeId[]): SearchRun {
@@ -1648,7 +1687,12 @@ function prioritizeConcreteFocusEvidence(search: SearchRun, focusSources: string
 
   const concreteEvidence = search.evidence.filter((candidate) => {
     const focusMatches = getCandidateFocusMatches(candidate, focusTerms).filter((term) => !isGenericQueryTerm(term));
-    return focusMatches.length >= 1 && candidate.lexicalScore > 0;
+    return (
+      focusMatches.length >= 1 &&
+      (candidate.lexicalScore > 0 ||
+        candidate.exactScore > 0 ||
+        ['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType))
+    );
   });
   if (concreteEvidence.length < 3) return search;
 
@@ -1678,6 +1722,164 @@ function applyIntentEvidenceGate(
   const prioritized = evidence.filter((candidate) => classifyPriorityBucket(candidate) === dominantBucket);
   const remainder = evidence.filter((candidate) => classifyPriorityBucket(candidate) !== dominantBucket);
   return [...prioritized, ...remainder];
+}
+
+function normalizeWorkflowFacetText(value: string): string {
+  return value
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/[()[\]{}"'`.,:;!?/\\|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function compactWorkflowFacetText(value: string): string {
+  return normalizeWorkflowFacetText(value).replace(/\s+/g, '');
+}
+
+function buildWorkflowFacetCandidateText(candidate: SearchCandidate): string {
+  return [
+    candidate.docTitle,
+    candidate.parentSectionTitle,
+    candidate.sectionPath.join(' '),
+    candidate.matchedLabels.join(' '),
+    candidate.searchText,
+    candidate.textPreview,
+    candidate.text,
+  ].join(' ');
+}
+
+function inferCandidateBasisBucket(candidate: SearchCandidate): BasisBucketKey {
+  if (['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType)) return 'legal';
+  if (candidate.mode === 'evaluation' || candidate.sourceRole === 'primary_evaluation' || candidate.sourceRole === 'support_reference') {
+    return 'evaluation';
+  }
+  return 'practical';
+}
+
+function getWorkflowFacetAnchorMatches(claim: ClaimPlanItem, candidate: SearchCandidate): string[] {
+  const normalizedText = normalizeWorkflowFacetText(buildWorkflowFacetCandidateText(candidate));
+  const compactText = compactWorkflowFacetText(buildWorkflowFacetCandidateText(candidate));
+  return uniqueNonEmptyLines(claim.supportAnchors).filter((anchor) => {
+    const normalizedAnchor = normalizeWorkflowFacetText(anchor);
+    const compactAnchor = compactWorkflowFacetText(anchor);
+    if (normalizedAnchor.length < 2) return false;
+    if (
+      /제\d+조(?:의\d+)?/u.test(anchor) &&
+      !['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType)
+    ) {
+      return false;
+    }
+    return normalizedText.includes(normalizedAnchor) || (compactAnchor.length >= 2 && compactText.includes(compactAnchor));
+  });
+}
+
+function extractWorkflowFacetArticleAnchors(claim: ClaimPlanItem): string[] {
+  return uniqueNonEmptyLines(
+    claim.supportAnchors.flatMap((anchor) => anchor.match(/제\d+조(?:의\d+)?/gu) ?? []),
+  );
+}
+
+function scoreWorkflowFacetCandidate(claim: ClaimPlanItem, candidate: SearchCandidate): number {
+  const matches = getWorkflowFacetAnchorMatches(claim, candidate);
+  if (matches.length === 0) return 0;
+  let score = matches.length * 6 + candidate.rerankScore / 12 + candidate.lexicalScore / 6 + candidate.exactScore / 4;
+  if (claim.supportBucketHints.includes(inferCandidateBasisBucket(candidate))) score += 8;
+  const articleAnchors = extractWorkflowFacetArticleAnchors(claim);
+  if (articleAnchors.length > 0 && ['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType)) {
+    if (candidate.articleNo && articleAnchors.includes(candidate.articleNo)) {
+      score += 24;
+    } else {
+      score -= 64;
+    }
+  }
+  if (candidate.sourceRole === 'primary_evaluation') score += 4;
+  if (candidate.sourceRole === 'routing_summary') score -= 12;
+  return score;
+}
+
+function selectWorkflowFacetCandidates(
+  claim: ClaimPlanItem,
+  search: SearchRun,
+  serviceScopes: readonly ServiceScopeId[],
+  limit = 2,
+): SearchCandidate[] {
+  const seen = new Set<string>();
+  return [...search.evidence, ...search.fusedCandidates]
+    .filter((candidate) => {
+      if (seen.has(candidate.id) || candidate.sourceRole === 'routing_summary') return false;
+      seen.add(candidate.id);
+      return ['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType) ||
+        candidate.sourceRole === 'primary_evaluation' ||
+        isChunkCompatibleWithServiceScopes(candidate, serviceScopes);
+    })
+    .map((candidate) => ({ candidate, score: scoreWorkflowFacetCandidate(claim, candidate) }))
+    .filter((entry) => entry.score >= 10)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit)
+    .map((entry) => entry.candidate);
+}
+
+function promoteWorkflowFacetEvidence(search: SearchRun, claims: ClaimPlanItem[], candidates: SearchCandidate[]): SearchRun {
+  const merged = new Map<string, SearchCandidate>();
+  for (const candidate of [...candidates, ...search.evidence]) {
+    const current = merged.get(candidate.id);
+    if (!current || current.rerankScore < candidate.rerankScore) {
+      merged.set(candidate.id, candidate);
+    }
+  }
+
+  const pool = Array.from(merged.values());
+  const selected: SearchCandidate[] = [];
+  const usedIds = new Set<string>();
+  const topScore = Math.max(search.evidence[0]?.rerankScore ?? 0, search.fusedCandidates[0]?.rerankScore ?? 0);
+
+  for (const claim of claims) {
+    const candidate = pool
+      .filter((item) => !usedIds.has(item.id))
+      .map((item) => ({ item, score: scoreWorkflowFacetCandidate(claim, item) }))
+      .filter((entry) => entry.score >= 10)
+      .sort((left, right) => right.score - left.score)[0]?.item;
+    if (!candidate) continue;
+    usedIds.add(candidate.id);
+    selected.push({
+      ...candidate,
+      rerankScore: Math.max(candidate.rerankScore, topScore + 2 - selected.length * 0.2),
+      matchedTerms: Array.from(new Set([...candidate.matchedTerms, 'workflow-facet-evidence'])),
+    });
+  }
+
+  if (selected.length === 0) return search;
+
+  const selectedIds = new Set(selected.map((candidate) => candidate.id));
+  const evidence = [...selected, ...search.evidence.filter((candidate) => !selectedIds.has(candidate.id))]
+    .sort((left, right) => right.rerankScore - left.rerankScore)
+    .slice(0, Math.max(search.evidence.length, 12));
+  const fusedCandidates = [...selected, ...search.fusedCandidates.filter((candidate) => !selectedIds.has(candidate.id))]
+    .sort((left, right) => right.rerankScore - left.rerankScore)
+    .slice(0, Math.max(search.fusedCandidates.length, 24));
+  const mismatchSignals = (search.mismatchSignals ?? []).filter(
+    (signal) => signal !== 'no-focus-terms-in-top-candidates' && signal !== 'generic-only-match',
+  );
+
+  return {
+    ...search,
+    confidence: selected.length >= Math.min(3, claims.length) && search.confidence === 'low' ? 'medium' : search.confidence,
+    evidence,
+    fusedCandidates,
+    mismatchSignals,
+    groundingGatePassed: selected.length >= Math.min(3, claims.length) ? true : search.groundingGatePassed,
+  };
+}
+
+function buildWorkflowFacetQuery(baseQuery: string, claim: ClaimPlanItem, serviceScopeContext: string): string {
+  return uniqueNonEmptyLines([
+    baseQuery,
+    claim.canonicalSubject,
+    claim.object ?? '',
+    ...claim.supportAnchors.slice(0, 14),
+    serviceScopeContext,
+  ]).join('\n');
 }
 
 function buildPriorityDocumentBoosts(
@@ -2973,6 +3175,9 @@ function expandEvidenceWithNeighbors(evidence: SearchRun['evidence'], allChunks:
   const expanded = new Map<string, SearchRun['evidence'][number]>();
   for (const candidate of evidence) {
     expanded.set(candidate.id, candidate);
+    if (['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType)) {
+      continue;
+    }
     const key = `${candidate.documentId}:${candidate.parentSectionId}`;
     const siblings = (byParentSection.get(key) ?? []).slice().sort((left, right) => left.windowIndex - right.windowIndex);
     const index = siblings.findIndex((item) => item.id === candidate.id);
@@ -4460,11 +4665,21 @@ export class NodeRagService {
       { step: 'initial-retrieval-mode', detail: profile.preferredRetrievalMode },
     ];
     const workflowBriefs = selectWorkflowBriefs(this.workflowBriefs, profile.workflowEvents);
+    const preliminaryClaimPlan = buildClaimPlan({
+      question: normalized.normalizedQuery,
+      semanticFrame: queryProfile.semanticFrame,
+      evidence: [],
+    });
+    const workflowFacetClaims = preliminaryClaimPlan.claims.filter((claim) => claim.claimType === 'workflow_step');
+    const workflowFacetAliases = uniqueNonEmptyLines(
+      workflowFacetClaims.flatMap((claim) => [claim.canonicalSubject, claim.object ?? '', ...claim.supportAnchors]),
+    );
     const aliases = uniqueNonEmptyLines([
       ...normalized.aliases,
       ...serviceScopeAliases,
       ...profile.aliases,
       ...profile.relatedTerms,
+      ...workflowFacetAliases,
       pseudoHyde,
     ]);
     const retrievalCacheKey = buildScopedCacheKey([
@@ -4511,6 +4726,7 @@ export class NodeRagService {
             ...queryProfile.searchVariants,
             ...profile.aliases,
             ...profile.relatedTerms,
+            ...workflowFacetAliases,
           ]),
         )
       : new Map<string, number>();
@@ -4543,6 +4759,42 @@ export class NodeRagService {
         selectedServiceScopes,
       },
     );
+    const workflowFacetEvidenceCandidates: SearchCandidate[] = [];
+    if (workflowFacetClaims.length > 0) {
+      const retrievalPriorityPolicy = INTENT_PRIORITY_MATRIX[retrievalPriorityClass];
+      const facetCandidates: SearchCandidate[] = [];
+      for (const claim of workflowFacetClaims) {
+        const facetAliases = uniqueNonEmptyLines([...aliases, ...workflowAliasHints, ...claim.supportAnchors]);
+        const facetSearch = await this.searchStore(
+          buildWorkflowFacetQuery(normalized.normalizedQuery, claim, serviceScopeContext),
+          mode,
+          null,
+          facetAliases,
+          {
+            documentScoreBoosts: workflowBoosts,
+            chunkScoreBoosts: serviceScopeChunkBoosts,
+            excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+            lawRefs: queryProfile.parsedLawRefs,
+            queryType: queryProfile.queryType,
+            semanticFrame: queryProfile.semanticFrame,
+            selectedServiceScopes,
+            retrievalPriorityClass,
+            retrievalPriorityPolicy,
+            evaluationLinked,
+          },
+        );
+        facetCandidates.push(...selectWorkflowFacetCandidates(claim, facetSearch, selectedServiceScopes, 2));
+      }
+      workflowFacetEvidenceCandidates.push(...facetCandidates);
+      const preFacetEvidenceIds = search.evidence.map((candidate) => candidate.id).join(',');
+      search = promoteWorkflowFacetEvidence(search, workflowFacetClaims, facetCandidates);
+      if (search.evidence.map((candidate) => candidate.id).join(',') !== preFacetEvidenceIds) {
+        plannerTrace.push({
+          step: 'workflow-facet-evidence',
+          detail: `${facetCandidates.length} candidates across ${workflowFacetClaims.length} facets`,
+        });
+      }
+    }
     const subquestions: string[] = [];
     let fallbackTriggered = false;
     let fallbackSources: LawFallbackSource[] = [];
@@ -4644,7 +4896,7 @@ export class NodeRagService {
       }
     }
 
-    search = applyOriginalFocusGate(search, normalized.normalizedQuery, normalized.aliases);
+    search = applyOriginalFocusGate(search, normalized.normalizedQuery, aliases);
     search = prioritizeConcreteFocusEvidence(search, [
       normalized.normalizedQuery,
       ...queryProfile.searchVariants,
@@ -4669,18 +4921,32 @@ export class NodeRagService {
         detail: retrievalPriorityClass,
       });
     }
+    if (workflowFacetClaims.length > 0) {
+      search = promoteWorkflowFacetEvidence(search, workflowFacetClaims, search.evidence);
+    }
 
     const expandedEvidence = filterEvidenceByServiceScopes(
       expandEvidenceWithNeighbors(search.evidence, allSearchChunks),
       selectedServiceScopes,
     );
-    const evidence = applyIntentEvidenceGate(
+    let evidence = applyIntentEvidenceGate(
       constrainEvidence({
         ...search,
         evidence: expandedEvidence,
       }),
       retrievalPriorityClass,
     );
+    if (workflowFacetClaims.length > 0) {
+      evidence = promoteWorkflowFacetEvidence(
+        {
+          ...search,
+          evidence,
+          fusedCandidates: evidence,
+        },
+        workflowFacetClaims,
+        [...workflowFacetEvidenceCandidates, ...search.evidence, ...evidence],
+      ).evidence;
+    }
     const retrievalValidation = evaluateRetrievalValidation({
       semanticFrame: queryProfile.semanticFrame,
       evidence,
@@ -4702,7 +4968,9 @@ export class NodeRagService {
     ).length;
     const hasBlockingValidation = retrievalValidation.validationIssues.some((issue) => issue.severity === 'block');
     const hasBasisConfusion = retrievalValidation.validationIssues.some((issue) => issue.code === 'basis-confusion');
-    const hasUnsupportedPrimaryClaim = retrievalValidation.validationIssues.some((issue) => issue.code === 'unsupported-claim');
+    const hasUnsupportedPrimaryClaim = retrievalValidation.validationIssues.some(
+      (issue) => issue.code === 'unsupported-claim' && issue.severity !== 'info',
+    );
     const shouldForceAbstainConfidence =
       hasBlockingValidation ||
       hasBasisConfusion ||
