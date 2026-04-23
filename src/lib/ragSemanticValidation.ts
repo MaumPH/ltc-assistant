@@ -765,7 +765,14 @@ function collectCitationDates(citations: StructuredChunk[]): string[] {
   );
 }
 
+function safeArray<T>(value: readonly T[] | undefined): T[] {
+  return Array.isArray(value) ? [...value] : [];
+}
+
 function collectAnswerText(answer: ExpertAnswerEnvelope): string {
+  const groundedBasis = answer.groundedBasis as ExpertAnswerEnvelope['groundedBasis'] | undefined;
+  const blocks = safeArray(answer.blocks);
+
   return [
     answer.headline,
     answer.summary,
@@ -773,13 +780,17 @@ function collectAnswerText(answer: ExpertAnswerEnvelope): string {
     answer.conclusion,
     answer.appliedScope,
     answer.scope,
-    ...Object.values(answer.groundedBasis).flatMap((entries) =>
-      entries.flatMap((entry) => [entry.label, entry.quote, entry.explanation]),
+    ...(['legal', 'evaluation', 'practical'] as const).flatMap((bucket) =>
+      safeArray(groundedBasis?.[bucket]).flatMap((entry) => [entry.label, entry.quote, entry.explanation]),
     ),
-    ...answer.practicalInterpretation.flatMap((item) => [item.label, item.detail]),
-    ...answer.additionalChecks.flatMap((item) => [item.label, item.detail]),
-    ...answer.blocks.flatMap((block) => [block.title, block.intro ?? '', ...block.items.flatMap((item) => [item.label, item.detail])]),
-    ...answer.followUps,
+    ...safeArray(answer.practicalInterpretation).flatMap((item) => [item.label, item.detail]),
+    ...safeArray(answer.additionalChecks).flatMap((item) => [item.label, item.detail]),
+    ...blocks.flatMap((block) => [
+      block.title,
+      block.intro ?? '',
+      ...safeArray(block.items).flatMap((item) => [item.label, item.detail]),
+    ]),
+    ...safeArray(answer.followUps),
   ]
     .filter(Boolean)
     .join(' ');
@@ -910,9 +921,10 @@ function appendValidationWarnings(answer: ExpertAnswerEnvelope, issues: Validati
   if (warningIssues.length === 0) return answer;
 
   const warningItems = warningIssues.slice(0, 4).map(formatValidationIssueForAnswer);
-  const existing = new Set(answer.additionalChecks.map((item) => `${item.label}::${item.detail}`));
+  const additionalChecks = safeArray(answer.additionalChecks);
+  const existing = new Set(additionalChecks.map((item) => `${item.label}::${item.detail}`));
   const mergedAdditionalChecks = [
-    ...answer.additionalChecks,
+    ...additionalChecks,
     ...warningItems.filter((item) => !existing.has(`${item.label}::${item.detail}`)),
   ].slice(0, 8);
 
@@ -926,19 +938,20 @@ function injectAssumptions(answer: ExpertAnswerEnvelope, semanticFrame: Semantic
   if (semanticFrame.assumptions.length === 0) return answer;
   const assumptionText = `해석 가정: ${semanticFrame.assumptions.join(' / ')}`;
   const scope = answer.scope ? `${assumptionText} ${answer.scope}` : assumptionText;
+  const additionalChecks = safeArray(answer.additionalChecks);
   const assumptionItem: ExpertAnswerBlockItem = {
     label: '해석 가정',
     detail: semanticFrame.assumptions.join(' / '),
   };
-  const hasAssumptionItem = answer.additionalChecks.some(
+  const hasAssumptionItem = additionalChecks.some(
     (item) => item.label === assumptionItem.label && item.detail === assumptionItem.detail,
   );
   return {
     ...answer,
     scope,
     additionalChecks: hasAssumptionItem
-      ? answer.additionalChecks
-      : [...answer.additionalChecks, assumptionItem].slice(0, 8),
+      ? additionalChecks
+      : [...additionalChecks, assumptionItem].slice(0, 8),
   };
 }
 

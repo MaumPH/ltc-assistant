@@ -66,6 +66,53 @@ function getStateLabel(state: ExpertAnswerEnvelope['evidenceState']): string {
   }
 }
 
+function asArray<T>(value: readonly T[] | undefined): T[] {
+  return Array.isArray(value) ? [...value] : [];
+}
+
+function normalizeEvidenceState(value: unknown): ExpertAnswerEnvelope['evidenceState'] {
+  return value === 'confirmed' || value === 'partial' || value === 'conflict' || value === 'not_enough'
+    ? value
+    : 'not_enough';
+}
+
+function normalizeConfidence(value: unknown): ExpertAnswerEnvelope['confidence'] {
+  return value === 'high' || value === 'medium' || value === 'low' ? value : 'low';
+}
+
+function normalizeAnswerForRender(answer: ExpertAnswerEnvelope): ExpertAnswerEnvelope {
+  const groundedBasis = answer.groundedBasis as ExpertAnswerEnvelope['groundedBasis'] | undefined;
+  const basis = answer.basis as ExpertAnswerEnvelope['basis'] | undefined;
+
+  return {
+    ...answer,
+    answerType: answer.answerType ?? 'mixed',
+    headline: answer.headline || '답변',
+    summary: answer.summary || '',
+    confidence: normalizeConfidence(answer.confidence),
+    evidenceState: normalizeEvidenceState(answer.evidenceState),
+    referenceDate: answer.referenceDate || '확인 필요',
+    conclusion: answer.conclusion || answer.summary || '답변을 구성하지 못했습니다.',
+    groundedBasis: {
+      legal: asArray(groundedBasis?.legal),
+      evaluation: asArray(groundedBasis?.evaluation),
+      practical: asArray(groundedBasis?.practical),
+    },
+    practicalInterpretation: asArray(answer.practicalInterpretation),
+    additionalChecks: asArray(answer.additionalChecks),
+    appliedScope: answer.appliedScope || '선택 범위',
+    scope: answer.scope || '',
+    basis: {
+      legal: asArray(basis?.legal),
+      evaluation: asArray(basis?.evaluation),
+      practical: asArray(basis?.practical),
+    },
+    blocks: asArray(answer.blocks),
+    citations: asArray(answer.citations),
+    followUps: asArray(answer.followUps),
+  };
+}
+
 function buildItemMeta(item: ExpertAnswerBlockItem): string[] {
   return [item.actor, item.timeWindow, item.artifact, item.term].filter(Boolean) as string[];
 }
@@ -244,39 +291,40 @@ function CitationSection({ answer }: { answer: ExpertAnswerEnvelope }) {
 }
 
 export default function ExpertAnswerCard({ answer }: ExpertAnswerCardProps) {
-  const citationIndexById = new Map(answer.citations.map((citation, index) => [citation.evidenceId, index + 1] as const));
-  const followUpItems: ExpertAnswerBlockItem[] = answer.followUps.map((followUp) => ({
+  const renderAnswer = normalizeAnswerForRender(answer);
+  const citationIndexById = new Map(renderAnswer.citations.map((citation, index) => [citation.evidenceId, index + 1] as const));
+  const followUpItems: ExpertAnswerBlockItem[] = renderAnswer.followUps.map((followUp) => ({
     label: '후속 확인',
     detail: followUp,
   }));
-  const additionalChecks = [...answer.additionalChecks, ...followUpItems].slice(0, 10);
+  const additionalChecks = [...renderAnswer.additionalChecks, ...followUpItems].slice(0, 10);
 
   return (
     <article className="w-full overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.07)]">
       <header className="border-b border-slate-100 bg-[linear-gradient(135deg,rgba(239,246,255,0.95),rgba(255,255,255,1)_55%,rgba(240,253,244,0.92))] px-5 py-5 sm:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <MetaPill className="border-blue-200 bg-blue-50 text-blue-700">Expert Answer</MetaPill>
-          <MetaPill className={getStateStyles(answer.evidenceState)}>{getStateLabel(answer.evidenceState)}</MetaPill>
-          <MetaPill>신뢰도 {answer.confidence}</MetaPill>
-          <MetaPill>적용 급여유형 {answer.appliedScope}</MetaPill>
-          <MetaPill>기준 시점 {answer.referenceDate}</MetaPill>
+          <MetaPill className={getStateStyles(renderAnswer.evidenceState)}>{getStateLabel(renderAnswer.evidenceState)}</MetaPill>
+          <MetaPill>신뢰도 {renderAnswer.confidence}</MetaPill>
+          <MetaPill>적용 급여유형 {renderAnswer.appliedScope}</MetaPill>
+          <MetaPill>기준 시점 {renderAnswer.referenceDate}</MetaPill>
         </div>
-        <h2 className="mt-4 text-2xl font-bold leading-snug text-slate-950">{answer.headline}</h2>
-        {answer.summary && <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-600">{answer.summary}</p>}
+        <h2 className="mt-4 text-2xl font-bold leading-snug text-slate-950">{renderAnswer.headline}</h2>
+        {renderAnswer.summary && <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-600">{renderAnswer.summary}</p>}
       </header>
 
       <div className="space-y-6 px-5 py-5 sm:px-6">
         <section className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
           <SectionEyebrow>[기준 시점]</SectionEyebrow>
-          <p className="mt-2 text-sm font-semibold text-slate-900">{answer.referenceDate}</p>
-          {answer.keyIssueDate && answer.keyIssueDate !== answer.referenceDate && (
-            <p className="mt-1 text-xs leading-5 text-slate-500">핵심 기준일: {answer.keyIssueDate}</p>
+          <p className="mt-2 text-sm font-semibold text-slate-900">{renderAnswer.referenceDate}</p>
+          {renderAnswer.keyIssueDate && renderAnswer.keyIssueDate !== renderAnswer.referenceDate && (
+            <p className="mt-1 text-xs leading-5 text-slate-500">핵심 기준일: {renderAnswer.keyIssueDate}</p>
           )}
         </section>
 
         <section className="rounded-[24px] bg-slate-950 px-5 py-5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
           <SectionEyebrow>[결론]</SectionEyebrow>
-          <p className="mt-3 whitespace-pre-wrap text-base leading-8 text-slate-50 sm:text-lg">{answer.conclusion}</p>
+          <p className="mt-3 whitespace-pre-wrap text-base leading-8 text-slate-50 sm:text-lg">{renderAnswer.conclusion}</p>
         </section>
 
         <section className="space-y-3">
@@ -285,18 +333,18 @@ export default function ExpertAnswerCard({ answer }: ExpertAnswerCardProps) {
               <SectionEyebrow>[확정 근거]</SectionEyebrow>
               <h3 className="mt-1 text-lg font-bold text-slate-950">법적·평가·실무 근거</h3>
             </div>
-            {answer.scope && <p className="max-w-2xl text-sm leading-7 text-slate-500">{answer.scope}</p>}
+            {renderAnswer.scope && <p className="max-w-2xl text-sm leading-7 text-slate-500">{renderAnswer.scope}</p>}
           </div>
           <div className="grid gap-4 xl:grid-cols-3">
-            <GroundedBasisColumn basis="legal" entries={answer.groundedBasis.legal} citationIndexById={citationIndexById} />
+            <GroundedBasisColumn basis="legal" entries={renderAnswer.groundedBasis.legal} citationIndexById={citationIndexById} />
             <GroundedBasisColumn
               basis="evaluation"
-              entries={answer.groundedBasis.evaluation}
+              entries={renderAnswer.groundedBasis.evaluation}
               citationIndexById={citationIndexById}
             />
             <GroundedBasisColumn
               basis="practical"
-              entries={answer.groundedBasis.practical}
+              entries={renderAnswer.groundedBasis.practical}
               citationIndexById={citationIndexById}
             />
           </div>
@@ -304,11 +352,11 @@ export default function ExpertAnswerCard({ answer }: ExpertAnswerCardProps) {
 
         <ItemSection
           title="[실무 해석]"
-          items={answer.practicalInterpretation}
+          items={renderAnswer.practicalInterpretation}
           emptyText="실무 해석으로 정리된 항목이 없습니다."
         />
 
-        <CitationSection answer={answer} />
+        <CitationSection answer={renderAnswer} />
 
         <ItemSection
           title="[추가 확인]"
