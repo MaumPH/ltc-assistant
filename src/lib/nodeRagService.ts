@@ -5014,6 +5014,7 @@ export class NodeRagService {
     const keyIssueDate = planned.evidence.find((item) => item.effectiveDate)?.effectiveDate;
     const citations = dedupeCitations(planned.evidence);
     const question = latestUserMessage || planned.normalizedQuery;
+    const isDefinitionQuery = planned.queryProfile.queryType === 'definition';
     const hasSelectedServiceScope = planned.selectedServiceScopes.some((scope) => scope !== 'all');
     const serviceScopeClarification: ServiceScopeClarification = hasSelectedServiceScope
       ? {
@@ -5023,7 +5024,7 @@ export class NodeRagService {
         }
       : detectServiceScopeClarification(question);
     const clarificationDecision = suppressSelectedServiceScopeClarification(
-      planned.profile.queryProcessing.clarify
+      planned.profile.queryProcessing.clarify && !isDefinitionQuery
         ? await detectClarificationNeed({
             ai,
             model: request.model,
@@ -5038,7 +5039,7 @@ export class NodeRagService {
           })
         : {
             needsClarification: false,
-            reason: 'clarification-disabled-by-profile',
+            reason: isDefinitionQuery ? 'clarification-skipped-for-definition-query' : 'clarification-disabled-by-profile',
             missingDimensions: [],
             candidateOptions: [],
           },
