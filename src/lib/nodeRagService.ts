@@ -2093,7 +2093,7 @@ function buildRetrievalDiagnostics(
 }
 
 function deriveKeyIssueDate(answer: GroundedAnswer, citations: StructuredChunk[]): string {
-  const provided = answer.keyIssueDate?.replace(/\s+/g, ' ').trim();
+  const provided = sanitizeGroundedText(answer.keyIssueDate);
   if (provided && /20\d{2}(?:[-./]\d{1,2}|년\s*\d{1,2}\s*월?)/.test(provided) && !/^확인 필요/.test(provided)) {
     return provided;
   }
@@ -2140,7 +2140,12 @@ function deriveKeyIssueDate(answer: GroundedAnswer, citations: StructuredChunk[]
   return provided && !/^확인 필요/.test(provided) ? provided : '확인 필요';
 }
 
-function stripInternalCitationArtifacts(text: string | undefined): string {
+function sanitizeGroundedText(value: unknown): string {
+  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+}
+
+function stripInternalCitationArtifacts(text: unknown): string {
+  if (typeof text !== 'string') return '';
   if (!text) return '';
 
   return text
@@ -2220,13 +2225,15 @@ function normalizeAnswerShape(candidate: Partial<GroundedAnswer>): GroundedAnswe
   return {
     evidenceState: mapEvidenceState(candidate.evidenceState),
     confidence: mapConfidence(candidate.confidence),
-    keyIssueDate: candidate.keyIssueDate,
-    conclusion: stripInternalCitationArtifacts(candidate.conclusion?.trim()) || '검색된 근거만으로 결론을 확정하기 어렵습니다.',
+    keyIssueDate: sanitizeGroundedText(candidate.keyIssueDate) || undefined,
+    conclusion: stripInternalCitationArtifacts(candidate.conclusion) || '검색된 근거만으로 결론을 확정하기 어렵습니다.',
     directEvidence: sanitizeAnswerList(candidate.directEvidence),
     practicalGuidance: sanitizeAnswerList(candidate.practicalGuidance),
     caveats: sanitizeAnswerList(candidate.caveats),
-    citationEvidenceIds: Array.isArray(candidate.citationEvidenceIds) ? candidate.citationEvidenceIds.map((item) => item.trim()).filter(Boolean) : [],
-    followUpQuestion: stripInternalCitationArtifacts(candidate.followUpQuestion?.trim()) || undefined,
+    citationEvidenceIds: Array.isArray(candidate.citationEvidenceIds)
+      ? candidate.citationEvidenceIds.map((item) => sanitizeGroundedText(item)).filter(Boolean)
+      : [],
+    followUpQuestion: stripInternalCitationArtifacts(candidate.followUpQuestion) || undefined,
   };
 }
 
