@@ -91,7 +91,28 @@ function uniqueStrings(values: Iterable<string>): string[] {
 }
 
 function sanitizeText(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() || fallback : fallback;
+  if (typeof value === 'string') {
+    return value.replace(/\s+/g, ' ').trim() || fallback;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).replace(/\s+/g, ' ').trim() || fallback;
+  }
+
+  if (Array.isArray(value)) {
+    const normalized = value.map((item) => sanitizeText(item)).filter(Boolean).join(', ');
+    return normalized || fallback;
+  }
+
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    for (const key of ['value', 'date', 'text', 'label', 'summary', 'conclusion', 'answer']) {
+      const normalized = sanitizeText(record[key]);
+      if (normalized) return normalized;
+    }
+  }
+
+  return fallback;
 }
 
 function sanitizeStringList(value: unknown, limit = 8): string[] {
