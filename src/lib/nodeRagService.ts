@@ -2141,7 +2141,27 @@ function deriveKeyIssueDate(answer: GroundedAnswer, citations: StructuredChunk[]
 }
 
 function sanitizeGroundedText(value: unknown): string {
-  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+  if (typeof value === 'string') {
+    return value.replace(/\s+/g, ' ').trim();
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).replace(/\s+/g, ' ').trim();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeGroundedText(item)).filter(Boolean).join(', ');
+  }
+
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    for (const key of ['value', 'date', 'text', 'label', 'summary', 'conclusion', 'answer']) {
+      const normalized = sanitizeGroundedText(record[key]);
+      if (normalized) return normalized;
+    }
+  }
+
+  return '';
 }
 
 function stripInternalCitationArtifacts(text: unknown): string {

@@ -47,7 +47,7 @@ interface ChatApiResponse {
 
 interface ChatApiErrorResponse {
   error?: string;
-  details?: string;
+  details?: unknown;
   model?: string;
 }
 
@@ -82,6 +82,23 @@ function createMessage(role: Message['role'], text: string, extras?: Partial<Mes
     text,
     ...extras,
   };
+}
+
+function formatErrorDetails(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    return value.trim() || undefined;
+  }
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return undefined;
+  }
 }
 
 function getServiceScopeStorageKey(mode: ChatViewProps['mode']): string {
@@ -329,7 +346,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
             ? ((await response.json().catch(() => ({}))) as ChatApiErrorResponse)
             : {};
           const errorText = parsed.error ?? buildServerErrorMessage(response.status, response.statusText);
-          const detailText = parsed.details?.trim();
+          const detailText = formatErrorDetails(parsed.details);
           const responseModelLabel = parsed.model ? getModelLabel(parsed.model) : requestModelLabel;
 
           setMessages([
