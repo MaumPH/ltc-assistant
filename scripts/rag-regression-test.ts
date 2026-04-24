@@ -7,6 +7,7 @@ import { buildNaturalLanguageQueryProfile, enrichQueryProfileWithServiceScopeLab
 import { applyRetrievalFeatureOverrides, getRetrievalFeatureFlags, getRetrievalProfile } from '../src/lib/ragProfiles';
 import { inferRetrievalPriorityClass, INTENT_PRIORITY_MATRIX } from '../src/lib/retrievalPriority';
 import { buildClaimPlan, evaluateRetrievalValidation } from '../src/lib/ragSemanticValidation';
+import { buildStructuredSections } from '../src/lib/ragStructured';
 import { buildPlannerSystemInstruction } from '../src/lib/promptAssembly';
 import { buildServiceScopeDocumentBoosts, parseServiceScopes } from '../src/lib/serviceScopes';
 import type { StructuredChunk } from '../src/lib/ragTypes';
@@ -383,6 +384,136 @@ function testSemanticValidationFlagsMissingLegalBasisForHighRiskCostQuestion() {
   assert.equal(summary.claimCoverage.totalClaims >= 1, true);
 }
 
+function testTopFiveCandidatesAreDocumentDiverse() {
+  const dominantChunks = Array.from({ length: 8 }, (_, index) =>
+    makeChunk(`dominant-${index}`, {
+      documentId: 'dominant-doc',
+      docTitle: '장기요양급여 제공기준 및 급여비용 산정방법 등에 관한 고시 전문',
+      sourceType: 'notice',
+      sourceRole: 'general',
+      searchText: `주야간보호 급여비용 고시 기준 산정 방법 비용 ${index}`,
+      text: `주야간보호 급여비용 산정 기준 ${index}`,
+      parentSectionId: `dominant-section-${index}`,
+      parentSectionTitle: `급여비용 기준 ${index}`,
+      citationGroupId: `dominant-citation-${index}`,
+    }),
+  );
+  const supportChunks = [
+    makeChunk('support-amendment', {
+      documentId: 'amendment-doc',
+      docTitle: '장기요양급여 제공기준 및 급여비용 산정방법 등에 관한 고시 일부 개정문',
+      sourceType: 'notice',
+      sourceRole: 'general',
+      searchText: '주야간보호 급여비용 고시 개정 산정 기준',
+      text: '주야간보호 급여비용 개정 기준',
+    }),
+    makeChunk('support-detail', {
+      documentId: 'detail-doc',
+      docTitle: '장기요양급여 제공기준 및 급여비용 산정방법 등에 관한 세부사항 전문',
+      sourceType: 'notice',
+      sourceRole: 'general',
+      searchText: '주야간보호 급여비용 세부사항 산정 기준',
+      text: '주야간보호 급여비용 세부사항',
+    }),
+  ];
+
+  const result = searchCorpus({
+    index: buildRagCorpusIndex([...dominantChunks, ...supportChunks]),
+    query: '주야간보호 급여비용은 어떤 고시를 기준으로 봐야 하나요?',
+    mode: 'integrated',
+    queryEmbedding: null,
+  });
+
+  assert.ok(new Set(result.fusedCandidates.slice(0, 5).map((candidate) => candidate.documentId)).size >= 3);
+  assert.ok(
+    result.fusedCandidates
+      .filter((candidate) => candidate.documentId === 'dominant-doc')
+      .every((candidate, index) => index < 2 || candidate.matchedTerms.includes('document-cap')),
+  );
+}
+
+function testEvaluationReadinessUsesPrimaryManualBeforeSummaryPages() {
+  const chunks = [
+    makeChunk('summary-education', {
+      documentId: 'summary-education-doc',
+      docTitle: '01-06-직원교육',
+      fileName: '01-06-직원교육.md',
+      path: '/knowledge/evaluation/01-06-직원교육.md',
+      mode: 'evaluation',
+      sourceType: 'evaluation',
+      sourceRole: 'primary_evaluation',
+      searchText: '직원 인권교육 필수 평가 직원교육 인권 침해 교육',
+      text: '직원교육 요약 문서입니다.',
+    }),
+    makeChunk('summary-rights', {
+      documentId: 'summary-rights-doc',
+      docTitle: '01-07-직원인권보호',
+      fileName: '01-07-직원인권보호.md',
+      path: '/knowledge/evaluation/01-07-직원인권보호.md',
+      mode: 'evaluation',
+      sourceType: 'evaluation',
+      sourceRole: 'primary_evaluation',
+      searchText: '직원 인권교육 필수 직원인권보호 인권 침해 교육',
+      text: '직원인권보호 요약 문서입니다.',
+    }),
+    makeChunk('primary-manual', {
+      documentId: 'primary-manual-doc',
+      docTitle: '2026년 주야간보호 평가매뉴얼(26년꺼만)',
+      fileName: '2026년 주야간보호 평가매뉴얼(26년꺼만).md',
+      path: '/knowledge/eval/2026년 주야간보호 평가매뉴얼(26년꺼만).md',
+      mode: 'evaluation',
+      sourceType: 'manual',
+      sourceRole: 'primary_evaluation',
+      searchText: '2026년 주야간보호 평가매뉴얼 직원 인권교육 필수 평가 기준 직원 인권 침해 교육',
+      text: '평가매뉴얼 원문은 직원 인권교육 기준을 정한다.',
+    }),
+  ];
+
+  const result = searchCorpus({
+    index: buildRagCorpusIndex(chunks),
+    query: '직원 인권교육 이거 필수냐?',
+    mode: 'evaluation',
+    queryEmbedding: null,
+    options: {
+      retrievalPriorityClass: 'evaluation_readiness',
+      retrievalPriorityPolicy: INTENT_PRIORITY_MATRIX.evaluation_readiness,
+    },
+  });
+
+  assert.equal(result.fusedCandidates[0]?.id, 'primary-manual');
+  assert.ok(result.fusedCandidates[0]?.matchedTerms.includes('primary-manual-boosted'));
+}
+
+function testStructuredSectionsSplitEvaluationSubheadings() {
+  const file = {
+    path: '/knowledge/eval/test-evaluation-manual.md',
+    name: 'test-evaluation-manual.md',
+    size: 300,
+    content: [
+      '# 2026년 주야간보호 평가매뉴얼',
+      '평가기준',
+      '기관은 기준을 확인한다.',
+      '',
+      '확인방법',
+      '현장에서 확인한다.',
+      '',
+      '관련근거',
+      '고시와 매뉴얼을 확인한다.',
+      '',
+      '1. 기피식품 확인',
+      '기피식품을 파악한다.',
+    ].join('\n'),
+  };
+
+  const sections = buildStructuredSections(file);
+  const sectionTitles = sections.map((section) => section.title);
+
+  assert.ok(sectionTitles.includes('평가기준'));
+  assert.ok(sectionTitles.includes('확인방법'));
+  assert.ok(sectionTitles.includes('관련근거'));
+  assert.ok(sectionTitles.includes('1. 기피식품 확인'));
+}
+
 function testCostReferenceLookupBuildsSupportedClaimWithoutScopeFalsePositive() {
   const profile = buildNaturalLanguageQueryProfile('주야간보호 급여비용은 어떤 고시를 기준으로 봐야 하나요?');
   const evidence = [
@@ -648,6 +779,9 @@ testSemanticQueryFrameBuildsIntentRelationsAndSlots();
 testEligibilityIntentStaysEligibilityForWhoCanApplyQuery();
 testComplianceIntentStaysComplianceForAppendixQuestion();
 testEvaluationPrimaryManualOutranksOldQaAndEmployeeGuide();
+testTopFiveCandidatesAreDocumentDiverse();
+testEvaluationReadinessUsesPrimaryManualBeforeSummaryPages();
+testStructuredSectionsSplitEvaluationSubheadings();
 testSemanticValidationFlagsMissingLegalBasisForHighRiskCostQuestion();
 testCostReferenceLookupBuildsSupportedClaimWithoutScopeFalsePositive();
 testEvaluationWorkflowClaimGetsDirectSupportFromPrimaryManual();
