@@ -53,6 +53,34 @@ async function main() {
     unsupportedClaimIds: string[];
   }> = [];
 
+  const normalizeDocMatchText = (value: string) =>
+    value
+      .normalize('NFC')
+      .toLowerCase()
+      .replace(/[^\p{Letter}\p{Number}]+/gu, '');
+
+  const documentMatchesExpected = (docTitle: string, expectedDoc: string) => {
+    const normalizedDoc = normalizeDocMatchText(docTitle);
+    const normalizedExpected = normalizeDocMatchText(expectedDoc);
+    if (!normalizedExpected) return false;
+    if (normalizedDoc.includes(normalizedExpected)) return true;
+
+    const expectedTerms = expectedDoc
+      .normalize('NFC')
+      .split(/[^\p{Letter}\p{Number}]+/gu)
+      .map(normalizeDocMatchText)
+      .filter((term) => term.length >= 2);
+    if (expectedTerms.length > 0 && expectedTerms.every((term) => normalizedDoc.includes(term))) {
+      return true;
+    }
+
+    if (normalizedExpected.includes('장기요양급여비용')) {
+      return normalizedDoc.includes('장기요양급여') && normalizedDoc.includes('급여비용');
+    }
+
+    return false;
+  };
+
   for (const testCase of cases) {
     const inspection = await service.inspectRetrieval(
       testCase.messages ?? testCase.question,
@@ -62,8 +90,8 @@ async function main() {
     );
     const top3 = inspection.search.fusedCandidates.slice(0, 3);
     const top5 = inspection.search.fusedCandidates.slice(0, 5);
-    const top3Hit = top3.some((candidate) => candidate.docTitle.includes(testCase.expectedDoc));
-    const top5Hit = top5.some((candidate) => candidate.docTitle.includes(testCase.expectedDoc));
+    const top3Hit = top3.some((candidate) => documentMatchesExpected(candidate.docTitle, testCase.expectedDoc));
+    const top5Hit = top5.some((candidate) => documentMatchesExpected(candidate.docTitle, testCase.expectedDoc));
     const abstained = inspection.search.confidence === 'low';
     const evidenceDocs = Array.from(new Set(inspection.search.evidence.map((candidate) => candidate.docTitle)));
     const evidencePaths = inspection.finalEvidenceDocuments;

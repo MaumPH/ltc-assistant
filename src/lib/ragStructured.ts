@@ -27,6 +27,9 @@ const LAW_HEADING_RE = /^\s*제\s*\d+\s*조(?:의\s*\d+)?(?:\s*\([^)]*\))?/;
 const LAW_APPENDIX_RE = /^\s*\[?\s*(별표|별지)\s*\d+/;
 const LAW_ATTACHMENT_RE = /^\s*\(?붙임\)?/;
 const QA_BOUNDARY_RE = /^(q\s*&\s*a|q&a|질문\(q\)|답변\(a\)|질문\s*\d+|답변\s*\d+|사례\s*\d+|문\s*\d+[.)]?)/i;
+const EVALUATION_SUBHEADING_RE =
+  /^(평가기준|확인방법|관련근거|평가방법|평가자료|확인사항|준비서류|급여제공기록|작성방법|유의사항|점검사항)\s*[:：]?\s*$/;
+const NUMBERED_SUBHEADING_RE = /^\s*(?:\d{1,2}|[가-하])[\.)]\s+\S.{0,80}$/u;
 const PARAGRAPH_RE = /[\s\S]+?(?=(?:\n\s*\n)|$)/g;
 
 function detectBoundary(line: string): SectionBoundary | null {
@@ -62,6 +65,15 @@ function detectBoundary(line: string): SectionBoundary | null {
   }
 
   if (QA_BOUNDARY_RE.test(trimmed)) {
+    return {
+      title: trimmed,
+      depth: 4,
+      articleNo: extractArticleNo(trimmed),
+      isMarkdownHeading: false,
+    };
+  }
+
+  if (EVALUATION_SUBHEADING_RE.test(trimmed) || NUMBERED_SUBHEADING_RE.test(trimmed)) {
     return {
       title: trimmed,
       depth: 4,

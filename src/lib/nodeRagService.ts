@@ -5,6 +5,7 @@ import { Pool, type PoolClient } from 'pg';
 import {
   buildRagCorpusIndex,
   deriveFocusTerms,
+  diversifyVisibleCandidates,
   getCandidateFocusMatches,
   isGenericQueryTerm,
   searchCorpus,
@@ -464,7 +465,7 @@ function applySectionRoutingBoost(search: SearchRun, enabled: boolean): SearchRu
   return {
     ...search,
     fusedCandidates,
-    evidence: fusedCandidates.slice(0, Math.max(search.evidence.length, 12)),
+    evidence: diversifyVisibleCandidates(fusedCandidates, Math.max(search.evidence.length, 12)),
   };
 }
 
@@ -1294,7 +1295,16 @@ function injectEvidenceCandidates(search: SearchRun, candidates: Array<SearchCan
   const uniqueCandidates: SearchCandidate[] = [];
   const seenDocuments = new Set(search.evidence.map((item) => item.documentId));
   for (const candidate of candidates) {
-    if (!candidate || seenDocuments.has(candidate.documentId)) continue;
+    if (!candidate) continue;
+    if (seenDocuments.has(candidate.documentId)) {
+      const existing =
+        search.evidence.find((item) => item.documentId === candidate.documentId) ??
+        search.fusedCandidates.find((item) => item.documentId === candidate.documentId);
+      if (existing && !uniqueCandidates.some((item) => item.documentId === existing.documentId)) {
+        uniqueCandidates.push(existing);
+      }
+      continue;
+    }
     uniqueCandidates.push(candidate);
     seenDocuments.add(candidate.documentId);
     if (uniqueCandidates.length >= 4) break;
@@ -1316,12 +1326,16 @@ function injectEvidenceCandidates(search: SearchRun, candidates: Array<SearchCan
 
   return applyGroundingGate({
     ...search,
-    fusedCandidates: [...promotedCandidates, ...search.fusedCandidates.filter((item) => !promotedIds.has(item.id))]
-      .sort((left, right) => right.rerankScore - left.rerankScore)
-      .slice(0, Math.max(search.fusedCandidates.length, 24)),
-    evidence: [...promotedCandidates, ...search.evidence.filter((item) => !promotedIds.has(item.id))]
-      .sort((left, right) => right.rerankScore - left.rerankScore)
-      .slice(0, Math.max(search.evidence.length, 12)),
+    fusedCandidates: diversifyVisibleCandidates(
+      [...promotedCandidates, ...search.fusedCandidates.filter((item) => !promotedIds.has(item.id))]
+        .sort((left, right) => right.rerankScore - left.rerankScore),
+      Math.max(search.fusedCandidates.length, 24),
+    ),
+    evidence: diversifyVisibleCandidates(
+      [...promotedCandidates, ...search.evidence.filter((item) => !promotedIds.has(item.id))]
+        .sort((left, right) => right.rerankScore - left.rerankScore),
+      Math.max(search.evidence.length, 12),
+    ),
   });
 }
 
@@ -1596,9 +1610,11 @@ function mergeSearchCandidateLists(
       merged.set(candidate.id, candidate);
     }
   }
-  return Array.from(merged.values())
+  const sorted = Array.from(merged.values())
     .sort((a, b) => b[sortBy] - a[sortBy])
-    .slice(0, limit);
+    .slice(0, sortBy === 'rerankScore' ? limit * 2 : limit);
+
+  return sortBy === 'rerankScore' ? diversifyVisibleCandidates(sorted, limit) : sorted;
 }
 
 function mergeSearchRuns(base: SearchRun, extra: SearchRun): SearchRun {
@@ -1708,6 +1724,25 @@ function applyIntentEvidenceGate(
 ): SearchRun['evidence'] {
   if (evidence.length < 3) return evidence;
   if (priorityClass === 'document_lookup') return evidence;
+
+  if (priorityClass === 'evaluation_readiness') {
+    const hasPrimaryManual = evidence.some(
+      (candidate) =>
+        candidate.sourceRole === 'primary_evaluation' &&
+        candidate.path.includes('/knowledge/eval/') &&
+        /평가매뉴얼/u.test(`${candidate.docTitle} ${candidate.fileName}`),
+    );
+    if (hasPrimaryManual) {
+      return evidence.filter(
+        (candidate) =>
+          !(
+            candidate.path.includes('/knowledge/evaluation/') &&
+            candidate.sourceType === 'evaluation' &&
+            /직원교육|직원인권보호/u.test(candidate.docTitle)
+          ),
+      );
+    }
+  }
 
   const bucketCounts = new Map<string, number>();
   for (const candidate of evidence.slice(0, 6)) {
@@ -4231,6 +4266,12 @@ export class NodeRagService {
             lawRefs: options?.queryProfile?.parsedLawRefs,
             queryType: options?.queryProfile?.queryType,
             semanticFrame: options?.queryProfile?.semanticFrame,
+            selectedServiceScopes: options?.selectedServiceScopes,
+            retrievalPriorityClass: options?.retrievalPriorityClass,
+            retrievalPriorityPolicy: options?.retrievalPriorityClass
+              ? INTENT_PRIORITY_MATRIX[options.retrievalPriorityClass]
+              : undefined,
+            evaluationLinked: options?.evaluationLinked,
           },
         ),
         sectionRoutingEnabled,
@@ -4292,6 +4333,12 @@ export class NodeRagService {
           lawRefs: options?.queryProfile?.parsedLawRefs,
           queryType: options?.queryProfile?.queryType,
           semanticFrame: options?.queryProfile?.semanticFrame,
+          selectedServiceScopes: options?.selectedServiceScopes,
+          retrievalPriorityClass: options?.retrievalPriorityClass,
+          retrievalPriorityPolicy: options?.retrievalPriorityClass
+            ? INTENT_PRIORITY_MATRIX[options.retrievalPriorityClass]
+            : undefined,
+          evaluationLinked: options?.evaluationLinked,
         }),
         sectionRoutingEnabled,
       ));
@@ -4303,9 +4350,23 @@ export class NodeRagService {
         lawRefs: options?.queryProfile?.parsedLawRefs,
         queryType: options?.queryProfile?.queryType,
         semanticFrame: options?.queryProfile?.semanticFrame,
+        selectedServiceScopes: options?.selectedServiceScopes,
+        retrievalPriorityClass: options?.retrievalPriorityClass,
+        retrievalPriorityPolicy: options?.retrievalPriorityClass
+          ? INTENT_PRIORITY_MATRIX[options.retrievalPriorityClass]
+          : undefined,
+        evaluationLinked: options?.evaluationLinked,
       });
       const promotedPrimaryCandidates = uniqueDocumentCandidates(
-        promotedPrimarySearch.fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
+        promotedPrimarySearch.fusedCandidates.filter(
+          (candidate) =>
+            candidate.sourceRole !== 'routing_summary' &&
+            !(
+              options?.retrievalPriorityClass === 'legal_judgment' &&
+              candidate.mode === 'evaluation' &&
+              candidate.sourceRole === 'primary_evaluation'
+            ),
+        ),
         4,
       );
 
@@ -4460,9 +4521,61 @@ export class NodeRagService {
             4,
           )
         : [];
+    const primaryManualDocumentIds = new Set(
+      allChunks
+        .filter(
+          (chunk) =>
+            chunk.mode === 'evaluation' &&
+            chunk.sourceRole === 'primary_evaluation' &&
+            chunk.path.includes('/knowledge/eval/') &&
+            /평가매뉴얼/u.test(`${chunk.docTitle} ${chunk.fileName}`),
+        )
+        .map((chunk) => chunk.documentId),
+    );
+    const primaryManualCandidates =
+      retrievalPriorityClass === 'evaluation_readiness' && primaryManualDocumentIds.size > 0
+        ? uniqueDocumentCandidates(
+            (
+              await this.searchStore(
+                uniqueNonEmptyLines([
+                  searchQuery,
+                  ...routingSearch.fusedCandidates.slice(0, 4).flatMap((candidate) => [
+                    candidate.docTitle,
+                    candidate.parentSectionTitle,
+                    ...candidate.sectionPath.slice(-2),
+                  ]),
+                ]).join('\n'),
+                mode,
+                queryEmbedding,
+                uniqueNonEmptyLines([
+                  ...combinedAliases,
+                  ...routingSearch.fusedCandidates.slice(0, 4).flatMap((candidate) => [
+                    candidate.docTitle,
+                    candidate.parentSectionTitle,
+                    ...candidate.sectionPath.slice(-2),
+                  ]),
+                ]),
+                {
+                  allowedDocumentIds: primaryManualDocumentIds,
+                  documentScoreBoosts,
+                  chunkScoreBoosts: options?.additionalChunkScoreBoosts,
+                  excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+                  lawRefs: options?.queryProfile?.parsedLawRefs,
+                  queryType: options?.queryProfile?.queryType,
+                  semanticFrame: options?.queryProfile?.semanticFrame,
+                  selectedServiceScopes: options?.selectedServiceScopes,
+                  retrievalPriorityClass,
+                  retrievalPriorityPolicy,
+                  evaluationLinked: options?.evaluationLinked,
+                },
+              )
+            ).fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
+            2,
+          )
+        : [];
 
     return {
-      search: pruneIrrelevantSupportEvidence(injectEvidenceCandidates(baseSearch, promotedPrimaryCandidates)),
+      search: pruneIrrelevantSupportEvidence(injectEvidenceCandidates(baseSearch, [...promotedPrimaryCandidates, ...primaryManualCandidates])),
       scope: {
         routeOnlyDocumentIds,
         primaryExpansionDocumentIds,
@@ -4913,6 +5026,7 @@ export class NodeRagService {
     const preIntentGateEvidenceIds = search.evidence.map((candidate) => candidate.id).join(',');
     search = {
       ...search,
+      fusedCandidates: diversifyVisibleCandidates(search.fusedCandidates, Math.max(search.fusedCandidates.length, 24)),
       evidence: applyIntentEvidenceGate(search.evidence, retrievalPriorityClass),
     };
     if (search.evidence.map((candidate) => candidate.id).join(',') !== preIntentGateEvidenceIds) {

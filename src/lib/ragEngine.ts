@@ -45,6 +45,8 @@ const CHECKLIST_EVIDENCE_TOP_K = 14;
 const MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT = 2;
 const CHECKLIST_MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT = 3;
 const MAX_WINDOWS_PER_CLUSTER = 2;
+const MAX_VISIBLE_CANDIDATES_PER_DOCUMENT = 2;
+const MAX_VISIBLE_CANDIDATES_PER_PARENT_SECTION = 1;
 const RRF_K = 50;
 const CANDIDATE_METADATA_TERMS = new Set([
   'document-title',
@@ -233,6 +235,10 @@ export function deriveFocusTerms(query: string): string[] {
 
 export function isGenericQueryTerm(term: string): boolean {
   return GENERIC_QUERY_TERMS.has(term);
+}
+
+export function isDocumentCapDiagnosticTerm(term: string): boolean {
+  return term === 'document-cap';
 }
 
 export function getCandidateFocusMatches(candidate: StructuredChunk, focusTerms: string[]): string[] {
@@ -503,6 +509,12 @@ function scoreEvaluationAuthority(candidate: SearchCandidate): number {
   if (candidate.sourceRole === 'routing_summary') score -= 32;
 
   if (/평가매뉴얼/u.test(haystack)) score += 20;
+  if (candidate.sourceRole === 'primary_evaluation' && candidate.path.includes('/knowledge/eval/') && /평가매뉴얼/u.test(haystack)) {
+    score += 90;
+  }
+  if (candidate.sourceRole === 'primary_evaluation' && candidate.path.includes('/knowledge/evaluation/')) {
+    score -= 72;
+  }
   if (/q&a|qa|질의응답/u.test(haystack)) score -= 10;
   if (/사례집/u.test(haystack)) score -= 6;
   if ((/직원교육|직원인권|인권보호/u.test(haystack)) && candidate.sourceRole !== 'primary_evaluation') {
@@ -536,6 +548,7 @@ function rerankCandidate(
   const ontologyScore = options?.documentScoreBoosts?.get(candidate.documentId) ?? 0;
   const chunkScoreBoost = options?.chunkScoreBoosts?.get(candidate.id) ?? 0;
   const semanticScore = scoreSemanticAlignment(candidate, options?.semanticFrame);
+  const priorityClass = options?.retrievalPriorityClass ?? (mode === 'evaluation' ? 'evaluation_readiness' : undefined);
   let matchedTerms = candidate.matchedTerms;
   let score = candidate.fusedScore * 100;
   score += candidate.exactScore * 1.8;
@@ -571,10 +584,22 @@ function rerankCandidate(
     matchedTerms = Array.from(new Set([...candidate.matchedTerms, 'evaluation-indicator']));
   }
 
+  if (
+    candidate.sourceRole === 'primary_evaluation' &&
+    candidate.path.includes('/knowledge/eval/') &&
+    /평가매뉴얼/u.test(`${candidate.docTitle} ${candidate.fileName}`)
+  ) {
+    matchedTerms = Array.from(new Set([...matchedTerms, 'primary-manual-boosted']));
+  }
+
   const evaluationAuthorityScore = scoreEvaluationAuthority(candidate);
-  score += options?.retrievalPriorityClass === 'legal_judgment'
-    ? Math.min(evaluationAuthorityScore, 8)
-    : evaluationAuthorityScore;
+  if (priorityClass === 'legal_judgment') {
+    score += Math.min(evaluationAuthorityScore, 8);
+  } else if (priorityClass === 'evaluation_readiness') {
+    score += evaluationAuthorityScore;
+  } else {
+    score += Math.min(evaluationAuthorityScore, 24);
+  }
 
   if (isThinEvaluationIndicatorChunk(candidate)) {
     score -= 96;
@@ -818,6 +843,45 @@ function diversifyCandidatePool(
   return selected;
 }
 
+export function diversifyVisibleCandidates(
+  candidates: SearchCandidate[],
+  limit: number,
+  maxPerDocument = MAX_VISIBLE_CANDIDATES_PER_DOCUMENT,
+  maxPerParentSection = MAX_VISIBLE_CANDIDATES_PER_PARENT_SECTION,
+): SearchCandidate[] {
+  const selected: SearchCandidate[] = [];
+  const deferred: SearchCandidate[] = [];
+  const documentCounts = new Map<string, number>();
+  const sectionCounts = new Map<string, number>();
+
+  for (const candidate of candidates) {
+    const documentCount = documentCounts.get(candidate.documentId) ?? 0;
+    const sectionKey = `${candidate.documentId}:${candidate.parentSectionId}`;
+    const sectionCount = sectionCounts.get(sectionKey) ?? 0;
+
+    if (documentCount >= maxPerDocument || sectionCount >= maxPerParentSection) {
+      deferred.push({
+        ...candidate,
+        matchedTerms: Array.from(new Set([...candidate.matchedTerms, 'document-cap'])),
+      });
+      continue;
+    }
+
+    selected.push(candidate);
+    documentCounts.set(candidate.documentId, documentCount + 1);
+    sectionCounts.set(sectionKey, sectionCount + 1);
+  }
+
+  return [...selected, ...deferred]
+    .slice(0, limit)
+    .map((candidate, index) => ({
+      ...candidate,
+      rerankScore: candidate.matchedTerms.includes('document-cap')
+        ? candidate.rerankScore - Math.max(1, limit - index) * 0.01
+        : candidate.rerankScore,
+    }));
+}
+
 function buildStageTrace(params: {
   query: string;
   lexicalCandidates: SearchCandidate[];
@@ -893,10 +957,11 @@ export function searchCorpus(params: {
 
   const lexicalCandidates = scoreLexical(index, query, mode, options).slice(0, FUSED_TOP_K);
   const vectorCandidates = options?.precomputedVectorCandidates ?? scoreVector(index, queryEmbedding, mode, options);
-  const fusedCandidates = reciprocalRankFuse([diversifiedExactCandidates, lexicalCandidates, vectorCandidates])
+  const rerankedCandidates = reciprocalRankFuse([diversifiedExactCandidates, lexicalCandidates, vectorCandidates])
     .map((candidate) => rerankCandidate(candidate, intent, mode, options))
     .sort((left, right) => right.rerankScore - left.rerankScore)
-    .slice(0, FUSED_TOP_K);
+    .slice(0, FUSED_TOP_K * 2);
+  const fusedCandidates = diversifyVisibleCandidates(rerankedCandidates, FUSED_TOP_K);
 
   const evidence = selectEvidence(fusedCandidates, query, options);
   const { focusTerms, mismatchSignals } = detectTopicMismatch(query, fusedCandidates);
