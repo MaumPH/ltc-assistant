@@ -10,6 +10,7 @@ import { buildClaimPlan, evaluateRetrievalValidation } from '../src/lib/ragSeman
 import { buildStructuredSections } from '../src/lib/ragStructured';
 import { buildPlannerSystemInstruction } from '../src/lib/promptAssembly';
 import { buildServiceScopeDocumentBoosts, parseServiceScopes } from '../src/lib/serviceScopes';
+import { createExpertAbstainAnswer } from '../src/lib/expertAnswering';
 import type { StructuredChunk } from '../src/lib/ragTypes';
 
 function makeChunk(id: string, patch: Partial<StructuredChunk>): StructuredChunk {
@@ -763,6 +764,26 @@ function testEvaluationPriorityBoostsPrimaryManualOverGuide() {
   assert.equal(result.fusedCandidates[0]?.id, 'evaluation-manual-food');
 }
 
+function testNonStringKeyIssueDateFallsBackToEvidenceDate() {
+  const answer = createExpertAbstainAnswer({
+    question: 'Gemini가 날짜를 배열로 반환한 경우',
+    confidence: 'low',
+    evidenceState: 'partial',
+    keyIssueDate: ['2026-01-01'] as unknown,
+    evidence: [
+      makeChunk('issue-date', {
+        docTitle: '2026년 주야간보호 평가매뉴얼',
+        sourceRole: 'primary_evaluation',
+        effectiveDate: '2026-02-01',
+        text: '평가 기준 확인 근거',
+      }),
+    ],
+  });
+
+  assert.equal(answer.keyIssueDate, undefined);
+  assert.equal(answer.referenceDate, '2026-02-01');
+}
+
 testHybridReadinessReason();
 testEvidenceBalanceAndAgentDecision();
 testShortKoreanQueryFallback();
@@ -790,5 +811,6 @@ testRetrievalPriorityClassInference();
 testRecipientOnboardingQueryBuildsWorkflowFacetPlan();
 testLegalPriorityBoostsNoticeOverEvaluationManual();
 testEvaluationPriorityBoostsPrimaryManualOverGuide();
+testNonStringKeyIssueDateFallsBackToEvidenceDate();
 
 console.log('RAG regression tests passed.');

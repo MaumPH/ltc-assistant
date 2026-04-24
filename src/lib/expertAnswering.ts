@@ -215,8 +215,9 @@ function toLegacyBasisFromGroundedBasis(groundedBasis: GroundedBasisBuckets): Ex
   };
 }
 
-function deriveReferenceDate(keyIssueDate: string | undefined, evidence: StructuredChunk[]): string {
-  if (keyIssueDate?.trim()) return keyIssueDate.trim();
+function deriveReferenceDate(keyIssueDate: unknown, evidence: StructuredChunk[]): string {
+  const normalizedIssueDate = sanitizeText(keyIssueDate);
+  if (normalizedIssueDate) return normalizedIssueDate;
   return (
     evidence
       .flatMap((chunk) => [chunk.effectiveDate ?? '', chunk.publishedDate ?? ''])
@@ -1074,12 +1075,13 @@ function buildFallbackAnswer(params: {
   plan: AnswerPlan;
   evidenceState: EvidenceState;
   confidence: ConfidenceLevel;
-  keyIssueDate?: string;
+  keyIssueDate?: unknown;
   citations: StructuredChunk[];
 }): ExpertAnswerEnvelope {
   const citations = buildExpertCitations(params.citations);
   const groundedBasis = toGroundedBasisFromEvidence(params.citations);
   const practicalInterpretation = buildPracticalInterpretationItems(params.plan, params.citations);
+  const keyIssueDate = sanitizeText(params.keyIssueDate) || undefined;
   return {
     answerType: params.plan.recommendedAnswerType,
     headline: params.question.length > 36 ? `${params.question.slice(0, 35)}...` : params.question,
@@ -1090,8 +1092,8 @@ function buildFallbackAnswer(params: {
     directAnswer: buildDirectAnswerFromEvaluationEvidence(params.citations),
     confidence: params.confidence,
     evidenceState: params.evidenceState,
-    keyIssueDate: params.keyIssueDate,
-    referenceDate: deriveReferenceDate(params.keyIssueDate, params.citations),
+    keyIssueDate,
+    referenceDate: deriveReferenceDate(keyIssueDate, params.citations),
     conclusion:
       params.plan.taskCandidates.length > 0
         ? trimQuote(params.plan.taskCandidates.map((task) => task.title).join(', '), 160)
@@ -1515,19 +1517,20 @@ export function createExpertAbstainAnswer(params: {
   question: string;
   confidence: ConfidenceLevel;
   evidenceState: EvidenceState;
-  keyIssueDate?: string;
+  keyIssueDate?: unknown;
   evidence: StructuredChunk[];
 }): ExpertAnswerEnvelope {
   const citations = buildExpertCitations(params.evidence.slice(0, 4));
   const groundedBasis = toGroundedBasisFromEvidence(params.evidence.slice(0, 4));
+  const keyIssueDate = sanitizeText(params.keyIssueDate) || undefined;
   return {
     answerType: 'mixed',
     headline: params.question.length > 36 ? `${params.question.slice(0, 35)}...` : params.question,
     summary: '검색된 근거만으로 질문에 직접 대응하는 전문가형 결론을 안전하게 확정하기 어려운 상태입니다.',
     confidence: params.confidence,
     evidenceState: params.evidenceState,
-    keyIssueDate: params.keyIssueDate,
-    referenceDate: deriveReferenceDate(params.keyIssueDate, params.evidence),
+    keyIssueDate,
+    referenceDate: deriveReferenceDate(keyIssueDate, params.evidence),
     conclusion: '현재 확보된 근거만으로는 결론을 단정하기 어렵습니다. 적용 전 원문 기준을 추가로 확인해야 합니다.',
     groundedBasis,
     practicalInterpretation: [
