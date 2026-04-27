@@ -95,18 +95,29 @@ interface InspectResponse {
 }
 
 interface OntologyReviewResponse {
-  concepts: Array<{
-    source: 'generated' | 'curated';
-    label: string;
-    entityType?: string;
-    status: string;
-    confidence?: number;
-    aliases: string[];
-    slotHints: string[];
-    relationCount: number;
-    statusReason?: string;
-  }>;
+  concepts: OntologyConceptRecord[];
   updatedAt: string;
+}
+
+type OntologyReviewStatus = 'candidate' | 'validated' | 'promoted' | 'rejected';
+
+interface OntologyConceptRecord {
+  source: 'generated' | 'curated';
+  label: string;
+  entityType?: string;
+  status: OntologyReviewStatus;
+  confidence?: number;
+  aliases: string[];
+  slotHints: string[];
+  relationCount: number;
+  statusReason?: string;
+  recommendedStatus: OntologyReviewStatus;
+  recommendationReason: string;
+  evidence: Array<{
+    label: string;
+    path: string;
+    reason: string;
+  }>;
 }
 
 class AdminAuthError extends Error {}
@@ -284,6 +295,34 @@ export default function RagAdminPanel({ authToken, onAuthExpired }: RagAdminPane
     () => (health ? Object.values(health.backendReadiness) : []),
     [health],
   );
+  const ontologyConcepts = useMemo(() => ontologyReview?.concepts ?? [], [ontologyReview]);
+  const visibleOntologyConcepts = useMemo(() => ontologyConcepts.slice(0, 12), [ontologyConcepts]);
+  const pendingOntologyConcepts = useMemo(
+    () => ontologyConcepts.filter((concept) => concept.status === 'candidate'),
+    [ontologyConcepts],
+  );
+  const ontologyStatusCounts = useMemo(
+    () =>
+      ontologyConcepts.reduce<Record<OntologyReviewStatus, number>>(
+        (counts, concept) => ({
+          ...counts,
+          [concept.status]: counts[concept.status] + 1,
+        }),
+        { candidate: 0, validated: 0, promoted: 0, rejected: 0 },
+      ),
+    [ontologyConcepts],
+  );
+  const recommendedOntologyConcepts = useMemo(
+    () =>
+      pendingOntologyConcepts.filter(
+        (concept) => concept.recommendedStatus !== 'candidate' && concept.recommendedStatus !== concept.status,
+      ),
+    [pendingOntologyConcepts],
+  );
+  const rejectedRecommendationConcepts = useMemo(
+    () => pendingOntologyConcepts.filter((concept) => concept.recommendedStatus === 'rejected'),
+    [pendingOntologyConcepts],
+  );
 
   const requestJson = async <T,>(input: string, init?: RequestInit): Promise<T> => readJson<T>(input, authToken, init);
 
@@ -421,7 +460,7 @@ export default function RagAdminPanel({ authToken, onAuthExpired }: RagAdminPane
   const handleOntologyReview = async (
     source: 'generated' | 'curated',
     label: string,
-    status: 'validated' | 'promoted' | 'rejected',
+    status: Exclude<OntologyReviewStatus, 'candidate'>,
   ) => {
     setBusyAction('ontology');
     setError(null);
@@ -440,6 +479,84 @@ export default function RagAdminPanel({ authToken, onAuthExpired }: RagAdminPane
       setNotice(`온톨로지 상태를 업데이트했습니다: ${label} -> ${status}`);
     } catch (reviewError) {
       setError(describeError(reviewError, '온톨로지 상태를 업데이트하지 못했습니다.'));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleOntologyBulkReview = async (
+    scope: 'visible' | 'pending',
+    status: Exclude<OntologyReviewStatus, 'candidate'>,
+  ) => {
+    const targets = (scope === 'visible' ? visibleOntologyConcepts : pendingOntologyConcepts).filter(
+      (concept) => concept.status !== status,
+    );
+    if (targets.length === 0) {
+      setNotice('변경할 온톨로지 후보가 없습니다.');
+      return;
+    }
+
+    if (
+      scope === 'pending' &&
+      !window.confirm(`검토 대기 후보 ${targets.length}개를 모두 ${status} 상태로 변경할까요?`)
+    ) {
+      return;
+    }
+
+    setBusyAction('ontology');
+    setError(null);
+    setNotice(null);
+    try {
+      const nextReview = await requestJson<OntologyReviewResponse>('/api/admin/rag/ontology/review/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          updates: targets.map((concept) => ({
+            source: concept.source,
+            label: concept.label,
+            status,
+          })),
+        }),
+      });
+      setOntologyReview(nextReview);
+      setNotice(`온톨로지 후보 ${targets.length}개를 ${status} 상태로 변경했습니다.`);
+    } catch (reviewError) {
+      setError(describeError(reviewError, '온톨로지 후보를 일괄 업데이트하지 못했습니다.'));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleApplyOntologyRecommendations = async (mode: 'all' | 'reject') => {
+    const targets = mode === 'reject' ? rejectedRecommendationConcepts : recommendedOntologyConcepts;
+    if (targets.length === 0) {
+      setNotice('적용할 자동 추천 후보가 없습니다.');
+      return;
+    }
+
+    if (!window.confirm(`자동 추천에 따라 후보 ${targets.length}개를 일괄 변경할까요?`)) {
+      return;
+    }
+
+    setBusyAction('ontology');
+    setError(null);
+    setNotice(null);
+    try {
+      const nextReview = await requestJson<OntologyReviewResponse>('/api/admin/rag/ontology/review/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          updates: targets.map((concept) => ({
+            source: concept.source,
+            label: concept.label,
+            status: concept.recommendedStatus,
+          })),
+        }),
+      });
+      setOntologyReview(nextReview);
+      setNotice(`자동 추천에 따라 온톨로지 후보 ${targets.length}개를 변경했습니다.`);
+    } catch (reviewError) {
+      setError(describeError(reviewError, '온톨로지 자동 추천을 적용하지 못했습니다.'));
     } finally {
       setBusyAction(null);
     }
@@ -850,8 +967,50 @@ export default function RagAdminPanel({ authToken, onAuthExpired }: RagAdminPane
           온톨로지 후보 검토
         </div>
 
+        <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+          <span className="rounded-full bg-white px-3 py-1">대기 {ontologyStatusCounts.candidate}</span>
+          <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700">validated {ontologyStatusCounts.validated}</span>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">promoted {ontologyStatusCounts.promoted}</span>
+          <span className="rounded-full bg-rose-50 px-3 py-1 text-rose-700">rejected {ontologyStatusCounts.rejected}</span>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busyAction !== null || visibleOntologyConcepts.length === 0}
+            onClick={() => void handleOntologyBulkReview('visible', 'promoted')}
+            className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-200 disabled:opacity-60"
+          >
+            표시 12개 승인
+          </button>
+          <button
+            type="button"
+            disabled={busyAction !== null || visibleOntologyConcepts.length === 0}
+            onClick={() => void handleOntologyBulkReview('visible', 'rejected')}
+            className="rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700 transition hover:bg-rose-200 disabled:opacity-60"
+          >
+            표시 12개 제외
+          </button>
+          <button
+            type="button"
+            disabled={busyAction !== null || recommendedOntologyConcepts.length === 0}
+            onClick={() => void handleApplyOntologyRecommendations('all')}
+            className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60"
+          >
+            추천 전체 적용
+          </button>
+          <button
+            type="button"
+            disabled={busyAction !== null || rejectedRecommendationConcepts.length === 0}
+            onClick={() => void handleApplyOntologyRecommendations('reject')}
+            className="rounded-full border border-rose-200 bg-white px-3 py-1 text-xs font-medium text-rose-700 transition hover:bg-rose-50 disabled:opacity-60"
+          >
+            잡음 전체 제외
+          </button>
+        </div>
+
         <div className="mt-4 space-y-3">
-          {ontologyReview?.concepts.slice(0, 12).map((concept) => (
+          {visibleOntologyConcepts.map((concept) => (
             <div key={`${concept.source}-${concept.label}`} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
@@ -862,6 +1021,15 @@ export default function RagAdminPanel({ authToken, onAuthExpired }: RagAdminPane
                     entity {concept.entityType || 'concept'}, relation {concept.relationCount}, confidence{' '}
                     {typeof concept.confidence === 'number' ? concept.confidence.toFixed(2) : 'n/a'}
                   </p>
+                  <div className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    <span className="font-semibold text-slate-800">추천: {concept.recommendedStatus}</span>
+                    <span className="ml-2">{concept.recommendationReason}</span>
+                  </div>
+                  {concept.evidence.length > 0 && (
+                    <div className="mt-2 text-xs text-slate-500">
+                      근거: {concept.evidence[0].label} ({concept.evidence[0].reason})
+                    </div>
+                  )}
                   {concept.aliases.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {concept.aliases.slice(0, 4).map((alias) => (

@@ -52,6 +52,8 @@ interface ChatApiErrorResponse {
 }
 
 const MAX_RATE_LIMIT_RETRIES = 2;
+const MAX_QUEUE_TIMEOUT_RETRIES = 1;
+const CHAT_QUEUE_TIMEOUT_ERROR = 'Chat request queue timed out before a generation slot was available.';
 const SERVICE_SCOPE_STORAGE_PREFIX = 'ltc.chat.serviceScopes';
 const REQUEST_TIMEOUT_MS_BY_MODEL: Record<ModelId, number> = {
   'gemini-3-flash-preview': 120_000,
@@ -350,6 +352,13 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
                 return {};
               })) as ChatApiErrorResponse)
             : {};
+
+          if (response.status === 503 && parsed.error === CHAT_QUEUE_TIMEOUT_ERROR && retryCount < MAX_QUEUE_TIMEOUT_RETRIES) {
+            const delay = Number.parseInt(response.headers.get('Retry-After') ?? '5', 10);
+            await wait(Math.max(1, delay) * 1000);
+            return callApi(retryCount + 1);
+          }
+
           const errorText = parsed.error ?? buildServerErrorMessage(response.status, response.statusText);
           const detailText = formatErrorDetails(parsed.details);
           const responseModelLabel = parsed.model ? getModelLabel(parsed.model) : requestModelLabel;
