@@ -22,7 +22,7 @@ import { parseServiceScopes } from './src/lib/serviceScopes';
 import type { ChatMessage, PromptMode, ServiceScopeId } from './src/lib/ragTypes';
 import type { PromptVariant } from './src/lib/promptAssembly';
 
-if (process.env.NODE_ENV !== 'production') dotenv.config();
+dotenv.config();
 
 const PROJECT_ROOT = process.cwd();
 const PORT = Number(process.env.PORT || 3000);
@@ -201,7 +201,7 @@ function applySecurityHeaders(app: express.Express) {
       frameAncestors: ["'none'"],
       objectSrc: ["'none'"],
       scriptSrc: ["'self'"],
-      styleSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", 'data:', 'blob:'],
       fontSrc: ["'self'", 'data:'],
       connectSrc: connectSources,
@@ -210,7 +210,7 @@ function applySecurityHeaders(app: express.Express) {
 
   app.use(
     helmet({
-      contentSecurityPolicy,
+      contentSecurityPolicy: isProduction ? contentSecurityPolicy : false,
     }),
   );
 }
@@ -749,7 +749,11 @@ async function startServer() {
     });
   }
 
-  await ragService.initialize();
+  try {
+    await ragService.initialize();
+  } catch (error) {
+    logServerError('[startup] ragService initialize failed; server will continue in degraded mode', error);
+  }
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
