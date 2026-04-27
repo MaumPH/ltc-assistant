@@ -149,7 +149,8 @@ export function parseServiceScopes(input: unknown): ServiceScopeId[] {
 export function coerceServiceScopes(input: unknown): ServiceScopeId[] {
   try {
     return parseServiceScopes(input);
-  } catch {
+  } catch (error) {
+    console.debug('[serviceScopes] failed to coerce service scopes; using all scopes:', error);
     return [ALL_SERVICE_SCOPE_ID];
   }
 }

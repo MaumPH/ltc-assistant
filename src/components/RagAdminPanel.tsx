@@ -238,7 +238,10 @@ async function readJson<T>(input: string, authToken: string, init?: RequestInit)
   });
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as { error?: string; details?: string };
+    const payload = (await response.json().catch((error) => {
+      console.warn('[RagAdminPanel] failed to parse admin API error response:', error);
+      return {};
+    })) as { error?: string; details?: string };
     const message = payload.details || payload.error || `요청에 실패했습니다. 상태 코드: ${response.status}`;
     if (response.status === 401) {
       throw new AdminAuthError('관리자 로그인이 만료되었습니다. 다시 로그인해 주세요.');

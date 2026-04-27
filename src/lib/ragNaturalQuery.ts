@@ -286,8 +286,8 @@ export function loadOntologyLexiconEntries(projectRoot?: string): LexiconEntry[]
       cachedLexiconProjectRoot = resolvedProjectRoot;
       return cachedLexiconEntries;
     }
-  } catch {
-    // Fall through to the embedded defaults.
+  } catch (error) {
+    console.warn('[ragNaturalQuery] failed to load ontology lexicon; using embedded defaults:', error);
   }
 
   cachedLexiconProjectRoot = resolvedProjectRoot;

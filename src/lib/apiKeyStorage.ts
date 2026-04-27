@@ -10,6 +10,11 @@ export function readStoredApiKey(): string | null {
 }
 
 export function saveApiKey(key: string): void {
+  if (typeof window !== 'undefined' && import.meta.env.PROD) {
+    console.warn(
+      '[apiKeyStorage] Gemini API keys are stored in browser localStorage. Prefer RAG_GENERATION_MODE=server for shared or production deployments.',
+    );
+  }
   getStorage()?.setItem(API_KEY_STORAGE, key.trim());
 }
 

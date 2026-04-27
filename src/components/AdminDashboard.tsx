@@ -37,7 +37,8 @@ function readStoredAdminSession(): StoredAdminSession | null {
       token: parsed.token,
       expiresAt: parsed.expiresAt,
     };
-  } catch {
+  } catch (error) {
+    console.warn('[AdminDashboard] failed to read stored admin session:', error);
     window.sessionStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
     return null;
   }
@@ -80,8 +81,9 @@ export default function AdminDashboard() {
           clearAdminSession();
           setSession(null);
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
+          console.warn('[AdminDashboard] admin session verification failed:', error);
           clearAdminSession();
           setSession(null);
         }
@@ -110,7 +112,10 @@ export default function AdminDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
       });
-      const payload = (await response.json().catch(() => ({}))) as Partial<AdminSessionResponse> & {
+      const payload = (await response.json().catch((error) => {
+        console.warn('[AdminDashboard] failed to parse admin session response:', error);
+        return {};
+      })) as Partial<AdminSessionResponse> & {
         error?: string;
         details?: string;
       };
@@ -142,7 +147,10 @@ export default function AdminDashboard() {
       headers: {
         Authorization: `Bearer ${token}`,
       },
-    }).catch(() => undefined);
+    }).catch((error) => {
+      console.debug('[AdminDashboard] admin session revoke failed:', error);
+      return undefined;
+    });
   };
 
   if (session) {

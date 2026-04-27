@@ -5,6 +5,7 @@ export function resolveEmbeddingApiKey(): string {
 }
 
 export function resolveGenerationMode(): GenerationMode {
+  // Prefer RAG_GENERATION_MODE=server for shared deployments so user API keys are not stored in browsers.
   return process.env.RAG_GENERATION_MODE?.trim().toLowerCase() === 'server' ? 'server' : 'user';
 }
 

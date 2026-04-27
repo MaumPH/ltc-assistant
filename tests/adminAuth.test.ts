@@ -25,20 +25,19 @@ test('admin password verification accepts only the configured password', () => {
 
 test('admin session store creates, validates, expires, and revokes tokens', () => {
   let now = 1_000;
-  let tokenCounter = 0;
   const store = new AdminSessionStore({
-    ttlMs: 500,
+    ttlMs: 2_000,
     now: () => now,
-    createToken: () => `token-${++tokenCounter}`,
+    jwtSecret: 'test-secret',
   });
 
   const session = store.createSession();
 
-  assert.equal(session.token, 'token-1');
-  assert.equal(session.expiresAt, 1_500);
+  assert.match(session.token, /^[^.]+\.[^.]+\.[^.]+$/);
+  assert.equal(session.expiresAt, 3_000);
   assert.equal(store.isValid(session.token), true);
 
-  now = 1_501;
+  now = 3_001;
   assert.equal(store.isValid(session.token), false);
 
   const nextSession = store.createSession();
