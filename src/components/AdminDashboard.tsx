@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Eye, EyeOff, LockKeyhole, LogOut, ShieldCheck } from 'lucide-react';
-import { getApiUrl } from '../lib/apiUrl';
+import { formatApiConnectionError, getApiUrl } from '../lib/apiUrl';
 import RagAdminPanel from './RagAdminPanel';
 
 const ADMIN_SESSION_STORAGE_KEY = 'ltc_admin_session';
@@ -128,7 +128,8 @@ export default function AdminDashboard() {
       setPassword('');
       setShowPassword(false);
     } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : '관리자 로그인에 실패했습니다.');
+      const message = loginError instanceof Error ? loginError.message : '';
+      setError(message === 'Failed to fetch' ? formatApiConnectionError('/api/admin/session', loginError) : message || '관리자 로그인에 실패했습니다.');
     } finally {
       setIsSubmitting(false);
     }

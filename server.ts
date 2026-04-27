@@ -419,7 +419,7 @@ async function startServer() {
 
   app.get('/api/chat/capabilities', async (_req, res) => {
     try {
-      res.json(await ragService.getChatCapabilities());
+      res.json(ragService.getChatCapabilitiesSnapshot());
     } catch (error) {
       logServerError('chat capabilities failed', error);
       res.status(500).json({

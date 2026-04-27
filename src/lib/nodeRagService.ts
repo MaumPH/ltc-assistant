@@ -2517,11 +2517,29 @@ export class NodeRagService {
   async getChatCapabilities(): Promise<ChatCapabilities> {
     await this.initialize();
     const status = this.refreshIndexStatus();
+    return this.buildChatCapabilities(status);
+  }
+
+  getChatCapabilitiesSnapshot(): ChatCapabilities {
+    return this.buildChatCapabilities(this.indexStatus, {
+      initializing: !this.initialized,
+      degraded: !this.initialized,
+      message: !this.initialized
+        ? 'RAG knowledge is still loading. Search and chat may be limited until initialization finishes.'
+        : undefined,
+    });
+  }
+
+  private buildChatCapabilities(
+    status: IndexStatus,
+    statusExtras?: Pick<ChatCapabilities, 'initializing' | 'degraded' | 'message'>,
+  ): ChatCapabilities {
     return {
       generationMode: this.generationMode,
       requiresUserGenerationKey: this.generationMode === 'user',
       serverEmbeddingReady: status.retrievalReadiness !== 'lexical_only',
       retrievalReadiness: status.retrievalReadiness,
+      ...statusExtras,
       activeProfileId: this.activeProfileId,
       availableProfiles: this.retrievalProfiles.map((profile) => ({
         id: profile.id,

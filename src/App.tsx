@@ -8,7 +8,7 @@ import TopNav, {
 } from './components/TopNav';
 import { ApiKeyModal } from './components/ApiKeySetup';
 import { clearStoredApiKey, readStoredApiKey, saveApiKey } from './lib/apiKeyStorage';
-import { getApiUrl } from './lib/apiUrl';
+import { formatApiConnectionError, getApiUrl } from './lib/apiUrl';
 import type { ChatCapabilities } from './lib/ragTypes';
 
 const ChatView = lazy(() => import('./components/ChatView'));
@@ -71,7 +71,7 @@ export default function App() {
         }
       } catch (error) {
         if (!cancelled) {
-          setCapabilitiesError(error instanceof Error ? error.message : 'Failed to load chat capabilities');
+          setCapabilitiesError(formatApiConnectionError('/api/chat/capabilities', error));
         }
       }
     };
@@ -122,8 +122,10 @@ export default function App() {
       />
 
       {capabilitiesError && (
-        <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+        <div className="whitespace-pre-line border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
           채팅 기능 상태를 불러오지 못했습니다. 검색은 서버 상태에 따라 제한될 수 있습니다.
+          {'\n'}
+          {capabilitiesError}
         </div>
       )}
 
