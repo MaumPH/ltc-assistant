@@ -39,7 +39,10 @@ const adminSessions = new AdminSessionStore({ ttlMs: ADMIN_SESSION_TTL_MS });
 const adminSessionPruneInterval = setInterval(() => adminSessions.pruneExpired(), ADMIN_SESSION_PRUNE_INTERVAL_MS);
 adminSessionPruneInterval.unref();
 const CHAT_CONCURRENCY = parsePositiveInteger(process.env.RAG_CHAT_CONCURRENCY, 3);
-const CHAT_QUEUE_TIMEOUT_MS = parsePositiveInteger(process.env.RAG_CHAT_QUEUE_TIMEOUT_MS, 15_000);
+const DEFAULT_CHAT_QUEUE_TIMEOUT_MS = 90_000;
+const CHAT_QUEUE_TIMEOUT_MS = parsePositiveInteger(process.env.RAG_CHAT_QUEUE_TIMEOUT_MS, DEFAULT_CHAT_QUEUE_TIMEOUT_MS);
+const CHAT_QUEUE_TIMEOUT_MESSAGE = 'Chat request queue timed out before a generation slot was available.';
+const CHAT_QUEUE_RETRY_AFTER_SECONDS = 5;
 const chatLimiter = pLimit(CHAT_CONCURRENCY);
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
@@ -106,6 +109,10 @@ function toChatApiError(error: unknown): ApiError {
   return new ApiError(500, 'Failed to generate grounded response', safeMessage);
 }
 
+function isChatQueueTimeout(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 503 && error.message === CHAT_QUEUE_TIMEOUT_MESSAGE;
+}
+
 async function runLimitedChat<T>(task: () => Promise<T>): Promise<T> {
   let timedOut = false;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -113,14 +120,14 @@ async function runLimitedChat<T>(task: () => Promise<T>): Promise<T> {
   const timeout = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
       timedOut = true;
-      reject(new ApiError(503, 'Chat request queue timed out before a generation slot was available.'));
+      reject(new ApiError(503, CHAT_QUEUE_TIMEOUT_MESSAGE));
     }, CHAT_QUEUE_TIMEOUT_MS);
   });
 
   return Promise.race([
     chatLimiter(async () => {
       if (timedOut) {
-        throw new ApiError(503, 'Chat request queue timed out before a generation slot was available.');
+        throw new ApiError(503, CHAT_QUEUE_TIMEOUT_MESSAGE);
       }
       return task();
     }),
@@ -566,6 +573,53 @@ async function startServer() {
     }
   });
 
+  app.post('/api/admin/rag/ontology/review/bulk', requireAdminAuth, async (req, res) => {
+    try {
+      await ragService.initialize();
+      const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+      const validStatuses = new Set(['candidate', 'validated', 'promoted', 'rejected']);
+      const validSources = new Set(['generated', 'curated']);
+      const normalizedUpdates = updates
+        .map((update) => ({
+          source: update?.source,
+          label: typeof update?.label === 'string' ? update.label.trim() : '',
+          status: update?.status,
+          statusReason: typeof update?.statusReason === 'string' ? update.statusReason : undefined,
+        }))
+        .filter(
+          (update) =>
+            validSources.has(update.source) &&
+            update.label &&
+            validStatuses.has(update.status),
+        ) as Array<{
+        source: 'generated' | 'curated';
+        label: string;
+        status: 'candidate' | 'validated' | 'promoted' | 'rejected';
+        statusReason?: string;
+      }>;
+
+      if (updates.length === 0 || normalizedUpdates.length !== updates.length) {
+        return res.status(400).json({ error: 'valid updates are required' });
+      }
+
+      if (normalizedUpdates.length > 1000) {
+        return res.status(400).json({ error: 'updates must contain 1000 items or fewer' });
+      }
+
+      res.json(
+        ragService.updateOntologyConceptReviewBatch({
+          updates: normalizedUpdates,
+        }),
+      );
+    } catch (error) {
+      logServerError('admin rag ontology bulk review failed', error);
+      res.status(500).json({
+        error: 'Failed to update ontology review statuses',
+        details: getSafeErrorMessage(error),
+      });
+    }
+  });
+
   app.get('/api/knowledge/file', (req, res) => {
     const requestedPath = typeof req.query.path === 'string' ? req.query.path : '';
     const filePath = resolveKnowledgeFilePath(requestedPath);
@@ -728,6 +782,9 @@ async function startServer() {
     } catch (error) {
       const apiError = toChatApiError(error);
       logServerError('chat request failed', error);
+      if (isChatQueueTimeout(apiError)) {
+        res.setHeader('Retry-After', CHAT_QUEUE_RETRY_AFTER_SECONDS.toString());
+      }
       return res.status(apiError.status).json({
         error: apiError.message,
         model: requestedModel,

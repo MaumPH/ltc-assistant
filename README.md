@@ -159,6 +159,8 @@ Windows PowerShell에서는 직접 파일을 복사하세요.
 | `RAG_FRONTEND_ORIGIN` | 없음 | 분리 배포 시 CORS 허용 origin |
 | `RAG_CSP_CONNECT_SRC` | 없음 | 프로덕션 CSP `connect-src` 추가 origin |
 | `RAG_CHAT_RATE_LIMIT_MAX` | `20` | 분당 채팅 요청 제한 |
+| `RAG_CHAT_CONCURRENCY` | `3` | 동시에 실행할 채팅 생성 요청 수 |
+| `RAG_CHAT_QUEUE_TIMEOUT_MS` | `90000` | 생성 슬롯을 기다리는 최대 시간 |
 | `RAG_INSPECT_RATE_LIMIT_MAX` | `20` | 분당 검색 inspect 요청 제한 |
 
 운영에 쓰는 실제 API 키, DB 비밀번호, 관리자 인증값은 README에 기록하지 말고 `.env` 또는 배포 환경의 secret manager에만 둡니다.

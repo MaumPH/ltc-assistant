@@ -11,6 +11,7 @@ import {
   buildOntologyRows,
   loadCuratedOntologyManifest,
   loadGeneratedOntologyManifest,
+  type GeneratedOntologyConcept,
   writeCuratedOntologyManifest,
   writeGeneratedOntologyManifest,
 } from './ragOntology';
@@ -42,6 +43,52 @@ import type { AdminOntologyReviewResponse } from './nodeRagService';
 
 function stripNullCharacters(value: string): string {
   return value.replace(/\u0000/g, '');
+}
+
+type OntologyReviewStatus = 'candidate' | 'validated' | 'promoted' | 'rejected';
+
+function getOntologyReviewRecommendation(concept: GeneratedOntologyConcept): {
+  recommendedStatus: OntologyReviewStatus;
+  recommendationReason: string;
+} {
+  const label = concept.label.trim();
+  const relationCount = concept.relations?.length ?? 0;
+  const aliasCount = concept.aliases?.length ?? 0;
+  const slotHintCount = concept.slot_hints?.length ?? 0;
+  const confidence = concept.confidence ?? 0;
+  const wordCount = label.split(/\s+/u).filter(Boolean).length;
+  const hasSentenceSignal =
+    label.length > 34 ||
+    wordCount >= 5 ||
+    /[.!?,:;'"“”‘’|<>]/u.test(label) ||
+    /(?:입니다|한다|된다|있다|없다|하며|하고|대한|위한|경우|예시|적용)/u.test(label) ||
+    /^(?:[0-9]+[.)]|[가-하]\.|제\d+조|[■▣○ㅇ•*-])/u.test(label);
+
+  if (hasSentenceSignal && relationCount === 0 && aliasCount === 0 && slotHintCount === 0) {
+    return {
+      recommendedStatus: 'rejected',
+      recommendationReason: '문장 조각이나 예시 문구처럼 보여 검색 개념으로 쓰기 어렵습니다.',
+    };
+  }
+
+  if (label.length <= 18 && confidence >= 0.72 && (relationCount > 0 || aliasCount > 0 || slotHintCount > 0)) {
+    return {
+      recommendedStatus: 'promoted',
+      recommendationReason: '짧고 연결 정보가 있는 핵심 용어 후보입니다.',
+    };
+  }
+
+  if (label.length <= 24 && confidence >= 0.7 && !hasSentenceSignal) {
+    return {
+      recommendedStatus: 'validated',
+      recommendationReason: '짧은 용어 후보라 검증 상태로 두기 적합합니다.',
+    };
+  }
+
+  return {
+    recommendedStatus: 'candidate',
+    recommendationReason: '자동 판정만으로는 확정하기 어려워 보류가 안전합니다.',
+  };
 }
 
 function sanitizePostgresValue<T>(value: T): T {
@@ -162,17 +209,27 @@ export function buildAdminOntologyReview(projectRoot: string): AdminOntologyRevi
   ];
 
   const concepts = manifests.flatMap(({ source, manifest }) =>
-    manifest.concepts.map((concept) => ({
-      source,
-      label: concept.label,
-      entityType: concept.entity_type,
-      status: concept.status ?? 'candidate',
-      confidence: concept.confidence,
-      aliases: concept.aliases ?? [],
-      slotHints: concept.slot_hints ?? [],
-      relationCount: concept.relations?.length ?? 0,
-      statusReason: concept.status_reason,
-    })),
+    manifest.concepts.map((concept) => {
+      const recommendation = getOntologyReviewRecommendation(concept);
+      return {
+        source,
+        label: concept.label,
+        entityType: concept.entity_type,
+        status: concept.status ?? 'candidate',
+        confidence: concept.confidence,
+        aliases: concept.aliases ?? [],
+        slotHints: concept.slot_hints ?? [],
+        relationCount: concept.relations?.length ?? 0,
+        statusReason: concept.status_reason,
+        recommendedStatus: recommendation.recommendedStatus,
+        recommendationReason: recommendation.recommendationReason,
+        evidence: (concept.evidence ?? []).slice(0, 3).map((evidence) => ({
+          label: evidence.label,
+          path: evidence.path,
+          reason: evidence.reason,
+        })),
+      };
+    }),
   );
 
   return {
@@ -215,6 +272,44 @@ export function updateOntologyConceptReviewManifest(params: {
     writeCuratedOntologyManifest(params.projectRoot, nextManifest);
   } else {
     writeGeneratedOntologyManifest(params.projectRoot, nextManifest);
+  }
+}
+
+export function updateOntologyConceptReviewBatchManifest(params: {
+  projectRoot: string;
+  updates: Array<{
+    source: 'generated' | 'curated';
+    label: string;
+    status: 'candidate' | 'validated' | 'promoted' | 'rejected';
+    statusReason?: string;
+  }>;
+}): void {
+  for (const source of ['generated', 'curated'] as const) {
+    const sourceUpdates = params.updates.filter((update) => update.source === source);
+    if (sourceUpdates.length === 0) continue;
+
+    const updatesByLabel = new Map(sourceUpdates.map((update) => [update.label, update]));
+    const sourceManifest =
+      source === 'curated' ? loadCuratedOntologyManifest(params.projectRoot) : loadGeneratedOntologyManifest(params.projectRoot);
+    const nextManifest = {
+      ...sourceManifest,
+      concepts: sourceManifest.concepts.map((concept) => {
+        const update = updatesByLabel.get(concept.label);
+        return update
+          ? {
+              ...concept,
+              status: update.status,
+              status_reason: update.statusReason ?? concept.status_reason,
+            }
+          : concept;
+      }),
+    };
+
+    if (source === 'curated') {
+      writeCuratedOntologyManifest(params.projectRoot, nextManifest);
+    } else {
+      writeGeneratedOntologyManifest(params.projectRoot, nextManifest);
+    }
   }
 }
 

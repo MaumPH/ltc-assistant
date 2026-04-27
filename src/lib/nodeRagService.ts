@@ -10,6 +10,7 @@ import {
   loadBenchmarkCases,
   rememberEvalTrialReport,
   updateAdminProfileState,
+  updateOntologyConceptReviewBatchManifest,
   updateOntologyConceptReviewManifest,
 } from './adminOperations';
 import { buildRetrievalDiagnostics, createEmptyCacheHitSummary, createEmptyLatencyBreakdown } from './ragDiagnosticsInternal';
@@ -300,6 +301,13 @@ export interface AdminOntologyConceptRecord {
   slotHints: string[];
   relationCount: number;
   statusReason?: string;
+  recommendedStatus: 'candidate' | 'validated' | 'promoted' | 'rejected';
+  recommendationReason: string;
+  evidence: Array<{
+    label: string;
+    path: string;
+    reason: string;
+  }>;
 }
 
 export interface AdminOntologyReviewResponse {
@@ -1482,6 +1490,22 @@ export class NodeRagService {
     updateOntologyConceptReviewManifest({
       projectRoot: this.projectRoot,
       ...params,
+    });
+    this.rebuildOntologyGraph();
+    return this.getAdminOntologyReview();
+  }
+
+  updateOntologyConceptReviewBatch(params: {
+    updates: Array<{
+      source: 'generated' | 'curated';
+      label: string;
+      status: 'candidate' | 'validated' | 'promoted' | 'rejected';
+      statusReason?: string;
+    }>;
+  }): AdminOntologyReviewResponse {
+    updateOntologyConceptReviewBatchManifest({
+      projectRoot: this.projectRoot,
+      updates: params.updates,
     });
     this.rebuildOntologyGraph();
     return this.getAdminOntologyReview();
