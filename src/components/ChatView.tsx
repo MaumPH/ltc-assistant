@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import { MODELS, type ModelId } from './TopNav';
 import ExpertAnswerCard from './ExpertAnswerCard';
 import RetrievalTracePanel from './RetrievalTracePanel';
-import { getApiUrl } from '../lib/apiUrl';
+import { formatApiConnectionError, getApiUrl } from '../lib/apiUrl';
 import {
   ALL_SERVICE_SCOPE_ID,
   SERVICE_SCOPE_OPTIONS,
@@ -391,7 +391,11 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
                 )
               : buildErrorMessage(
                   `오류가 발생했습니다. (${requestModelLabel})`,
-                  error instanceof Error ? error.message : '알 수 없는 오류',
+                  error instanceof Error && error.message === 'Failed to fetch'
+                    ? formatApiConnectionError('/api/chat', error)
+                    : error instanceof Error
+                      ? error.message
+                      : '알 수 없는 오류',
                 ),
           ),
         ]);

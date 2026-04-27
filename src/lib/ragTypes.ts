@@ -841,6 +841,9 @@ export interface ChatCapabilities {
   requiresUserGenerationKey: boolean;
   serverEmbeddingReady: boolean;
   retrievalReadiness: RetrievalReadiness;
+  initializing?: boolean;
+  degraded?: boolean;
+  message?: string;
   activeProfileId?: string;
   availableProfiles?: Array<{
     id: string;
