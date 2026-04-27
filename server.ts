@@ -33,6 +33,7 @@ const ADMIN_LOGIN_RATE_LIMIT_MAX = parsePositiveInteger(process.env.ADMIN_DASHBO
 const ADMIN_SESSION_TTL_MS = parsePositiveInteger(process.env.ADMIN_DASHBOARD_SESSION_TTL_MS, 8 * 60 * 60 * 1000);
 const API_KEY_RE = /AIza[0-9A-Za-z\-_]+/g;
 const ADMIN_SESSION_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+const DEFAULT_FRONTEND_ORIGINS = ['https://maumph.github.io'];
 const ragService = new NodeRagService(PROJECT_ROOT);
 const adminSessions = new AdminSessionStore({ ttlMs: ADMIN_SESSION_TTL_MS });
 const adminSessionPruneInterval = setInterval(() => adminSessions.pruneExpired(), ADMIN_SESSION_PRUNE_INTERVAL_MS);
@@ -54,7 +55,7 @@ function parseCommaSeparatedEnv(value: string | undefined): string[] {
 }
 
 function parseAllowedOrigins(): string[] {
-  return parseCommaSeparatedEnv(process.env.RAG_FRONTEND_ORIGIN);
+  return Array.from(new Set([...DEFAULT_FRONTEND_ORIGINS, ...parseCommaSeparatedEnv(process.env.RAG_FRONTEND_ORIGIN)]));
 }
 
 function parseCspConnectSources(): string[] {
