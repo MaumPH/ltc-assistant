@@ -126,8 +126,8 @@ export function loadOntologyValidationRules(projectRoot?: string): ValidationRul
       cachedRules = rules.filter((rule) => typeof rule.id === 'string' && Array.isArray(rule.primary_intents));
       return cachedRules;
     }
-  } catch {
-    // Fall through to embedded defaults.
+  } catch (error) {
+    console.warn('[ragSemanticValidation] failed to load validation rules; using embedded defaults:', error);
   }
 
   cachedRulesProjectRoot = resolvedProjectRoot;

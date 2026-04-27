@@ -654,7 +654,8 @@ export async function detectClarificationNeed(params: {
 
     const parsed = JSON.parse(response.text || '{}') as Partial<ClarificationDecision>;
     return normalizeClarificationDecision(parsed, serviceScopeFallback);
-  } catch {
+  } catch (error) {
+    console.warn('[expertAnswering] clarification model fallback:', error);
     return serviceScopeFallback;
   }
 }
@@ -746,7 +747,8 @@ export async function generateAnswerPlan(params: {
 
     const parsed = JSON.parse(response.text || '{}') as Partial<AnswerPlan>;
     return normalizePlan(parsed, fallback, allowedEvidenceIds, allowedWorkflowEvents);
-  } catch {
+  } catch (error) {
+    console.warn('[expertAnswering] answer planner fallback:', error);
     return fallback;
   }
 }
@@ -1529,7 +1531,8 @@ export async function synthesizeExpertAnswer(params: {
 
     const parsed = JSON.parse(response.text || '{}') as Partial<ExpertAnswerEnvelope>;
     return normalizeExpertAnswer(parsed, fallback, allowedCitationIds);
-  } catch {
+  } catch (error) {
+    console.warn('[expertAnswering] answer synthesis fallback:', error);
     return fallback;
   }
 }

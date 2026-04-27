@@ -70,7 +70,8 @@ async function callMcpTool(baseUrl: string, name: string, args: Record<string, u
       : (() => {
           try {
             return JSON.stringify(error) ?? 'Unknown Law MCP error';
-          } catch {
+          } catch (error) {
+            console.debug('[lawMcpClient] failed to stringify MCP error payload:', error);
             return 'Unknown Law MCP error';
           }
         })();
@@ -104,7 +105,8 @@ export class LawMcpClient {
     try {
       const response = await fetch(buildHealthUrl(this.baseUrl));
       return response.ok;
-    } catch {
+    } catch (error) {
+      console.debug('[lawMcpClient] health check failed:', error);
       return false;
     }
   }
@@ -153,7 +155,8 @@ export class LawMcpClient {
           cached: false,
           url: buildMcpUrl(this.baseUrl),
         };
-      } catch {
+      } catch (error) {
+        console.warn(`[lawMcpClient] fallback tool ${attempt.tool} failed:`, error);
         continue;
       }
     }

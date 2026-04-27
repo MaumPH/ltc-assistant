@@ -1,8 +1,10 @@
 import cors from 'cors';
+import crypto from 'node:crypto';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import fs from 'fs';
 import helmet from 'helmet';
+import pLimit from 'p-limit';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import * as dotenv from 'dotenv';
@@ -13,13 +15,14 @@ import {
   isAdminPasswordConfigured,
   verifyAdminPassword,
 } from './src/lib/adminAuth';
+import { ApiError } from './src/lib/errors';
 import { buildKnowledgeCategoryCounts } from './src/lib/knowledgeCategories';
 import { NodeRagService } from './src/lib/nodeRagService';
 import { parseServiceScopes } from './src/lib/serviceScopes';
 import type { ChatMessage, PromptMode, ServiceScopeId } from './src/lib/ragTypes';
 import type { PromptVariant } from './src/lib/promptAssembly';
 
-dotenv.config();
+if (process.env.NODE_ENV !== 'production') dotenv.config();
 
 const PROJECT_ROOT = process.cwd();
 const PORT = Number(process.env.PORT || 3000);
@@ -29,40 +32,14 @@ const INSPECT_RATE_LIMIT_MAX = parsePositiveInteger(process.env.RAG_INSPECT_RATE
 const ADMIN_LOGIN_RATE_LIMIT_MAX = parsePositiveInteger(process.env.ADMIN_DASHBOARD_LOGIN_RATE_LIMIT_MAX, 10);
 const ADMIN_SESSION_TTL_MS = parsePositiveInteger(process.env.ADMIN_DASHBOARD_SESSION_TTL_MS, 8 * 60 * 60 * 1000);
 const API_KEY_RE = /AIza[0-9A-Za-z\-_]+/g;
+const ADMIN_SESSION_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 const ragService = new NodeRagService(PROJECT_ROOT);
 const adminSessions = new AdminSessionStore({ ttlMs: ADMIN_SESSION_TTL_MS });
-
-const requestQueue: Array<() => Promise<void>> = [];
-let queueRunning = false;
-const QUEUE_INTERVAL_MS = 1500;
-
-async function enqueueRequest(task: () => Promise<void>): Promise<void> {
-  return new Promise((resolve, reject) => {
-    requestQueue.push(async () => {
-      try {
-        await task();
-        resolve();
-      } catch (error) {
-        reject(error);
-      }
-    });
-    if (!queueRunning) void drainQueue();
-  });
-}
-
-async function drainQueue() {
-  queueRunning = true;
-  while (requestQueue.length > 0) {
-    const next = requestQueue.shift();
-    if (next) {
-      await next();
-    }
-    if (requestQueue.length > 0) {
-      await new Promise((resolve) => setTimeout(resolve, QUEUE_INTERVAL_MS));
-    }
-  }
-  queueRunning = false;
-}
+const adminSessionPruneInterval = setInterval(() => adminSessions.pruneExpired(), ADMIN_SESSION_PRUNE_INTERVAL_MS);
+adminSessionPruneInterval.unref();
+const CHAT_CONCURRENCY = parsePositiveInteger(process.env.RAG_CHAT_CONCURRENCY, 3);
+const CHAT_QUEUE_TIMEOUT_MS = parsePositiveInteger(process.env.RAG_CHAT_QUEUE_TIMEOUT_MS, 15_000);
+const chatLimiter = pLimit(CHAT_CONCURRENCY);
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? '', 10);
@@ -96,6 +73,62 @@ function logServerError(context: string, error: unknown): void {
   console.error(`[server] ${context}: ${getSafeErrorMessage(error)}`);
 }
 
+function toChatApiError(error: unknown): ApiError {
+  if (error instanceof ApiError) return error;
+
+  const message = error instanceof Error ? error.message : String(error);
+  const safeMessage = sanitizeSensitiveText(message);
+  const lowered = message.toLowerCase();
+
+  if (message.includes('Invalid serviceScopes')) {
+    return new ApiError(400, 'Invalid serviceScopes', safeMessage);
+  }
+  if (lowered.includes('429') || lowered.includes('resource_exhausted') || lowered.includes('quota')) {
+    return new ApiError(429, 'Request quota exceeded. Please try again later.');
+  }
+  if (lowered.includes('404') || lowered.includes('not_found') || lowered.includes('not found')) {
+    return new ApiError(404, 'Requested model or API resource was not found.', safeMessage);
+  }
+  if (lowered.includes('504') || lowered.includes('deadline_exceeded') || lowered.includes('deadline exceeded')) {
+    return new ApiError(504, 'The selected model did not respond before the deadline.', safeMessage);
+  }
+  if (lowered.includes('503') || lowered.includes('unavailable') || lowered.includes('overloaded')) {
+    return new ApiError(503, 'The selected model service is temporarily unavailable.', safeMessage);
+  }
+  if (lowered.includes('500') || lowered.includes('internal')) {
+    return new ApiError(502, 'The model provider returned a server error.', safeMessage);
+  }
+  if (lowered.includes('api key is required')) {
+    return new ApiError(400, 'A Gemini API key is required.', safeMessage);
+  }
+
+  return new ApiError(500, 'Failed to generate grounded response', safeMessage);
+}
+
+async function runLimitedChat<T>(task: () => Promise<T>): Promise<T> {
+  let timedOut = false;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      reject(new ApiError(503, 'Chat request queue timed out before a generation slot was available.'));
+    }, CHAT_QUEUE_TIMEOUT_MS);
+  });
+
+  return Promise.race([
+    chatLimiter(async () => {
+      if (timedOut) {
+        throw new ApiError(503, 'Chat request queue timed out before a generation slot was available.');
+      }
+      return task();
+    }),
+    timeout,
+  ]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
+
 function createApiRateLimiter(max: number) {
   return rateLimit({
     windowMs: RATE_LIMIT_WINDOW_MS,
@@ -106,6 +139,32 @@ function createApiRateLimiter(max: number) {
       res.setHeader('Retry-After', Math.ceil(RATE_LIMIT_WINDOW_MS / 1000).toString());
       res.status(429).json({
         error: '요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.',
+      });
+    },
+  });
+}
+
+function hashRateLimitKey(value: string): string {
+  return crypto.createHash('sha256').update(value).digest('base64url');
+}
+
+function createKeyRateLimiter(max: number) {
+  return rateLimit({
+    windowMs: RATE_LIMIT_WINDOW_MS,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator(req) {
+      const apiKey = typeof req.body?.apiKey === 'string' ? req.body.apiKey.trim() : '';
+      if (apiKey) {
+        return `api-key:${hashRateLimitKey(apiKey)}`;
+      }
+      return `ip:${req.ip ?? req.socket.remoteAddress ?? 'unknown'}`;
+    },
+    handler(_req, res) {
+      res.setHeader('Retry-After', Math.ceil(RATE_LIMIT_WINDOW_MS / 1000).toString());
+      res.status(429).json({
+        error: 'Request quota exceeded for this API key. Please try again later.',
       });
     },
   });
@@ -131,26 +190,27 @@ function requireAdminAuth(req: express.Request, res: express.Response, next: exp
 }
 
 function applySecurityHeaders(app: express.Express) {
-  const connectSources = Array.from(new Set(["'self'", ...parseCspConnectSources()]));
+  const isProduction = process.env.NODE_ENV === 'production';
+  const connectSources = Array.from(
+    new Set(["'self'", ...parseCspConnectSources(), ...(isProduction ? [] : ['ws:', 'wss:'])]),
+  );
+  const contentSecurityPolicy = {
+    directives: {
+      defaultSrc: ["'self'"],
+      baseUri: ["'self'"],
+      frameAncestors: ["'none'"],
+      objectSrc: ["'none'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      fontSrc: ["'self'", 'data:'],
+      connectSrc: connectSources,
+    },
+  };
 
   app.use(
     helmet({
-      contentSecurityPolicy:
-        process.env.NODE_ENV === 'production'
-          ? {
-              directives: {
-                defaultSrc: ["'self'"],
-                baseUri: ["'self'"],
-                frameAncestors: ["'none'"],
-                objectSrc: ["'none'"],
-                scriptSrc: ["'self'"],
-                styleSrc: ["'self'", "'unsafe-inline'"],
-                imgSrc: ["'self'", 'data:', 'blob:'],
-                fontSrc: ["'self'", 'data:'],
-                connectSrc: connectSources,
-              },
-            }
-          : false,
+      contentSecurityPolicy,
     }),
   );
 }
@@ -166,7 +226,7 @@ function applyCors(app: express.Express) {
           callback(null, true);
           return;
         }
-        callback(new Error(`Origin ${origin} is not allowed.`));
+        callback(null, false);
       },
     }),
   );
@@ -237,8 +297,11 @@ async function handleRetrievalInspect(req: express.Request, res: express.Respons
 async function startServer() {
   const app = express();
   const chatRateLimit = createApiRateLimiter(CHAT_RATE_LIMIT_MAX);
+  const chatKeyRateLimit = createKeyRateLimiter(CHAT_RATE_LIMIT_MAX);
   const inspectRateLimit = createApiRateLimiter(INSPECT_RATE_LIMIT_MAX);
   const adminLoginRateLimit = createApiRateLimiter(ADMIN_LOGIN_RATE_LIMIT_MAX);
+  const adminReindexRateLimit = createApiRateLimiter(2);
+  const adminEvalRateLimit = createApiRateLimiter(2);
 
   applySecurityHeaders(app);
   applyCors(app);
@@ -398,7 +461,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/admin/rag/reindex', requireAdminAuth, async (_req, res) => {
+  app.post('/api/admin/rag/reindex', requireAdminAuth, adminReindexRateLimit, async (_req, res) => {
     try {
       const response = await ragService.requestReindex();
       res.status(202).json(response);
@@ -424,7 +487,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/admin/rag/evals', requireAdminAuth, async (req, res) => {
+  app.post('/api/admin/rag/evals', requireAdminAuth, adminEvalRateLimit, async (req, res) => {
     try {
       const { profileIds }: { profileIds?: string[] } = req.body ?? {};
       res.json(await ragService.runEvalTrial(Array.isArray(profileIds) && profileIds.length > 0 ? profileIds : undefined));
@@ -553,7 +616,7 @@ async function startServer() {
     await handleRetrievalInspect(req, res);
   });
 
-  app.post('/api/chat', chatRateLimit, async (req, res) => {
+  app.post('/api/chat', chatRateLimit, chatKeyRateLimit, async (req, res) => {
     let requestedModel = 'gemini-3-flash-preview';
     try {
       const {
@@ -581,8 +644,8 @@ async function startServer() {
 
       const selectedServiceScopes = parseServiceScopes(serviceScopes);
 
-      await enqueueRequest(async () => {
-        const response = await ragService.generateChatResponse({
+      const response = await runLimitedChat(() =>
+        ragService.generateChatResponse({
           messages,
           mode,
           model,
@@ -590,9 +653,10 @@ async function startServer() {
           apiKey,
           serviceScopes: selectedServiceScopes,
           retrievalProfileId,
-        });
+        }),
+      );
 
-        res.json({
+      res.json({
           model: requestedModel,
           answer: response.answer,
           text: response.text,
@@ -659,73 +723,14 @@ async function startServer() {
               rerankScore: item.rerankScore,
             })),
           },
-        });
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const safeMessage = sanitizeSensitiveText(message);
-      const lowered = message.toLowerCase();
-      if (message.includes('Invalid serviceScopes')) {
-        return res.status(400).json({
-          error: 'Invalid serviceScopes',
-          details: safeMessage,
-        });
-      }
+      const apiError = toChatApiError(error);
       logServerError('chat request failed', error);
-      if (
-        lowered.includes('429') ||
-        lowered.includes('resource_exhausted') ||
-        lowered.includes('quota')
-      ) {
-        return res.status(429).json({
-          error: '요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.',
-        });
-      }
-
-      if (lowered.includes('404') || lowered.includes('not_found') || lowered.includes('not found')) {
-        return res.status(404).json({
-          error: '요청한 모델 또는 API 리소스를 찾지 못했습니다.',
-          model: requestedModel,
-          details: safeMessage,
-        });
-      }
-
-      if (lowered.includes('504') || lowered.includes('deadline_exceeded') || lowered.includes('deadline exceeded')) {
-        return res.status(504).json({
-          error: '선택한 모델이 제한 시간 안에 응답을 마치지 못했습니다.',
-          model: requestedModel,
-          details: safeMessage,
-        });
-      }
-
-      if (lowered.includes('503') || lowered.includes('unavailable') || lowered.includes('overloaded')) {
-        return res.status(503).json({
-          error: '선택한 모델 서비스가 일시적으로 과부하 상태입니다.',
-          model: requestedModel,
-          details: safeMessage,
-        });
-      }
-
-      if (lowered.includes('500') || lowered.includes('internal')) {
-        return res.status(502).json({
-          error: '모델 호출 중 서버 측 오류가 발생했습니다.',
-          model: requestedModel,
-          details: safeMessage,
-        });
-      }
-
-      if (lowered.includes('api key is required')) {
-        return res.status(400).json({
-          error: '개인 Gemini API 키가 필요합니다.',
-          model: requestedModel,
-          details: safeMessage,
-        });
-      }
-
-      res.status(500).json({
-        error: 'Failed to generate grounded response',
+      return res.status(apiError.status).json({
+        error: apiError.message,
         model: requestedModel,
-        details: safeMessage,
+        details: apiError.details,
       });
     }
   });

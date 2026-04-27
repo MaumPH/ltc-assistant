@@ -96,7 +96,8 @@ function formatErrorDetails(value: unknown): string | undefined {
   }
   try {
     return JSON.stringify(value);
-  } catch {
+  } catch (error) {
+    console.debug('[ChatView] failed to stringify error details:', error);
     return undefined;
   }
 }
@@ -111,7 +112,8 @@ function readStoredServiceScopes(mode: ChatViewProps['mode']): ServiceScopeId[] 
   if (!raw) return [ALL_SERVICE_SCOPE_ID];
   try {
     return coerceServiceScopes(JSON.parse(raw));
-  } catch {
+  } catch (error) {
+    console.debug('[ChatView] failed to read stored service scopes:', error);
     return [ALL_SERVICE_SCOPE_ID];
   }
 }
@@ -343,7 +345,10 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
         if (!response.ok) {
           const contentType = response.headers.get('content-type') ?? '';
           const parsed = contentType.includes('application/json')
-            ? ((await response.json().catch(() => ({}))) as ChatApiErrorResponse)
+            ? ((await response.json().catch((error) => {
+                console.warn('[ChatView] failed to parse chat error response:', error);
+                return {};
+              })) as ChatApiErrorResponse)
             : {};
           const errorText = parsed.error ?? buildServerErrorMessage(response.status, response.statusText);
           const detailText = formatErrorDetails(parsed.details);
@@ -434,6 +439,7 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
       {requiresUserKey && !apiKey && (
         <div className="mb-2 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
           개인 Gemini API 키를 등록하면 이 채팅창에서 바로 답변 생성을 시작할 수 있습니다.
+          <span className="mt-1 block text-xs text-blue-700">등록한 API 키는 이 브라우저의 localStorage에만 저장됩니다.</span>
         </div>
       )}
 

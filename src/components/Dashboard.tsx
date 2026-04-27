@@ -33,7 +33,8 @@ function loadCheckedTasks() {
     if (!Array.isArray(parsed)) return new Set<string>();
 
     return new Set(parsed.filter((value): value is string => typeof value === 'string'));
-  } catch {
+  } catch (error) {
+    console.debug('[Dashboard] failed to load checked tasks:', error);
     return new Set<string>();
   }
 }
