@@ -749,14 +749,12 @@ async function startServer() {
     });
   }
 
-  try {
-    await ragService.initialize();
-  } catch (error) {
-    logServerError('[startup] ragService initialize failed; server will continue in degraded mode', error);
-  }
-
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
+  });
+
+  void ragService.initialize().catch((error) => {
+    logServerError('[startup] ragService initialize failed; server will continue in degraded mode', error);
   });
 }
 
