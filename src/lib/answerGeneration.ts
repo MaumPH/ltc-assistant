@@ -305,7 +305,7 @@ export async function generateGroundedAnswer(params: {
     const extraReminder =
       attempt === 0
         ? ''
-        : '\n\n재시도 규칙: citationEvidenceIds에는 제공된 evidence id만 사용하고, 확신이 낮으면 not_enough로 답하세요.';
+        : '\n\n재시도 규칙: citationEvidenceIds에는 제공된 evidence id만 사용하세요. 근거 chunk가 0개일 때만 not_enough로 답하고, 근거가 일부라도 있으면 partial로 답하되 caveats에 부족한 근거를 구체적으로 적으세요.';
 
     const response = await params.ai.models.generateContent({
       model: params.model,

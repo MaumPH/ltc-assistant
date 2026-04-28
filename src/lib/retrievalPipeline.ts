@@ -4,6 +4,7 @@ import {
   getCandidateFocusMatches,
   isGenericQueryTerm,
 } from './ragEngine';
+import { getProcedureEvidenceMatches, isProcedureLikeQuery } from './koreanCompounds';
 import { safeTrim } from './textGuards';
 import type {
   CandidateDiagnostic,
@@ -320,6 +321,37 @@ function hasCrossDocumentGrounding(evidence: SearchRun['evidence'], focusTerms: 
   return supportedDocuments.size >= 2;
 }
 
+function getCandidateGroundingText(candidate: SearchCandidate): string {
+  return [
+    candidate.docTitle,
+    candidate.parentSectionTitle,
+    ...candidate.sectionPath,
+    candidate.searchText,
+    candidate.textPreview,
+    candidate.text,
+  ].join(' ');
+}
+
+function hasProcedureGrounding(search: SearchRun, focusTerms: string[]): boolean {
+  if (!isProcedureLikeQuery(search.query) || search.evidence.length < 2) return false;
+
+  const matchedProcedureTerms = new Set<string>();
+  const supportedEvidence = search.evidence.filter((candidate) => {
+    const groundingText = getCandidateGroundingText(candidate);
+    const procedureMatches = getProcedureEvidenceMatches(groundingText);
+    procedureMatches.forEach((term) => matchedProcedureTerms.add(term));
+
+    return (
+      procedureMatches.length >= 2 ||
+      getCandidateFocusMatches(candidate, focusTerms).length > 0 ||
+      candidate.lexicalScore > 0 ||
+      candidate.exactScore >= 10
+    );
+  });
+
+  return supportedEvidence.length >= 2 && matchedProcedureTerms.size >= 3;
+}
+
 const GROUNDING_GATE_SIGNAL = 'grounding-gate-failed';
 const ORIGINAL_FOCUS_GATE_SIGNAL = 'insufficient-original-focus-terms-in-top-candidates';
 
@@ -341,7 +373,8 @@ export function applyGroundingGate(search: SearchRun): SearchRun {
   const hasGrounding =
     hasExactArticleGrounding(search.evidence) ||
     hasSequentialDocumentGrounding(search.evidence) ||
-    hasCrossDocumentGrounding(search.evidence, focusTerms);
+    hasCrossDocumentGrounding(search.evidence, focusTerms) ||
+    hasProcedureGrounding(search, focusTerms);
 
   const mismatchSignals = clearGateSignals(search, [GROUNDING_GATE_SIGNAL]);
   if (!hasGrounding) {
@@ -356,19 +389,27 @@ export function applyGroundingGate(search: SearchRun): SearchRun {
   };
 }
 
-function hasRequiredFocusMatches(candidates: SearchCandidate[], focusTerms: string[]): boolean {
+function hasRequiredFocusMatches(candidates: SearchCandidate[], focusTerms: string[], relaxed = false): boolean {
   if (focusTerms.length === 0 || candidates.length === 0) return true;
-  const topCandidates = candidates.slice(0, 5);
+  const topCandidates = candidates.slice(0, 10);
   const matchedFocusTerms = new Set(topCandidates.flatMap((candidate) => getCandidateFocusMatches(candidate, focusTerms)));
-  const requiredMatches = Math.min(2, focusTerms.length);
+  const requiredMatches = relaxed ? 1 : Math.min(focusTerms.length >= 3 ? 2 : 1, focusTerms.length);
   return matchedFocusTerms.size >= requiredMatches;
+}
+
+function downgradeFocusConfidence(confidence: SearchRun['confidence'], relaxed: boolean): SearchRun['confidence'] {
+  if (relaxed && confidence === 'medium') return 'medium';
+  if (confidence === 'high') return 'medium';
+  if (confidence === 'medium') return 'low';
+  return confidence;
 }
 
 export function applyOriginalFocusGate(search: SearchRun, originalQuery: string, focusAliases: string[] = []): SearchRun {
   const focusTerms = deriveFocusTerms(originalQuery);
+  const relaxedFocusGate = isProcedureLikeQuery(originalQuery);
   if (focusTerms.length === 0 || search.fusedCandidates.length === 0) return search;
 
-  if (hasRequiredFocusMatches(search.fusedCandidates, focusTerms)) {
+  if (hasRequiredFocusMatches(search.fusedCandidates, focusTerms, relaxedFocusGate)) {
     const mismatchSignals = clearGateSignals(search, [ORIGINAL_FOCUS_GATE_SIGNAL]);
     return {
       ...search,
@@ -378,7 +419,7 @@ export function applyOriginalFocusGate(search: SearchRun, originalQuery: string,
   }
 
   const aliasFocusTerms = uniqueNonEmptyLines(focusAliases.flatMap((alias) => deriveFocusTerms(alias)));
-  if (hasRequiredFocusMatches(search.fusedCandidates, aliasFocusTerms)) {
+  if (hasRequiredFocusMatches(search.fusedCandidates, aliasFocusTerms, relaxedFocusGate)) {
     const mismatchSignals = clearGateSignals(search, [ORIGINAL_FOCUS_GATE_SIGNAL]);
     return {
       ...search,
@@ -392,9 +433,9 @@ export function applyOriginalFocusGate(search: SearchRun, originalQuery: string,
 
   return {
     ...search,
-    confidence: resolveGateConfidence(search, mismatchSignals, [ORIGINAL_FOCUS_GATE_SIGNAL]),
+    confidence: downgradeFocusConfidence(search.confidence, relaxedFocusGate),
     mismatchSignals: Array.from(new Set(mismatchSignals)),
-    groundingGatePassed: false,
+    groundingGatePassed: search.groundingGatePassed,
   };
 }
 
