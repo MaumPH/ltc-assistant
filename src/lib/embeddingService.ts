@@ -108,7 +108,7 @@ export async function embedChunks(ai: GoogleGenAI, chunks: StructuredChunk[]): P
         batch.map((chunk) =>
           ai.models.embedContent({
             model: EMBEDDING_MODEL,
-            contents: chunk.searchText,
+            contents: chunk.embeddingInput || chunk.searchText,
             config: {
               outputDimensionality: EMBEDDING_DIMENSIONS,
             },

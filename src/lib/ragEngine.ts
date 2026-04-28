@@ -39,10 +39,10 @@ export interface SearchOptions {
   precomputedVectorCandidates?: SearchCandidate[];
 }
 
-const VECTOR_TOP_K = 36;
-const FUSED_TOP_K = 24;
-const EVIDENCE_TOP_K = 12;
-const CHECKLIST_EVIDENCE_TOP_K = 14;
+const VECTOR_TOP_K = 48;
+const FUSED_TOP_K = 32;
+const EVIDENCE_TOP_K = 18;
+const CHECKLIST_EVIDENCE_TOP_K = 22;
 const MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT = 2;
 const CHECKLIST_MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT = 3;
 const MAX_WINDOWS_PER_CLUSTER = 2;
@@ -186,7 +186,7 @@ export function buildRagCorpusIndex(chunks: StructuredChunk[]): RagCorpusIndex {
   const dfMap = new Map<string, number>();
 
   for (const chunk of chunks) {
-    const tokens = tokenize(chunk.searchText);
+    const tokens = tokenize(`${chunk.searchText}\n${chunk.embeddingInput ?? ''}`);
     tokenMap.set(chunk.id, tokens);
     const uniqueTokens = new Set(tokens);
     for (const token of uniqueTokens) {
@@ -205,6 +205,7 @@ function createCandidate(chunk: StructuredChunk): SearchCandidate {
     vectorScore: 0,
     fusedScore: 0,
     rerankScore: 0,
+    headingScore: 0,
     ontologyScore: 0,
     matchedTerms: [],
   };
@@ -545,8 +546,44 @@ function isThinEvaluationIndicatorChunk(candidate: SearchCandidate): boolean {
   return meaningfulText.length < 24;
 }
 
+function scoreHeadingAlignment(candidate: SearchCandidate, query: string): { score: number; matchedTerms: string[] } {
+  const focusTerms = deriveFocusTerms(query).filter((term) => !GENERIC_QUERY_TERMS.has(term));
+  if (focusTerms.length === 0) return { score: 0, matchedTerms: [] };
+
+  const headingText = [
+    candidate.docTitle,
+    candidate.title,
+    candidate.parentSectionTitle,
+    ...candidate.sectionPath,
+    ...(candidate.headingPath ?? []),
+  ]
+    .join(' ')
+    .toLowerCase();
+  const bodyText = candidate.searchText.toLowerCase();
+  const matchedTerms: string[] = [];
+  let score = 0;
+
+  for (const term of focusTerms.slice(0, 12)) {
+    const normalizedTerm = term.toLowerCase();
+    if (headingText.includes(normalizedTerm)) {
+      score += 8;
+      matchedTerms.push(term);
+    } else if (bodyText.includes(normalizedTerm)) {
+      score += 2;
+    }
+  }
+
+  if (candidate.containsCheckList && /(체크리스트|지침|교육|안내|확인|기한|이내|업무|절차|방법)/u.test(query)) {
+    score += 10;
+    matchedTerms.push('list-group');
+  }
+
+  return { score: Math.min(score, 48), matchedTerms };
+}
+
 function rerankCandidate(
   candidate: SearchCandidate,
+  query: string,
   intent: QueryIntent,
   mode: PromptMode,
   options?: SearchOptions,
@@ -555,6 +592,8 @@ function rerankCandidate(
   const chunkScoreBoost = options?.chunkScoreBoosts?.get(candidate.id) ?? 0;
   const semanticScore = scoreSemanticAlignment(candidate, options?.semanticFrame);
   const priorityClass = options?.retrievalPriorityClass ?? (mode === 'evaluation' ? 'evaluation_readiness' : undefined);
+  const headingAlignment = scoreHeadingAlignment(candidate, query);
+  const headingScore = priorityClass === 'legal_judgment' ? Math.min(headingAlignment.score, 8) : headingAlignment.score;
   let matchedTerms = candidate.matchedTerms;
   let score = candidate.fusedScore * 100;
   score += candidate.exactScore * 1.8;
@@ -563,6 +602,10 @@ function rerankCandidate(
   score += ontologyScore;
   score += chunkScoreBoost;
   score += semanticScore;
+  score += headingScore;
+  if (headingAlignment.matchedTerms.length > 0) {
+    matchedTerms = Array.from(new Set([...matchedTerms, ...headingAlignment.matchedTerms, 'heading-match']));
+  }
 
   if (intent === 'legal-exact' && candidate.articleNo) score += 10;
   if (intent === 'legal-exact' && ['law', 'ordinance', 'rule', 'notice'].includes(candidate.sourceType)) score += 8;
@@ -650,6 +693,7 @@ function rerankCandidate(
     ...candidate,
     matchedTerms,
     rerankScore: score,
+    headingScore,
     ontologyScore: ontologyScore + semanticScore,
   };
 }
@@ -743,6 +787,36 @@ function shouldExpandChecklistEvidence(query: string): boolean {
   return broadChecklistCue && onboardingOrOperationalCue;
 }
 
+function expandEvidenceWithListGroups(
+  selected: SearchCandidate[],
+  candidates: SearchCandidate[],
+  evidenceTopK: number,
+): SearchCandidate[] {
+  const selectedById = new Map(selected.map((candidate) => [candidate.id, candidate] as const));
+  const selectedListGroupIds = new Set(
+    candidates
+      .slice(0, 30)
+      .filter((candidate) => candidate.containsCheckList || candidate.listGroupId)
+      .map((candidate) => candidate.listGroupId)
+      .filter(Boolean),
+  );
+
+  if (selectedListGroupIds.size === 0) return selected;
+
+  for (const candidate of candidates) {
+    if (selectedById.size >= evidenceTopK) break;
+    if (!candidate.listGroupId || !selectedListGroupIds.has(candidate.listGroupId)) continue;
+    if (selectedById.has(candidate.id)) continue;
+    selectedById.set(candidate.id, {
+      ...candidate,
+      rerankScore: candidate.rerankScore + 4,
+      matchedTerms: Array.from(new Set([...candidate.matchedTerms, 'list-group-expanded'])),
+    });
+  }
+
+  return Array.from(selectedById.values()).sort((left, right) => right.rerankScore - left.rerankScore).slice(0, evidenceTopK);
+}
+
 function selectEvidence(candidates: SearchCandidate[], query: string, options?: SearchOptions): SearchCandidate[] {
   const selected: SearchCandidate[] = [];
   const documentClusters = new Map<string, Set<string>>();
@@ -779,7 +853,7 @@ function selectEvidence(candidates: SearchCandidate[], query: string, options?: 
     clusterWindowCounts.set(clusterKey, clusterCount + 1);
   }
 
-  return selected;
+  return expandEvidenceWithListGroups(selected, candidates, evidenceTopK);
 }
 
 function detectTopicMismatch(query: string, candidates: SearchCandidate[]): { focusTerms: string[]; mismatchSignals: string[] } {
@@ -964,7 +1038,7 @@ export function searchCorpus(params: {
   const lexicalCandidates = scoreLexical(index, query, mode, options).slice(0, FUSED_TOP_K);
   const vectorCandidates = options?.precomputedVectorCandidates ?? scoreVector(index, queryEmbedding, mode, options);
   const rerankedCandidates = reciprocalRankFuse([diversifiedExactCandidates, lexicalCandidates, vectorCandidates])
-    .map((candidate) => rerankCandidate(candidate, intent, mode, options))
+    .map((candidate) => rerankCandidate(candidate, query, intent, mode, options))
     .sort((left, right) => right.rerankScore - left.rerankScore)
     .slice(0, FUSED_TOP_K * 2);
   const fusedCandidates = diversifyVisibleCandidates(rerankedCandidates, FUSED_TOP_K);

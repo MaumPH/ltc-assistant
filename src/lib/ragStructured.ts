@@ -2,6 +2,7 @@ import { buildCitationLabel, buildPreciseCitationLabel, extractArticleNo, normal
 import type { CompiledPage, KnowledgeFile, StructuredChunk, StructuredSection } from './ragTypes';
 
 const MAX_CHUNK_CHARS = 1200;
+const MAX_PROTECTED_CHUNK_CHARS = 2400;
 const CHUNK_OVERLAP_CHARS = 120;
 
 type SectionBoundary = {
@@ -15,12 +16,17 @@ type SpanBlock = {
   text: string;
   spanStart: number;
   spanEnd: number;
+  listGroupId?: string;
+  containsCheckList?: boolean;
+  protectedGroup?: boolean;
 };
 
 type ChunkWindow = {
   text: string;
   spanStart: number;
   spanEnd: number;
+  listGroupId?: string;
+  containsCheckList: boolean;
 };
 
 const LAW_HEADING_RE = /^\s*제\s*\d+\s*조(?:의\s*\d+)?(?:\s*\([^)]*\))?/;
@@ -31,6 +37,9 @@ const EVALUATION_SUBHEADING_RE =
   /^(평가기준|확인방법|관련근거|평가방법|평가자료|확인사항|준비서류|급여제공기록|작성방법|유의사항|점검사항)\s*[:：]?\s*$/;
 const NUMBERED_SUBHEADING_RE = /^\s*(?:\d{1,2}|[가-하])[\.)]\s+\S.{0,80}$/u;
 const PARAGRAPH_RE = /[\s\S]+?(?=(?:\n\s*\n)|$)/g;
+const LIST_ITEM_RE = /^\s*(?:[-*•‣▪▫]|\d{1,2}[.)]|[①-⑳]|[가-힣][.)])\s+/u;
+const TABLE_ROW_RE = /^\s*\|.+\|\s*$/u;
+const CHECKLIST_CUE_RE = /(체크리스트|지침|확인|예방|교육|안내|필수|점검|서류|기록|업무|절차|방법|기한|이내|수급자|보호자)/u;
 
 function detectBoundary(line: string): SectionBoundary | null {
   const trimmed = line.trim();
@@ -125,7 +134,13 @@ export function buildStructuredSections(file: KnowledgeFile): StructuredSection[
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    const boundary = detectBoundary(line);
+    const detectedBoundary = detectBoundary(line);
+    const trimmed = line.trim();
+    const previousTrimmed = (lines[index - 1] ?? '').trim();
+    const nextTrimmed = (lines[index + 1] ?? '').trim();
+    const isConsecutiveListItem =
+      LIST_ITEM_RE.test(trimmed) && (LIST_ITEM_RE.test(previousTrimmed) || LIST_ITEM_RE.test(nextTrimmed));
+    const boundary = isConsecutiveListItem ? null : detectedBoundary;
 
     if (!boundary) {
       buffer.push(line);
@@ -208,8 +223,24 @@ function normalizeSpan(raw: string, absoluteStart: number): SpanBlock | null {
 
 function buildParagraphBlocks(content: string): SpanBlock[] {
   return Array.from(content.matchAll(PARAGRAPH_RE))
-    .map((match) => normalizeSpan(match[0], match.index ?? 0))
-    .filter((value): value is SpanBlock => Boolean(value));
+    .map((match) => {
+      const raw = match[0];
+      const normalized = normalizeSpan(raw, match.index ?? 0);
+      if (!normalized) return null;
+      const lines = raw.split('\n');
+      const listLineCount = lines.filter((line) => LIST_ITEM_RE.test(line.trim())).length;
+      const tableLineCount = lines.filter((line) => TABLE_ROW_RE.test(line.trim())).length;
+      const protectedGroup = listLineCount >= 2 || tableLineCount >= 2;
+      const containsCheckList = protectedGroup || CHECKLIST_CUE_RE.test(normalized.text);
+      const block: SpanBlock = {
+        ...normalized,
+        listGroupId: protectedGroup ? sha1(`${normalized.spanStart}:${normalized.text}`) : undefined,
+        containsCheckList,
+        protectedGroup,
+      };
+      return block;
+    })
+    .filter((value): value is SpanBlock => value !== null);
 }
 
 function isLawChunkBoundary(line: string): boolean {
@@ -265,10 +296,11 @@ function buildLawBlocks(content: string): SpanBlock[] {
 
 function splitOversizedBlock(block: SpanBlock): SpanBlock[] {
   const pieces: SpanBlock[] = [];
+  const limit = block.protectedGroup ? MAX_PROTECTED_CHUNK_CHARS : MAX_CHUNK_CHARS;
   let start = 0;
 
   while (start < block.text.length) {
-    const end = Math.min(start + MAX_CHUNK_CHARS, block.text.length);
+    const end = Math.min(start + limit, block.text.length);
     const segment = block.text.slice(start, end).trim();
     if (segment) {
       const leading = block.text.slice(start, end).search(/\S/);
@@ -277,6 +309,9 @@ function splitOversizedBlock(block: SpanBlock): SpanBlock[] {
         text: segment,
         spanStart: block.spanStart + start + safeLeading,
         spanEnd: block.spanStart + end,
+        listGroupId: block.listGroupId,
+        containsCheckList: block.containsCheckList,
+        protectedGroup: block.protectedGroup,
       });
     }
     if (end >= block.text.length) break;
@@ -288,7 +323,9 @@ function splitOversizedBlock(block: SpanBlock): SpanBlock[] {
 
 function buildWindowsFromBlocks(blocks: SpanBlock[]): ChunkWindow[] {
   const expandedBlocks = blocks.flatMap((block) =>
-    block.text.length > MAX_CHUNK_CHARS ? splitOversizedBlock(block) : [block],
+    block.text.length > (block.protectedGroup ? MAX_PROTECTED_CHUNK_CHARS : MAX_CHUNK_CHARS)
+      ? splitOversizedBlock(block)
+      : [block],
   );
 
   if (expandedBlocks.length === 0) return [];
@@ -300,10 +337,18 @@ function buildWindowsFromBlocks(blocks: SpanBlock[]): ChunkWindow[] {
     if (windowBlocks.length === 0) return;
     const text = normalizeWhitespace(windowBlocks.map((item) => item.text).join('\n\n'));
     if (!text) return;
+    const listGroupIds = Array.from(new Set(windowBlocks.map((item) => item.listGroupId).filter(Boolean)));
     windows.push({
       text,
       spanStart: windowBlocks[0].spanStart,
       spanEnd: windowBlocks[windowBlocks.length - 1].spanEnd,
+      listGroupId:
+        listGroupIds.length === 0
+          ? undefined
+          : listGroupIds.length === 1
+            ? listGroupIds[0]
+            : sha1(listGroupIds.join(':')),
+      containsCheckList: windowBlocks.some((item) => Boolean(item.containsCheckList)),
     });
   };
 
@@ -321,8 +366,11 @@ function buildWindowsFromBlocks(blocks: SpanBlock[]): ChunkWindow[] {
   for (const block of expandedBlocks) {
     const candidateBlocks = [...buffer, block];
     const candidateLength = candidateBlocks.reduce((sum, item) => sum + item.text.length, 0) + (candidateBlocks.length - 1) * 2;
+    const candidateLimit = candidateBlocks.some((item) => item.protectedGroup || item.containsCheckList)
+      ? MAX_PROTECTED_CHUNK_CHARS
+      : MAX_CHUNK_CHARS;
 
-    if (buffer.length > 0 && candidateLength > MAX_CHUNK_CHARS) {
+    if (buffer.length > 0 && candidateLength > candidateLimit) {
       pushWindow(buffer);
       buffer = [...getOverlapTail(buffer), block];
       continue;
@@ -360,6 +408,19 @@ function splitSectionText(section: StructuredSection): ChunkWindow[] {
   return buildWindowsFromBlocks(effectiveBlocks);
 }
 
+function buildEmbeddingInput(params: { docTitle: string; section: StructuredSection; text: string }): string {
+  return normalizeWhitespace(
+    [
+      `[문서: ${params.docTitle}]`,
+      `[섹션: ${params.section.title}]`,
+      params.section.path.length > 0 ? `[경로: ${params.section.path.join(' > ')}]` : '',
+      params.section.articleNo ? `[조문: ${params.section.articleNo}]` : '',
+      '',
+      params.text,
+    ].join('\n'),
+  );
+}
+
 export function buildStructuredChunks(files: KnowledgeFile[]): StructuredChunk[] {
   const chunks: StructuredChunk[] = [];
 
@@ -373,8 +434,13 @@ export function buildStructuredChunks(files: KnowledgeFile[]): StructuredChunk[]
       for (let windowIndex = 0; windowIndex < windows.length; windowIndex += 1) {
         const window = windows[windowIndex];
         if (!window.text) continue;
+        const embeddingInput = buildEmbeddingInput({
+          docTitle: metadata.title,
+          section,
+          text: window.text,
+        });
 
-        const chunkHash = sha1(`${metadata.documentId}:${section.id}:${windowIndex}:${window.text}`);
+        const chunkHash = sha1(`${metadata.documentId}:${section.id}:${windowIndex}:${embeddingInput}`);
         const matchedLabels = [metadata.title, metadata.sourceType, metadata.documentGroup, ...section.path]
           .filter(Boolean)
           .map((value) => String(value));
@@ -408,11 +474,15 @@ export function buildStructuredChunks(files: KnowledgeFile[]): StructuredChunk[]
           effectiveDate: metadata.effectiveDate,
           publishedDate: metadata.publishedDate,
           sectionPath: section.path,
+          headingPath: section.path,
           articleNo: section.articleNo,
           matchedLabels,
           chunkHash,
           parentSectionId: section.id,
           parentSectionTitle: section.title,
+          listGroupId: window.listGroupId,
+          containsCheckList: window.containsCheckList,
+          embeddingInput,
           windowIndex,
           spanStart: window.spanStart,
           spanEnd: window.spanEnd,

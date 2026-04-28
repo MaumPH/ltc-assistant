@@ -399,11 +399,15 @@ export interface StructuredChunk {
   effectiveDate?: string;
   publishedDate?: string;
   sectionPath: string[];
+  headingPath?: string[];
   articleNo?: string;
   matchedLabels: string[];
   chunkHash: string;
   parentSectionId: string;
   parentSectionTitle: string;
+  listGroupId?: string;
+  containsCheckList?: boolean;
+  embeddingInput?: string;
   windowIndex: number;
   spanStart: number;
   spanEnd: number;
@@ -418,6 +422,7 @@ export interface SearchCandidate extends StructuredChunk {
   vectorScore: number;
   fusedScore: number;
   rerankScore: number;
+  headingScore?: number;
   ontologyScore: number;
   matchedTerms: string[];
 }
