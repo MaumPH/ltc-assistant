@@ -3422,17 +3422,17 @@ export class NodeRagService {
       };
     }
 
-    if (planned.evidence.length === 0 || planned.search.confidence === 'low') {
+    if (planned.evidence.length === 0) {
       retrieval.agentDecision = 'abstain';
       retrieval.plannerTrace = [
         ...retrieval.plannerTrace,
-        { step: 'agent-decision', detail: 'abstain: evidence is empty or confidence is low' },
+        { step: 'agent-decision', detail: 'abstain: evidence is empty' },
       ];
       const answer = applyAnswerScope(
         createExpertAbstainAnswer({
           question,
           confidence: planned.search.confidence,
-          evidenceState: planned.search.confidence === 'low' ? 'not_enough' : 'partial',
+          evidenceState: 'not_enough',
           keyIssueDate,
           evidence: citations,
         }),

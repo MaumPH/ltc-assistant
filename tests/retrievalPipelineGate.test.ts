@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { deriveFocusTerms } from '../src/lib/ragEngine';
 import { applyGroundingGate, applyOriginalFocusGate } from '../src/lib/retrievalPipeline';
 import type { SearchCandidate, SearchRun } from '../src/lib/ragTypes';
 
@@ -79,6 +80,71 @@ test('applyOriginalFocusGate clears stale focus failure when top candidates matc
     '요양보호사 보수교육',
   );
 
+  assert.equal(result.confidence, 'medium');
+  assert.deepEqual(result.mismatchSignals, []);
+});
+
+test('applyGroundingGate treats procedure evidence as grounded for onboarding workflow queries', () => {
+  const query = '신규수급자가 왔을때 해야하는 업무는?';
+  const evidence = [
+    candidate({
+      id: 'onboarding-1',
+      documentId: 'workflow-doc',
+      searchText: '신규 수급자 초기상담 욕구사정 보호자 안내 기록',
+      textPreview: '신규 수급자 초기상담과 욕구사정, 보호자 안내를 진행한다.',
+      matchedTerms: ['신규 수급자', '초기상담', '욕구사정'],
+    }),
+    candidate({
+      id: 'onboarding-2',
+      documentId: 'workflow-doc',
+      searchText: '급여제공계획 작성 장기요양계약 체결 동의 교육',
+      textPreview: '급여제공계획을 작성하고 장기요양계약 체결, 동의 및 교육을 확인한다.',
+      matchedTerms: ['급여제공계획', '계약', '교육'],
+    }),
+  ];
+
+  const result = applyGroundingGate(
+    searchRun({
+      query,
+      confidence: 'low',
+      focusTerms: deriveFocusTerms(query),
+      evidence,
+      fusedCandidates: evidence,
+      mismatchSignals: ['grounding-gate-failed'],
+      groundingGatePassed: false,
+    }),
+  );
+
+  assert.equal(result.groundingGatePassed, true);
+  assert.equal(result.confidence, 'medium');
+  assert.deepEqual(result.mismatchSignals, []);
+});
+
+test('applyOriginalFocusGate relaxes focus matching for broad procedure queries', () => {
+  const query = '신규수급자가 왔을때 해야하는 업무는?';
+  const evidence = [
+    candidate({
+      id: 'onboarding-focus',
+      searchText: '수급자 초기상담 욕구사정 계약 급여제공계획 작성',
+      textPreview: '수급자 초기상담, 욕구사정, 계약, 급여제공계획 작성 순서',
+      matchedTerms: ['수급자'],
+    }),
+  ];
+
+  const result = applyOriginalFocusGate(
+    searchRun({
+      query,
+      confidence: 'medium',
+      focusTerms: deriveFocusTerms(query),
+      fusedCandidates: evidence,
+      evidence,
+      mismatchSignals: ['insufficient-original-focus-terms-in-top-candidates'],
+      groundingGatePassed: true,
+    }),
+    query,
+  );
+
+  assert.equal(result.groundingGatePassed, true);
   assert.equal(result.confidence, 'medium');
   assert.deepEqual(result.mismatchSignals, []);
 });

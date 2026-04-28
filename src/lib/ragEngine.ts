@@ -1,4 +1,5 @@
 import { compareIsoDateDesc, detectIntent, extractArticleNo, tokenize } from './ragMetadata';
+import { expandCompoundTerms } from './koreanCompounds';
 import { scoreCandidateByPriority, type RetrievalPriorityPolicy } from './retrievalPriority';
 import { chunkMatchesSelectedServiceScopes, getEffectiveServiceScopes, isChunkCompatibleWithServiceScopes } from './serviceScopes';
 import type {
@@ -230,7 +231,12 @@ export function queryTokens(query: string): string[] {
 }
 
 export function deriveFocusTerms(query: string): string[] {
-  return queryTokens(query).filter((token) => !GENERIC_QUERY_TERMS.has(token));
+  return Array.from(
+    new Set([
+      ...queryTokens(query).filter((token) => !GENERIC_QUERY_TERMS.has(token)),
+      ...expandCompoundTerms(query).filter((term) => !GENERIC_QUERY_TERMS.has(term)),
+    ]),
+  );
 }
 
 export function isGenericQueryTerm(term: string): boolean {
