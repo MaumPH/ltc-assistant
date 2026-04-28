@@ -15,6 +15,7 @@ import {
 } from './promptAssembly';
 import { buildPreciseCitationLabel, formatEvidenceStateLabel } from './ragMetadata';
 import { chunksToEvidenceContext } from './ragStructured';
+import { safeTrim } from './textGuards';
 import type {
   AnswerPlan,
   AnswerPlanTaskCandidate,
@@ -86,8 +87,8 @@ export function suppressSelectedServiceScopeClarification(
   };
 }
 
-function uniqueStrings(values: Iterable<string>): string[] {
-  return Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean)));
+function uniqueStrings(values: Iterable<unknown>): string[] {
+  return Array.from(new Set(Array.from(values).map((value) => safeTrim(value)).filter(Boolean)));
 }
 
 function sanitizeText(value: unknown, fallback = ''): string {

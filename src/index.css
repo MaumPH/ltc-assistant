@@ -97,18 +97,6 @@ body {
   overflow-wrap: anywhere;
 }
 
-.structured-answer-markdown {
-  overflow-wrap: anywhere;
-}
-
-.structured-answer-markdown > :first-child {
-  margin-top: 0;
-}
-
-.structured-answer-markdown > :last-child {
-  margin-bottom: 0;
-}
-
 .evaluation-content-section {
   scroll-margin-top: 24px;
 }

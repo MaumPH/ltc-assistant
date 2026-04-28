@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { inferBasisBucketFromChunk } from './brain';
 import { isRecipientOnboardingWorkflowQuery } from './ragNaturalQuery';
+import { safeTrim } from './textGuards';
 import type {
   BasisBucketKey,
   ClaimCoverage,
@@ -99,8 +100,8 @@ const BASIS_BUCKET_LABELS: Record<BasisBucketKey, string> = {
 let cachedRulesProjectRoot = '';
 let cachedRules: ValidationRule[] | null = null;
 
-function uniqueStrings(values: Iterable<string>): string[] {
-  return Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean)));
+function uniqueStrings(values: Iterable<unknown>): string[] {
+  return Array.from(new Set(Array.from(values).map((value) => safeTrim(value)).filter(Boolean)));
 }
 
 function resolveProjectRoot(projectRoot?: string): string {

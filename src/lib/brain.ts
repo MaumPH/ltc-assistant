@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { normalizeDocumentTitle } from './ragMetadata';
+import { safeTrim } from './textGuards';
 import type { BasisBucketKey, ExpertAnswerType, PromptMode, RetrievalMode, StructuredChunk, CompiledPage } from './ragTypes';
 
 export interface BrainQuestionArchetype {
@@ -118,8 +119,8 @@ function safeArray<T>(value: T[] | undefined): T[] {
   return Array.isArray(value) ? value : [];
 }
 
-function uniqueStrings(values: Iterable<string>): string[] {
-  return Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean)));
+function uniqueStrings(values: Iterable<unknown>): string[] {
+  return Array.from(new Set(Array.from(values).map((value) => safeTrim(value)).filter(Boolean)));
 }
 
 const SERVICE_SCOPE_PATTERNS: Array<{

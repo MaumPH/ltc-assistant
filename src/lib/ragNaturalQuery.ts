@@ -16,6 +16,7 @@ import type {
   SemanticSlotValue,
 } from './ragTypes';
 import { tokenize } from './ragMetadata';
+import { safeTrim } from './textGuards';
 
 interface LawAliasEntry {
   canonical: string;
@@ -216,8 +217,8 @@ const GENERIC_STOP_TOKENS = new Set([
 let cachedLexiconProjectRoot = '';
 let cachedLexiconEntries: LexiconEntry[] | null = null;
 
-function uniqueStrings(values: Iterable<string>): string[] {
-  return Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean)));
+function uniqueStrings(values: Iterable<unknown>): string[] {
+  return Array.from(new Set(Array.from(values).map((value) => safeTrim(value)).filter(Boolean)));
 }
 
 function safeNumber(value: unknown, fallback: number): number {

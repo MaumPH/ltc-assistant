@@ -27,6 +27,7 @@ import {
   type SearchOptions,
 } from './ragEngine';
 import { LawMcpClient, type LawMcpFallbackResult } from './lawMcpClient';
+import { safeTrim } from './textGuards';
 import {
   buildDocumentDiagnostics,
   buildKnowledgeDoctorIssues,
@@ -665,8 +666,8 @@ interface RetrievalPlanResult {
   latency: StageLatencyBreakdown;
 }
 
-function uniqueNonEmptyLines(values: string[]): string[] {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+function uniqueNonEmptyLines(values: unknown[]): string[] {
+  return Array.from(new Set(values.map((value) => safeTrim(value)).filter(Boolean)));
 }
 
 function buildTitleToDocumentIdsMap(chunks: StructuredChunk[]): Map<string, Set<string>> {

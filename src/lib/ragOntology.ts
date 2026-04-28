@@ -15,6 +15,7 @@ import type {
 import type { DomainBrain } from './brain';
 import { compactQueryText } from './ragNaturalQuery';
 import { normalizeDocumentTitle, sha1, tokenize } from './ragMetadata';
+import { safeTrim } from './textGuards';
 
 interface AliasMatch {
   entityId: string;
@@ -82,8 +83,8 @@ export interface OntologySearchResult {
   trace: GraphExpansionTrace[];
 }
 
-function uniqueStrings(values: Iterable<string>): string[] {
-  return Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean)));
+function uniqueStrings(values: Iterable<unknown>): string[] {
+  return Array.from(new Set(Array.from(values).map((value) => safeTrim(value)).filter(Boolean)));
 }
 
 function upsertSet(map: Map<string, Set<string>>, key: string, value: string): void {
