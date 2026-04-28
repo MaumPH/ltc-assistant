@@ -4,6 +4,7 @@ import {
   getCandidateFocusMatches,
   isGenericQueryTerm,
 } from './ragEngine';
+import { safeTrim } from './textGuards';
 import type {
   CandidateDiagnostic,
   ChunkWindowRef,
@@ -20,8 +21,8 @@ export interface RetrievalScopeContext {
   primaryExpansionDocuments: string[];
 }
 
-function uniqueNonEmptyLines(values: string[]): string[] {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+function uniqueNonEmptyLines(values: unknown[]): string[] {
+  return Array.from(new Set(values.map((value) => safeTrim(value)).filter(Boolean)));
 }
 
 export function summarizeSectionRouting(chunks: StructuredChunk[], enabled: boolean): SectionRoutingDecision {

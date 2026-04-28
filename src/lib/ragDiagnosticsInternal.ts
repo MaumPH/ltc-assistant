@@ -2,6 +2,7 @@ import { deriveFocusTerms } from './ragEngine';
 import { buildEvidenceBalance, describeHybridReadiness, inferAgentDecision } from './ragDiagnostics';
 import { getRetrievalProfile } from './ragProfiles';
 import { RETRIEVAL_PRIORITY_POLICY_NAME } from './retrievalPriority';
+import { safeTrim } from './textGuards';
 import {
   buildCandidateDiagnostics,
   buildChunkWindowRef,
@@ -93,8 +94,8 @@ export function collectNeighborWindows(allChunks: StructuredChunk[], evidence: S
   });
 }
 
-function uniqueNonEmptyLines(values: string[]): string[] {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+function uniqueNonEmptyLines(values: unknown[]): string[] {
+  return Array.from(new Set(values.map((value) => safeTrim(value)).filter(Boolean)));
 }
 
 export function buildRetrievalDiagnostics(

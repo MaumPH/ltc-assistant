@@ -2,6 +2,7 @@ import type { GoogleGenAI } from '@google/genai';
 import { describeError } from './embeddingService';
 import { buildPreciseCitationLabel, compareIsoDateDesc, formatEvidenceStateLabel } from './ragMetadata';
 import type { ChatMessage, ConfidenceLevel, GroundedAnswer, SearchRun, StructuredChunk } from './ragTypes';
+import { safeTrim, toSafeString } from './textGuards';
 
 function chunkToCitationLine(chunk: StructuredChunk): string {
   return buildPreciseCitationLabel(chunk);
@@ -104,11 +105,11 @@ function stripInternalCitationArtifacts(text: unknown): string {
     .trim();
 }
 
-function sanitizeAnswerList(values: string[] | undefined): string[] {
+function sanitizeAnswerList(values: unknown[] | undefined): string[] {
   if (!Array.isArray(values)) return [];
 
   return values
-    .map((item) => stripInternalCitationArtifacts(item))
+    .map((item) => stripInternalCitationArtifacts(toSafeString(item)))
     .filter(Boolean);
 }
 
@@ -116,7 +117,7 @@ function buildEvidenceSnippet(chunk: StructuredChunk): string {
   const cleanedLines = chunk.text
     .replace(/\r\n/g, '\n')
     .split('\n')
-    .map((line) => line.replace(/\|/g, ' ').replace(/\s+/g, ' ').trim())
+    .map((line) => safeTrim(toSafeString(line).replace(/\|/g, ' ').replace(/\s+/g, ' ')))
     .filter((line) => line.length >= 8);
 
   const uniqueLines = Array.from(new Set(cleanedLines));
@@ -137,18 +138,21 @@ function needsEvidenceFallback(values: string[]): boolean {
   );
 }
 
-function mergeEvidenceLines(answerLines: string[], citations: StructuredChunk[]): string[] {
+function mergeEvidenceLines(answerLines: unknown[], citations: StructuredChunk[]): string[] {
   const fallbackLines = dedupeCitations(citations)
     .slice(0, 3)
     .map((chunk) => `${buildPreciseCitationLabel(chunk)}: ${buildEvidenceSnippet(chunk)}`)
     .filter((line) => !line.endsWith(':'));
+  const normalizedAnswerLines = answerLines.map((line) => safeTrim(toSafeString(line).replace(/\s+/g, ' '))).filter(Boolean);
 
-  const preferred = needsEvidenceFallback(answerLines) ? [...fallbackLines, ...answerLines] : [...answerLines, ...fallbackLines];
+  const preferred = needsEvidenceFallback(normalizedAnswerLines)
+    ? [...fallbackLines, ...normalizedAnswerLines]
+    : [...normalizedAnswerLines, ...fallbackLines];
   const merged: string[] = [];
   const seen = new Set<string>();
 
   for (const line of preferred) {
-    const normalized = line.replace(/\s+/g, ' ').trim();
+    const normalized = safeTrim(toSafeString(line).replace(/\s+/g, ' '));
     if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
     merged.push(normalized);
