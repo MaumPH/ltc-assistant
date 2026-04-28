@@ -319,6 +319,22 @@ function hasCrossDocumentGrounding(evidence: SearchRun['evidence'], focusTerms: 
   return supportedDocuments.size >= 2;
 }
 
+const GROUNDING_GATE_SIGNAL = 'grounding-gate-failed';
+const ORIGINAL_FOCUS_GATE_SIGNAL = 'insufficient-original-focus-terms-in-top-candidates';
+
+function clearGateSignals(search: SearchRun, staleSignals: string[]): string[] {
+  const staleSignalSet = new Set(staleSignals);
+  return Array.from(new Set((search.mismatchSignals ?? []).filter((signal) => !staleSignalSet.has(signal))));
+}
+
+function resolveGateConfidence(search: SearchRun, mismatchSignals: string[], staleSignals: string[]): SearchRun['confidence'] {
+  if (mismatchSignals.length > 0) return 'low';
+  if (search.confidence === 'low' && staleSignals.some((signal) => search.mismatchSignals?.includes(signal))) {
+    return 'medium';
+  }
+  return search.confidence;
+}
+
 export function applyGroundingGate(search: SearchRun): SearchRun {
   const focusTerms = search.focusTerms ?? deriveFocusTerms(search.query);
   const hasGrounding =
@@ -326,15 +342,15 @@ export function applyGroundingGate(search: SearchRun): SearchRun {
     hasSequentialDocumentGrounding(search.evidence) ||
     hasCrossDocumentGrounding(search.evidence, focusTerms);
 
-  const mismatchSignals = [...(search.mismatchSignals ?? [])];
+  const mismatchSignals = clearGateSignals(search, [GROUNDING_GATE_SIGNAL]);
   if (!hasGrounding) {
-    mismatchSignals.push('grounding-gate-failed');
+    mismatchSignals.push(GROUNDING_GATE_SIGNAL);
   }
 
   return {
     ...search,
-    confidence: mismatchSignals.length > 0 ? 'low' : search.confidence,
-    mismatchSignals,
+    confidence: resolveGateConfidence(search, mismatchSignals, [GROUNDING_GATE_SIGNAL]),
+    mismatchSignals: Array.from(new Set(mismatchSignals)),
     groundingGatePassed: hasGrounding,
   };
 }
@@ -351,15 +367,32 @@ export function applyOriginalFocusGate(search: SearchRun, originalQuery: string,
   const focusTerms = deriveFocusTerms(originalQuery);
   if (focusTerms.length === 0 || search.fusedCandidates.length === 0) return search;
 
-  if (hasRequiredFocusMatches(search.fusedCandidates, focusTerms)) return search;
+  if (hasRequiredFocusMatches(search.fusedCandidates, focusTerms)) {
+    const mismatchSignals = clearGateSignals(search, [ORIGINAL_FOCUS_GATE_SIGNAL]);
+    return {
+      ...search,
+      confidence: resolveGateConfidence(search, mismatchSignals, [ORIGINAL_FOCUS_GATE_SIGNAL]),
+      mismatchSignals,
+    };
+  }
 
   const aliasFocusTerms = uniqueNonEmptyLines(focusAliases.flatMap((alias) => deriveFocusTerms(alias)));
-  if (hasRequiredFocusMatches(search.fusedCandidates, aliasFocusTerms)) return search;
+  if (hasRequiredFocusMatches(search.fusedCandidates, aliasFocusTerms)) {
+    const mismatchSignals = clearGateSignals(search, [ORIGINAL_FOCUS_GATE_SIGNAL]);
+    return {
+      ...search,
+      confidence: resolveGateConfidence(search, mismatchSignals, [ORIGINAL_FOCUS_GATE_SIGNAL]),
+      mismatchSignals,
+    };
+  }
+
+  const mismatchSignals = clearGateSignals(search, [ORIGINAL_FOCUS_GATE_SIGNAL]);
+  mismatchSignals.push(ORIGINAL_FOCUS_GATE_SIGNAL);
 
   return {
     ...search,
-    confidence: 'low',
-    mismatchSignals: Array.from(new Set([...(search.mismatchSignals ?? []), 'insufficient-original-focus-terms-in-top-candidates'])),
+    confidence: resolveGateConfidence(search, mismatchSignals, [ORIGINAL_FOCUS_GATE_SIGNAL]),
+    mismatchSignals: Array.from(new Set(mismatchSignals)),
     groundingGatePassed: false,
   };
 }

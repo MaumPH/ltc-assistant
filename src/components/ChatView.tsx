@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Check, Loader2, Scale, Send, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { MODELS, type ModelId } from './TopNav';
-import ExpertAnswerCard from './ExpertAnswerCard';
 import RetrievalTracePanel from './RetrievalTracePanel';
+import { formatAnswerAsMarkdown } from '../lib/answerMarkdown';
 import { formatApiConnectionError, getApiUrl } from '../lib/apiUrl';
 import {
   ALL_SERVICE_SCOPE_ID,
@@ -424,17 +424,15 @@ export default function ChatView({ mode, apiKey, capabilities, selectedModel }: 
   };
 
   const renderModelMessage = (message: Message) => {
+    const markdown = message.answer ? formatAnswerAsMarkdown(message.answer) : message.text;
+
     return (
       <div className="w-full">
-        {message.answer ? (
-          <ExpertAnswerCard answer={message.answer} />
-        ) : (
-          <div className="rounded-[20px] rounded-tl px-4 py-3 text-slate-800 shadow-[0_2px_12px_rgba(15,23,42,0.08),0_0_0_1px_#f1f5f9] sm:px-5 sm:py-4">
-            <div className="prose prose-sm max-w-none break-words prose-headings:font-semibold prose-p:leading-relaxed prose-a:text-blue-600 md:prose-base">
-              <ReactMarkdown>{message.text}</ReactMarkdown>
-            </div>
+        <div className="rounded-[20px] rounded-tl bg-white px-4 py-3 text-slate-800 shadow-[0_2px_12px_rgba(15,23,42,0.08),0_0_0_1px_#f1f5f9] sm:px-5 sm:py-4">
+          <div className="prose prose-sm max-w-none break-words prose-headings:font-semibold prose-h1:text-xl prose-h1:leading-snug prose-h2:text-base prose-h2:leading-snug prose-h3:text-sm prose-p:leading-relaxed prose-a:text-blue-600 prose-li:my-1 md:prose-base md:prose-h1:text-2xl md:prose-h2:text-lg">
+            <ReactMarkdown>{markdown}</ReactMarkdown>
           </div>
-        )}
+        </div>
 
         {message.retrieval && (
           <RetrievalTracePanel confidence={message.answer?.confidence} retrieval={message.retrieval} />
