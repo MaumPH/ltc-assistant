@@ -69,22 +69,37 @@ export function applySectionRoutingBoost(search: SearchRun, enabled: boolean): S
   }
 
   const topSectionIds = new Set(search.fusedCandidates.slice(0, 6).map((candidate) => candidate.parentSectionId));
+  const focusTerms = search.focusTerms ?? deriveFocusTerms(search.query);
   const fusedCandidates = search.fusedCandidates
-    .map((candidate) =>
-      topSectionIds.has(candidate.parentSectionId)
-        ? {
-            ...candidate,
-            rerankScore: candidate.rerankScore + 3,
-            matchedTerms: uniqueNonEmptyLines([...candidate.matchedTerms, 'section-routing']),
-          }
-        : candidate,
-    )
+    .map((candidate) => {
+      if (!topSectionIds.has(candidate.parentSectionId)) return candidate;
+      const headingText = [
+        candidate.title,
+        candidate.parentSectionTitle,
+        ...candidate.sectionPath,
+        ...(candidate.headingPath ?? []),
+      ]
+        .join(' ')
+        .toLowerCase();
+      const headingMatches = focusTerms.filter((term) => headingText.includes(term.toLowerCase()));
+      const headingBoost = headingMatches.length > 0 ? 3 : 0;
+      return {
+        ...candidate,
+        headingScore: (candidate.headingScore ?? 0) + headingBoost,
+        rerankScore: candidate.rerankScore + 6 + headingBoost,
+        matchedTerms: uniqueNonEmptyLines([
+          ...candidate.matchedTerms,
+          'section-routing',
+          ...headingMatches.map((term) => `heading:${term}`),
+        ]),
+      };
+    })
     .sort((left, right) => right.rerankScore - left.rerankScore);
 
   return {
     ...search,
     fusedCandidates,
-    evidence: diversifyVisibleCandidates(fusedCandidates, Math.max(search.evidence.length, 12)),
+    evidence: diversifyVisibleCandidates(fusedCandidates, Math.max(search.evidence.length, 18)),
   };
 }
 
@@ -203,12 +218,12 @@ export function injectEvidenceCandidates(search: SearchRun, candidates: Array<Se
     fusedCandidates: diversifyVisibleCandidates(
       [...promotedCandidates, ...search.fusedCandidates.filter((item) => !promotedIds.has(item.id))]
         .sort((left, right) => right.rerankScore - left.rerankScore),
-      Math.max(search.fusedCandidates.length, 24),
+      Math.max(search.fusedCandidates.length, 32),
     ),
     evidence: diversifyVisibleCandidates(
       [...promotedCandidates, ...search.evidence.filter((item) => !promotedIds.has(item.id))]
         .sort((left, right) => right.rerankScore - left.rerankScore),
-      Math.max(search.evidence.length, 12),
+      Math.max(search.evidence.length, 18),
     ),
   });
 }

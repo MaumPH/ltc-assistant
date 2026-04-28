@@ -16,7 +16,28 @@ import type {
   SemanticSlotValue,
 } from './ragTypes';
 import { tokenize } from './ragMetadata';
+import { expandCompoundTerms, isProcedureLikeQuery } from './koreanCompounds';
 import { safeTrim } from './textGuards';
+
+export function buildProcedureAspectQueries(query: string): string[] {
+  const normalized = safeTrim(query);
+  if (!isProcedureLikeQuery(normalized)) return [];
+
+  const aspectSuffixes = [
+    '체크리스트',
+    '기한 며칠 이내',
+    '필수 교육 안내 지침',
+    '기록 서류 작성',
+    '법적 근거',
+  ];
+  const compoundTerms = expandCompoundTerms(normalized).slice(0, 6);
+  return Array.from(
+    new Set([
+      ...aspectSuffixes.map((suffix) => `${normalized} ${suffix}`),
+      ...compoundTerms.map((term) => `${term} ${normalized}`),
+    ]),
+  ).filter((item) => item !== normalized);
+}
 
 interface LawAliasEntry {
   canonical: string;

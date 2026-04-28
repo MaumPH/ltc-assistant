@@ -67,11 +67,15 @@ export interface StoredChunkRow {
   effective_date?: string | null;
   published_date?: string | null;
   section_path: string[] | string;
+  heading_path?: string[] | string | null;
   article_no?: string | null;
   matched_labels?: string[] | string | null;
   chunk_hash: string;
   parent_section_id?: string | null;
   parent_section_title?: string | null;
+  list_group_id?: string | null;
+  contains_checklist?: boolean | string | null;
+  embedding_input?: string | null;
   window_index?: number | string | null;
   span_start?: number | string | null;
   span_end?: number | string | null;
@@ -192,11 +196,15 @@ export function rowToChunk(row: StoredChunkRow): StructuredChunk {
     effectiveDate: row.effective_date ?? undefined,
     publishedDate: row.published_date ?? undefined,
     sectionPath,
+    headingPath: parseStringArray(row.heading_path).length > 0 ? parseStringArray(row.heading_path) : sectionPath,
     articleNo: row.article_no ?? undefined,
     matchedLabels: parseStringArray(row.matched_labels),
     chunkHash: row.chunk_hash,
     parentSectionId,
     parentSectionTitle,
+    listGroupId: row.list_group_id ?? undefined,
+    containsCheckList: row.contains_checklist === true || row.contains_checklist === 'true',
+    embeddingInput: row.embedding_input ?? row.search_text,
     windowIndex: parseNumberValue(row.window_index),
     spanStart: parseNumberValue(row.span_start),
     spanEnd: parseNumberValue(row.span_end),
@@ -259,7 +267,7 @@ export function manifestEntriesToKnowledgeStats(entries: IndexManifestEntry[]): 
     .sort((left, right) => left.name.localeCompare(right.name, 'ko'));
 }
 
-const POSTGRES_VECTOR_TOP_K = 36;
+const POSTGRES_VECTOR_TOP_K = 48;
 const EMBEDDING_CACHE_FILE = 'embeddings.json';
 
 function mergeCorpora(...corpora: KnowledgeFile[][]): KnowledgeFile[] {
@@ -365,12 +373,16 @@ const POSTGRES_SCHEMA_STATEMENTS = [
       effective_date date,
       published_date date,
       section_path jsonb not null,
+      heading_path jsonb not null default '[]'::jsonb,
       article_no text,
       matched_labels jsonb not null default '[]'::jsonb,
       linked_document_titles jsonb not null default '[]'::jsonb,
       chunk_hash text not null,
       parent_section_id text not null,
       parent_section_title text not null,
+      list_group_id text,
+      contains_checklist boolean not null default false,
+      embedding_input text,
       window_index integer not null default 0,
       span_start integer not null default 0,
       span_end integer not null default 0,
@@ -390,6 +402,10 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'alter table chunks add column if not exists citation_group_id text',
   'alter table chunks add column if not exists source_role text not null default \'general\'',
   'alter table chunks add column if not exists linked_document_titles jsonb not null default \'[]\'::jsonb',
+  'alter table chunks add column if not exists heading_path jsonb not null default \'[]\'::jsonb',
+  'alter table chunks add column if not exists list_group_id text',
+  'alter table chunks add column if not exists contains_checklist boolean not null default false',
+  'alter table chunks add column if not exists embedding_input text',
   'create index if not exists chunks_effective_date_idx on chunks(effective_date desc)',
   'create index if not exists chunks_embedding_ivfflat_idx on chunks using ivfflat (embedding vector_cosine_ops) with (lists = 100)',
   `
@@ -677,6 +693,7 @@ export class PostgresRagStore implements RagStore {
             vectorScore: Math.max(0, Number(row.similarity) || 0),
             fusedScore: 0,
             rerankScore: 0,
+            headingScore: 0,
             ontologyScore: 0,
             matchedTerms: [],
           } satisfies SearchCandidate;
@@ -805,12 +822,16 @@ export class PostgresRagStore implements RagStore {
         effective_date,
         published_date,
         section_path,
+        heading_path,
         article_no,
         matched_labels,
         linked_document_titles,
         chunk_hash,
         parent_section_id,
         parent_section_title,
+        list_group_id,
+        contains_checklist,
+        embedding_input,
         window_index,
         span_start,
         span_end,

@@ -77,6 +77,7 @@ import {
   detectPromptInjectionSignals,
 } from './ragGuardrails';
 import {
+  buildProcedureAspectQueries,
   buildNaturalLanguageQueryProfile as buildNaturalQueryProfile,
   enrichQueryProfileWithServiceScopeLabels,
 } from './ragNaturalQuery';
@@ -387,7 +388,7 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-const POSTGRES_VECTOR_TOP_K = 36;
+const POSTGRES_VECTOR_TOP_K = 48;
 const LAW_FALLBACK_CONFIDENCE_THRESHOLD = (process.env.LAW_FALLBACK_CONFIDENCE_THRESHOLD || 'low').toLowerCase();
 const LAW_MCP_ENABLED = (process.env.LAW_MCP_ENABLED || 'true').toLowerCase() !== 'false';
 const LAW_MCP_BASE_URL = process.env.LAW_MCP_BASE_URL || '';
@@ -1171,10 +1172,10 @@ function promoteWorkflowFacetEvidence(search: SearchRun, claims: ClaimPlanItem[]
   const selectedIds = new Set(selected.map((candidate) => candidate.id));
   const evidence = [...selected, ...search.evidence.filter((candidate) => !selectedIds.has(candidate.id))]
     .sort((left, right) => right.rerankScore - left.rerankScore)
-    .slice(0, Math.max(search.evidence.length, 12));
+    .slice(0, Math.max(search.evidence.length, 18));
   const fusedCandidates = [...selected, ...search.fusedCandidates.filter((candidate) => !selectedIds.has(candidate.id))]
     .sort((left, right) => right.rerankScore - left.rerankScore)
-    .slice(0, Math.max(search.fusedCandidates.length, 24));
+    .slice(0, Math.max(search.fusedCandidates.length, 32));
   const mismatchSignals = (search.mismatchSignals ?? []).filter(
     (signal) => signal !== 'no-focus-terms-in-top-candidates' && signal !== 'generic-only-match',
   );
@@ -2874,6 +2875,73 @@ export class NodeRagService {
         });
       }
     }
+
+    const procedureAspectQueries = buildProcedureAspectQueries(normalized.normalizedQuery).slice(0, 5);
+    if (procedureAspectQueries.length > 0) {
+      const mergedEvidence = new Map(search.evidence.map((item) => [item.id, item]));
+      const mergedCandidates = new Map(search.fusedCandidates.map((item) => [item.id, item]));
+      const uniqueDocumentCountBefore = new Set(search.evidence.map((item) => item.documentId)).size;
+
+      for (const aspectQuery of procedureAspectQueries) {
+        const aspectAliases = uniqueNonEmptyLines([...aliases, aspectQuery]);
+        const aspectEmbedding = await this.getQueryEmbedding([aspectQuery, ...aspectAliases].join('\n'));
+        const aspectQueryProfile = enrichQueryProfileWithServiceScopeLabels(
+          buildNaturalQueryProfile(aspectQuery),
+          serviceScopeLabels,
+        );
+        const aspectSearch = await this.executeSearch(mode, aspectQuery, aspectEmbedding, aspectAliases, {
+          profile: runtimeProfile,
+          additionalDocumentScoreBoosts: workflowBoosts,
+          additionalChunkScoreBoosts: serviceScopeChunkBoosts,
+          extraAliases: workflowAliasHints,
+          queryProfile: aspectQueryProfile,
+          retrievalPriorityClass,
+          priorityPolicyName,
+          evaluationLinked,
+          selectedServiceScopes,
+        });
+
+        aspectSearch.search.evidence.slice(0, 4).forEach((item) => {
+          if (!mergedEvidence.has(item.id) || (mergedEvidence.get(item.id)?.rerankScore ?? 0) < item.rerankScore) {
+            mergedEvidence.set(item.id, item);
+          }
+        });
+        aspectSearch.search.fusedCandidates.slice(0, 12).forEach((item) => {
+          if (!mergedCandidates.has(item.id) || (mergedCandidates.get(item.id)?.rerankScore ?? 0) < item.rerankScore) {
+            mergedCandidates.set(item.id, item);
+          }
+        });
+        ontologyHits = mergeOntologyHits(ontologyHits, aspectSearch.ontologyHits);
+        graphExpansionTrace = [...graphExpansionTrace, ...aspectSearch.graphExpansionTrace];
+        if (aspectSearch.sectionRouting.selectedSectionIds.length > sectionRouting.selectedSectionIds.length) {
+          sectionRouting = aspectSearch.sectionRouting;
+        }
+      }
+
+      search = {
+        ...search,
+        confidence:
+          mergedEvidence.size >= 3 && (search.mismatchSignals ?? []).length === 0
+            ? search.confidence === 'low'
+              ? 'medium'
+              : search.confidence
+            : search.confidence,
+        fusedCandidates: diversifyVisibleCandidates(
+          Array.from(mergedCandidates.values()).sort((left, right) => right.rerankScore - left.rerankScore),
+          Math.max(search.fusedCandidates.length, 32),
+        ),
+        evidence: diversifyVisibleCandidates(
+          Array.from(mergedEvidence.values()).sort((left, right) => right.rerankScore - left.rerankScore),
+          Math.max(search.evidence.length, 18),
+        ),
+      };
+      const uniqueDocumentCountAfter = new Set(search.evidence.map((item) => item.documentId)).size;
+      plannerTrace.push({
+        step: 'procedure-aspect-union',
+        detail: `${procedureAspectQueries.length} aspects, docs ${uniqueDocumentCountBefore}->${uniqueDocumentCountAfter}`,
+      });
+    }
+
     const subquestions: string[] = [];
     let fallbackTriggered = false;
     let fallbackSources: LawFallbackSource[] = [];
@@ -2934,10 +3002,10 @@ export class NodeRagService {
             : search.confidence,
         fusedCandidates: Array.from(mergedCandidates.values())
           .sort((left, right) => right.rerankScore - left.rerankScore)
-          .slice(0, Math.max(search.fusedCandidates.length, 20)),
+          .slice(0, Math.max(search.fusedCandidates.length, 32)),
         evidence: Array.from(mergedEvidence.values())
           .sort((left, right) => right.rerankScore - left.rerankScore)
-          .slice(0, Math.max(search.evidence.length, 10)),
+          .slice(0, Math.max(search.evidence.length, 18)),
       };
       selectedRetrievalMode = refined.length > 0 ? 'drift-refine' : selectedRetrievalMode;
     }
@@ -2992,7 +3060,7 @@ export class NodeRagService {
     const preIntentGateEvidenceIds = search.evidence.map((candidate) => candidate.id).join(',');
     search = {
       ...search,
-      fusedCandidates: diversifyVisibleCandidates(search.fusedCandidates, Math.max(search.fusedCandidates.length, 24)),
+      fusedCandidates: diversifyVisibleCandidates(search.fusedCandidates, Math.max(search.fusedCandidates.length, 32)),
       evidence: applyIntentEvidenceGate(search.evidence, retrievalPriorityClass),
     };
     if (search.evidence.map((candidate) => candidate.id).join(',') !== preIntentGateEvidenceIds) {
