@@ -1546,7 +1546,7 @@ export function createExpertAbstainAnswer(params: {
 }): ExpertAnswerEnvelope {
   const citations = buildExpertCitations(params.evidence.slice(0, 4));
   const groundedBasis = toGroundedBasisFromEvidence(params.evidence.slice(0, 4));
-  const keyIssueDate = sanitizeText(params.keyIssueDate) || undefined;
+  const keyIssueDate = typeof params.keyIssueDate === 'string' ? sanitizeText(params.keyIssueDate) || undefined : undefined;
   return {
     answerType: 'mixed',
     headline: params.question.length > 36 ? `${params.question.slice(0, 35)}...` : params.question,

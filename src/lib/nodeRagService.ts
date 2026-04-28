@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
+import { formatAnswerAsMarkdown } from './answerMarkdown';
 import { formatMarkdownAnswer, generateGroundedAnswer } from './answerGeneration';
 import {
   buildAdminOntologyReview,
@@ -52,7 +53,6 @@ import {
   createExpertClarificationAnswer,
   detectClarificationNeed,
   generateAnswerPlan,
-  renderExpertAnswerMarkdown,
   suppressSelectedServiceScopeClarification,
   synthesizeExpertAnswer,
 } from './expertAnswering';
@@ -3411,7 +3411,7 @@ export class NodeRagService {
       retrieval.latency = latency;
       return {
         answer,
-        text: renderExpertAnswerMarkdown(answer),
+        text: formatAnswerAsMarkdown(answer),
         search: {
           ...planned.search,
           evidence: planned.evidence,
@@ -3441,7 +3441,7 @@ export class NodeRagService {
       retrieval.latency = latency;
       return {
         answer,
-        text: renderExpertAnswerMarkdown(answer),
+        text: formatAnswerAsMarkdown(answer),
         search: {
           ...planned.search,
           evidence: planned.evidence,
@@ -3559,7 +3559,7 @@ export class NodeRagService {
 
     const response: GroundedChatResponse = {
       answer: finalAnswer,
-      text: renderExpertAnswerMarkdown(finalAnswer),
+      text: formatAnswerAsMarkdown(finalAnswer),
       search: {
         ...planned.search,
         evidence: planned.evidence,
