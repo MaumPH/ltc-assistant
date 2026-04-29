@@ -107,7 +107,7 @@ function sanitizeAnswerList(values: unknown[] | undefined): string[] {
 }
 
 function deriveCoverageIndicators(answer: GroundedAnswer, citations: StructuredChunk[]): string[] {
-  const explicit = Array.isArray(answer.coverageIndicators) ? answer.coverageIndicators : [];
+  const explicit = Array.isArray(answer.coverageIndicators) ? answer.coverageIndicators.map((value) => safeTrim(value)).filter(Boolean) : [];
   const fromCitations = dedupeCitations(citations).map((chunk) => safeTrim(chunk.parentSectionTitle || chunk.articleNo || chunk.title || chunk.docTitle));
   return Array.from(new Set([...explicit, ...fromCitations].filter(Boolean)));
 }
@@ -168,8 +168,8 @@ function buildEvidenceSnippet(chunk: StructuredChunk): string {
   return selected
     .map((line) => {
       if (line.length <= 320) return line;
-      const head = line.slice(0, 237).trim();
-      const tail = line.slice(-80).trim();
+      const head = safeTrim(line.slice(0, 237));
+      const tail = safeTrim(line.slice(-80));
       return `${head} ... ${tail}`;
     })
     .join(' / ');

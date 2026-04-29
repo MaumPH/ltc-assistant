@@ -111,8 +111,8 @@ export interface ServiceScopeClarification {
   clarificationQuestion?: string;
 }
 
-function compact(value: string): string {
-  return value.replace(/\s+/g, '').toLowerCase();
+function compact(value: unknown): string {
+  return safeTrim(value).replace(/\s+/g, '').toLowerCase();
 }
 
 function safeArray<T>(value: T[] | undefined): T[] {

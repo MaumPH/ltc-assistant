@@ -163,8 +163,8 @@ function withModelTimeout<T>(promise: Promise<T>, timeoutMs: number, label: stri
   });
 }
 
-function trimQuote(value: string, max = 220): string {
-  const normalized = value.replace(/\s+/g, ' ').trim();
+function trimQuote(value: unknown, max = 220): string {
+  const normalized = safeTrim(value).replace(/\s+/g, ' ');
   if (normalized.length <= max) return normalized;
   return `${normalized.slice(0, max - 3).trim()}...`;
 }

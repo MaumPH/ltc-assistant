@@ -19,6 +19,7 @@ import {
   embedChunks,
   prepareEmbedding,
 } from './embeddingService';
+import { safeTrim } from './textGuards';
 import type {
   CompiledPage,
   IndexManifestEntry,
@@ -136,7 +137,7 @@ export function parseStringArray(value: string[] | string | null | undefined): s
     console.debug('[ragStore] failed to parse string array JSON:', error);
     return value
       .split('>')
-      .map((item) => item.trim())
+      .map((item) => safeTrim(item))
       .filter(Boolean);
   }
 }
