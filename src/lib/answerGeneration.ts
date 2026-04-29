@@ -106,6 +106,12 @@ function sanitizeAnswerList(values: unknown[] | undefined): string[] {
     .filter(Boolean);
 }
 
+function deriveCoverageIndicators(answer: GroundedAnswer, citations: StructuredChunk[]): string[] {
+  const explicit = Array.isArray(answer.coverageIndicators) ? answer.coverageIndicators : [];
+  const fromCitations = dedupeCitations(citations).map((chunk) => safeTrim(chunk.parentSectionTitle || chunk.articleNo || chunk.title || chunk.docTitle));
+  return Array.from(new Set([...explicit, ...fromCitations].filter(Boolean)));
+}
+
 function deriveApplicabilityConditions(answer: GroundedAnswer, citations: StructuredChunk[]): string[] {
   const candidateLines = [
     ...(Array.isArray(answer.applicabilityConditions) ? answer.applicabilityConditions : []),
@@ -175,10 +181,24 @@ function needsEvidenceFallback(values: string[]): boolean {
 }
 
 function mergeEvidenceLines(answerLines: unknown[], citations: StructuredChunk[]): string[] {
-  const fallbackLines = dedupeCitations(citations)
-    .slice(0, 6)
-    .map((chunk) => `${buildPreciseCitationLabel(chunk)}: ${buildEvidenceSnippet(chunk)}`)
-    .filter((line) => !line.endsWith(':'));
+  const diverseChunks = (() => {
+    const selected: StructuredChunk[] = [];
+    const deferred: StructuredChunk[] = [];
+    const seenIndicators = new Set<string>();
+
+    for (const chunk of dedupeCitations(citations)) {
+      const key = `${chunk.docTitle}::${chunk.articleNo ?? chunk.parentSectionTitle}`;
+      if (seenIndicators.has(key)) {
+        deferred.push(chunk);
+        continue;
+      }
+      seenIndicators.add(key);
+      selected.push(chunk);
+    }
+
+    return [...selected, ...deferred].slice(0, 6);
+  })();
+  const fallbackLines = diverseChunks.map((chunk) => `${buildPreciseCitationLabel(chunk)}: ${buildEvidenceSnippet(chunk)}`).filter((line) => !line.endsWith(':'));
   const normalizedAnswerLines = answerLines.map((line) => safeTrim(toSafeString(line).replace(/\s+/g, ' '))).filter(Boolean);
 
   const preferred = needsEvidenceFallback(normalizedAnswerLines)
@@ -219,6 +239,7 @@ export function normalizeAnswerShape(candidate: Partial<GroundedAnswer>): Ground
     keyIssueDate: sanitizeGroundedText(candidate.keyIssueDate) || undefined,
     conclusion: stripInternalCitationArtifacts(candidate.conclusion) || '검색된 근거만으로 결론을 확정하기 어렵습니다.',
     applicabilityConditions: sanitizeAnswerList(candidate.applicabilityConditions),
+    coverageIndicators: sanitizeAnswerList(candidate.coverageIndicators),
     directEvidence: sanitizeAnswerList(candidate.directEvidence),
     practicalGuidance: sanitizeAnswerList(candidate.practicalGuidance),
     caveats: sanitizeAnswerList(candidate.caveats),
@@ -237,6 +258,7 @@ export function createAbstainAnswer(search: SearchRun): GroundedAnswer {
     keyIssueDate: leading.find((item) => item.effectiveDate)?.effectiveDate,
     conclusion: '검색된 근거만으로 질문에 직접 대응하는 조문이나 문답을 확정할 수 없습니다.',
     applicabilityConditions: [],
+    coverageIndicators: [],
     directEvidence: leading.length > 0 ? leading.map((item) => `${item.docTitle}${item.articleNo ? ` ${item.articleNo}` : ''}에서 관련 단서를 확인했습니다.`) : [],
     practicalGuidance: ['질문의 기관 유형, 급여 유형, 적용 시점을 더 구체화한 뒤 다시 확인하는 편이 안전합니다.'],
     caveats: ['현재 근거만으로는 단정 답변을 제공하지 않습니다.'],
@@ -254,6 +276,7 @@ export function formatMarkdownAnswer(answer: GroundedAnswer, citations: Structur
   const keyIssueDate = deriveKeyIssueDate(answer, citations);
   const evidenceState = formatEvidenceStateLabel(answer.evidenceState);
   const applicabilityConditions = deriveApplicabilityConditions(answer, citations);
+  const coverageIndicators = deriveCoverageIndicators(answer, citations);
   const directEvidence = mergeEvidenceLines(answer.directEvidence, citations);
   const sourceLines = dedupeCitations(citations).map(chunkToCitationLine);
 
@@ -271,6 +294,7 @@ export function formatMarkdownAnswer(answer: GroundedAnswer, citations: Structur
         ...(answer.followUpQuestion ? [answer.followUpQuestion] : []),
       ],
     ),
+    ...(coverageIndicators.length > 0 ? [formatSection('지표 커버리지', coverageIndicators)] : []),
     formatSection('출처', sourceLines.length > 0 ? sourceLines : ['근거 청크를 특정하지 못했습니다.']),
   ].join('\n\n');
 }
@@ -303,6 +327,12 @@ function buildGroundedAnswerSchema() {
         type: 'array',
         items: { type: 'string' },
         description: '근거 원문에 등장한 시간·대상·예외 한정자를 원문 표현 그대로 누락 없이 나열한다.',
+      },
+      coverageIndicators: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          '답변이 실제로 반영한 지표 또는 조문 식별자. 열거형 질의에서는 제공된 evidence에 등장한 서로 다른 지표를 가능한 한 누락 없이 나열한다.',
       },
       directEvidence: {
         type: 'array',
