@@ -567,7 +567,7 @@ export async function loadKnowledgeFilesForIndex(projectRoot: string): Promise<K
   return mergeCorpora(corpora.integrated, corpora.evaluation);
 }
 
-export async function embedIndexRows(ai: GoogleGenAI, rows: Array<Record<string, unknown>>): Promise<void> {
+export async function embedIndexRows(ai: GoogleGenAI, rows: Array<Record<string, unknown>>): Promise<number> {
   const rowsById = new Map(rows.map((row) => [String(row.id), row] as const));
   const chunkLike = rows.map((row) => ({
     id: String(row.id),
@@ -575,8 +575,9 @@ export async function embedIndexRows(ai: GoogleGenAI, rows: Array<Record<string,
     embedding: Array.isArray(row.embedding) ? (row.embedding as number[]) : undefined,
   }));
 
-  if (shouldSkipEmbeddingWork('index embeddings')) return;
+  if (shouldSkipEmbeddingWork('index embeddings')) return 0;
 
+  let embeddedCount = 0;
   const missing = chunkLike.filter((item) => !item.embedding);
   const target = missing.slice(0, EMBEDDING_MAX_CHUNKS_PER_PASS);
 
@@ -598,7 +599,10 @@ export async function embedIndexRows(ai: GoogleGenAI, rows: Array<Record<string,
       responses.forEach((response, responseIndex) => {
         const embedding = prepareEmbedding(response.embeddings[0]?.values);
         const row = rowsById.get(batch[responseIndex].id);
-        if (row) row.embedding = embedding;
+        if (row && embedding.length > 0) {
+          row.embedding = embedding;
+          embeddedCount += 1;
+        }
       });
     } catch (error) {
       if (isQuotaExceededError(error)) {
@@ -612,6 +616,8 @@ export async function embedIndexRows(ai: GoogleGenAI, rows: Array<Record<string,
   if (missing.length > target.length) {
     console.info(`[embedding] deferred ${missing.length - target.length} index chunks for later passes.`);
   }
+
+  return embeddedCount;
 }
 
 export function buildCompiledRows(files: KnowledgeFile[]): Array<Record<string, unknown>> {

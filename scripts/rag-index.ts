@@ -29,6 +29,17 @@ import { resolveEmbeddingApiKey } from '../src/lib/ragRuntime';
 dotenv.config();
 
 const EMBEDDING_CACHE_PATH = path.join(process.cwd(), '.rag-cache', 'embeddings.json');
+const EMBEDDING_INDEX_MAX_PASSES = parsePositiveInteger(process.env.RAG_EMBEDDING_INDEX_MAX_PASSES, 25);
+
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function countMissingEmbeddings(rows: Array<Record<string, unknown>>): number {
+  return rows.filter((row) => !Array.isArray(row.embedding) || (row.embedding as number[]).length === 0).length;
+}
 
 function restoreEmbeddingCache(rows: Array<Record<string, unknown>>): number {
   if (!fs.existsSync(EMBEDDING_CACHE_PATH)) return 0;
@@ -94,8 +105,21 @@ async function main() {
   const apiKey = resolveEmbeddingApiKey();
   if (apiKey) {
     const ai = new GoogleGenAI({ apiKey });
-    await embedIndexRows(ai, chunkRows);
-    persistEmbeddingCache(chunkRows);
+    let pass = 0;
+    while (pass < EMBEDDING_INDEX_MAX_PASSES) {
+      const missingBefore = countMissingEmbeddings(chunkRows);
+      if (missingBefore === 0) break;
+
+      pass += 1;
+      const embeddedCount = await embedIndexRows(ai, chunkRows);
+      persistEmbeddingCache(chunkRows);
+      const missingAfter = countMissingEmbeddings(chunkRows);
+      console.log(
+        `Embedding pass ${pass}: embedded ${embeddedCount}; missing ${missingAfter}/${chunkRows.length}.`,
+      );
+
+      if (embeddedCount === 0 || missingAfter >= missingBefore) break;
+    }
   }
 
   const manifestEntries = buildIndexManifestEntriesFromRows(files, chunkRows);
