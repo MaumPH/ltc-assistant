@@ -1,4 +1,5 @@
 import type { BasisBucketKey, EvidenceState, ExpertAnswerBlockItem, ExpertAnswerEnvelope } from './ragTypes';
+import { safeTrim } from './textGuards';
 
 const BASIS_LABELS: Record<BasisBucketKey, { title: string; emoji: string }> = {
   legal: { title: '법적 근거', emoji: '⚖️' },
@@ -13,8 +14,8 @@ const EVIDENCE_STATE_LABELS: Record<EvidenceState, { label: string; emoji: strin
   not_enough: { label: '근거 부족', emoji: '❓' },
 };
 
-function nonEmpty(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
+function nonEmpty(value: unknown): string | undefined {
+  const trimmed = safeTrim(value);
   return trimmed ? trimmed : undefined;
 }
 
