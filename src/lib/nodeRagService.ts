@@ -3331,7 +3331,9 @@ export class NodeRagService {
       const effectiveApiKey =
         this.generationMode === 'server'
           ? resolveServerGenerationApiKey()
-          : request.apiKey?.trim();
+          : typeof request.apiKey === 'string'
+            ? request.apiKey.trim()
+            : '';
       if (!effectiveApiKey) {
         throw new Error('API key is required for grounded chat.');
       }
