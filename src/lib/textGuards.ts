@@ -6,7 +6,7 @@ export function toSafeString(value: unknown): string {
 
   if (typeof value === 'object') {
     const record = value as Record<string, unknown>;
-    for (const key of ['value', 'text', 'label', 'summary', 'title', 'detail']) {
+    for (const key of ['value', 'date', 'text', 'label', 'summary', 'title', 'detail', 'answer', 'headline', 'conclusion', 'actor', 'artifact', 'term', 'reason']) {
       const normalized = toSafeString(record[key]);
       if (normalized) return normalized;
     }
