@@ -46,7 +46,8 @@ const CHECKLIST_EVIDENCE_TOP_K = 22;
 const MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT = 2;
 const CHECKLIST_MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT = 3;
 const MAX_WINDOWS_PER_CLUSTER = 2;
-const MAX_VISIBLE_CANDIDATES_PER_DOCUMENT = 2;
+const MAX_VISIBLE_CANDIDATES_PER_DOCUMENT = 3;
+const CHECKLIST_MAX_VISIBLE_CANDIDATES_PER_DOCUMENT = 4;
 const MAX_VISIBLE_CANDIDATES_PER_PARENT_SECTION = 1;
 const RRF_K = 50;
 const CANDIDATE_METADATA_TERMS = new Set([
@@ -1041,7 +1042,13 @@ export function searchCorpus(params: {
     .map((candidate) => rerankCandidate(candidate, query, intent, mode, options))
     .sort((left, right) => right.rerankScore - left.rerankScore)
     .slice(0, FUSED_TOP_K * 2);
-  const fusedCandidates = diversifyVisibleCandidates(rerankedCandidates, FUSED_TOP_K);
+  const fusedCandidates = diversifyVisibleCandidates(
+    rerankedCandidates,
+    FUSED_TOP_K,
+    shouldExpandChecklistEvidence(query)
+      ? CHECKLIST_MAX_VISIBLE_CANDIDATES_PER_DOCUMENT
+      : MAX_VISIBLE_CANDIDATES_PER_DOCUMENT,
+  );
 
   const evidence = selectEvidence(fusedCandidates, query, options);
   const { focusTerms, mismatchSignals } = detectTopicMismatch(query, fusedCandidates);

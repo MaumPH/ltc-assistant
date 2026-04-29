@@ -658,6 +658,7 @@ export interface GroundedAnswer {
   confidence: ConfidenceLevel;
   keyIssueDate?: string;
   conclusion: string;
+  applicabilityConditions?: string[];
   directEvidence: string[];
   practicalGuidance: string[];
   caveats: string[];
