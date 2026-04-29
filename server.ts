@@ -16,6 +16,7 @@ import {
   verifyAdminPassword,
 } from './src/lib/adminAuth';
 import { ApiError } from './src/lib/errors';
+import { CHAT_MODELS } from './src/lib/chatModels';
 import { buildKnowledgeCategoryCounts } from './src/lib/knowledgeCategories';
 import { NodeRagService } from './src/lib/nodeRagService';
 import { parseServiceScopes } from './src/lib/serviceScopes';
@@ -43,6 +44,8 @@ const DEFAULT_CHAT_QUEUE_TIMEOUT_MS = 90_000;
 const CHAT_QUEUE_TIMEOUT_MS = parsePositiveInteger(process.env.RAG_CHAT_QUEUE_TIMEOUT_MS, DEFAULT_CHAT_QUEUE_TIMEOUT_MS);
 const CHAT_QUEUE_TIMEOUT_MESSAGE = 'Chat request queue timed out before a generation slot was available.';
 const CHAT_QUEUE_RETRY_AFTER_SECONDS = 5;
+const DEFAULT_CHAT_MODEL: string = CHAT_MODELS[0]?.id ?? 'gemini-3-flash-preview';
+const ALLOWED_CHAT_MODELS = new Set<string>(CHAT_MODELS.map((model) => model.id));
 const chatLimiter = pLimit(CHAT_CONCURRENCY);
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
@@ -75,6 +78,23 @@ function getSafeErrorMessage(error: unknown): string {
 
 function logServerError(context: string, error: unknown): void {
   console.error(`[server] ${context}: ${getSafeErrorMessage(error)}`);
+}
+
+function normalizeRequestedChatModel(value: unknown): string {
+  const candidate = typeof value === 'string' ? value.trim() : '';
+  return candidate && ALLOWED_CHAT_MODELS.has(candidate) ? candidate : DEFAULT_CHAT_MODEL;
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function normalizePromptMode(value: unknown): PromptMode {
+  return value === 'evaluation' || value === 'integrated' ? value : 'integrated';
+}
+
+function normalizePromptVariant(value: unknown): PromptVariant {
+  return value === 'baseline' || value === 'v2' ? value : 'v2';
 }
 
 function toChatApiError(error: unknown): ApiError {
@@ -672,38 +692,35 @@ async function startServer() {
   });
 
   app.post('/api/chat', chatRateLimit, chatKeyRateLimit, async (req, res) => {
-    let requestedModel = 'gemini-3-flash-preview';
+    let requestedModel = DEFAULT_CHAT_MODEL;
     try {
-      const {
-        messages,
-        mode = 'integrated',
-        model = 'gemini-3-flash-preview',
-        promptVariant = 'v2',
-        apiKey,
-        serviceScopes,
-        retrievalProfileId,
-      }: {
-        messages?: ChatMessage[];
+      const body = req.body as {
+        messages?: unknown;
         mode?: PromptMode;
-        model?: string;
+        model?: unknown;
         promptVariant?: PromptVariant;
-        apiKey?: string;
+        apiKey?: unknown;
         serviceScopes?: ServiceScopeId[];
-        retrievalProfileId?: string;
-      } = req.body;
-      requestedModel = model;
+        retrievalProfileId?: unknown;
+      };
+      const messages = body.messages;
+      const mode = normalizePromptMode(body.mode);
+      const promptVariant = normalizePromptVariant(body.promptVariant);
+      const apiKey = normalizeOptionalString(body.apiKey);
+      const retrievalProfileId = normalizeOptionalString(body.retrievalProfileId);
+      requestedModel = normalizeRequestedChatModel(body.model);
 
       if (!Array.isArray(messages) || messages.length === 0) {
         return res.status(400).json({ error: 'messages must be a non-empty array' });
       }
 
-      const selectedServiceScopes = parseServiceScopes(serviceScopes);
+      const selectedServiceScopes = parseServiceScopes(body.serviceScopes);
 
       const response = await runLimitedChat(() =>
         ragService.generateChatResponse({
-          messages,
+          messages: messages as ChatMessage[],
           mode,
-          model,
+          model: requestedModel,
           promptVariant,
           apiKey,
           serviceScopes: selectedServiceScopes,
