@@ -116,9 +116,12 @@ export async function embedChunks(ai: GoogleGenAI, chunks: StructuredChunk[]): P
         ),
       );
       responses.forEach((response, batchIndex) => {
-        batch[batchIndex].embedding = prepareEmbedding(response.embeddings[0]?.values);
+        const embedding = prepareEmbedding(response.embeddings[0]?.values);
+        if (embedding.length > 0) {
+          batch[batchIndex].embedding = embedding;
+          embeddedCount += 1;
+        }
       });
-      embeddedCount += batch.length;
     } catch (error) {
       if (isQuotaExceededError(error)) {
         markEmbeddingQuotaExceeded(error, `batch ${index}~${index + batch.length}`);

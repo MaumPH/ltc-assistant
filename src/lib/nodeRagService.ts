@@ -2094,8 +2094,8 @@ export class NodeRagService {
     return result;
   }
 
-  private async getQueryEmbedding(query: string): Promise<number[] | null> {
-    if (!this.embeddingAi) return null;
+  private async getQueryEmbedding(query: string, embeddingAi: GoogleGenAI | null = this.embeddingAi): Promise<number[] | null> {
+    if (!embeddingAi) return null;
 
     const normalized = query.trim();
     if (!normalized) return null;
@@ -2104,7 +2104,7 @@ export class NodeRagService {
       return this.queryEmbeddingCache.get(normalized) ?? null;
     }
 
-    const embedding = await embedQuery(this.embeddingAi, normalized);
+    const embedding = await embedQuery(embeddingAi, normalized);
     this.queryEmbeddingCache.set(normalized, embedding);
 
     if (this.queryEmbeddingCache.size > 128) {
@@ -2643,6 +2643,7 @@ export class NodeRagService {
     mode: PromptMode,
     serviceScopes?: ServiceScopeId[],
     profileId?: string,
+    embeddingAi: GoogleGenAI | null = this.embeddingAi,
   ): Promise<RetrievalPlanResult> {
     const planStartedAt = Date.now();
     const latency = createEmptyLatencyBreakdown();
@@ -2797,7 +2798,7 @@ export class NodeRagService {
     }
 
     const embeddingQuery = [normalized.normalizedQuery, ...aliases].filter(Boolean).join('\n');
-    const queryEmbedding = await this.getQueryEmbedding(embeddingQuery);
+    const queryEmbedding = await this.getQueryEmbedding(embeddingQuery, embeddingAi);
     const serviceScopeChunkBoosts = runtimeProfile.retrieval.scopeBoosts
       ? buildServiceScopeChunkBoosts(
           allSearchChunks,
@@ -2885,7 +2886,7 @@ export class NodeRagService {
 
       for (const aspectQuery of procedureAspectQueries) {
         const aspectAliases = uniqueNonEmptyLines([...aliases, aspectQuery]);
-        const aspectEmbedding = await this.getQueryEmbedding([aspectQuery, ...aspectAliases].join('\n'));
+        const aspectEmbedding = await this.getQueryEmbedding([aspectQuery, ...aspectAliases].join('\n'), embeddingAi);
         const aspectQueryProfile = enrichQueryProfileWithServiceScopeLabels(
           buildNaturalQueryProfile(aspectQuery),
           serviceScopeLabels,
@@ -2961,7 +2962,7 @@ export class NodeRagService {
 
       for (const subquestion of refined) {
         const refinedAliases = uniqueNonEmptyLines([...aliases, subquestion]);
-        const refinedEmbedding = await this.getQueryEmbedding([subquestion, ...refinedAliases].join('\n'));
+        const refinedEmbedding = await this.getQueryEmbedding([subquestion, ...refinedAliases].join('\n'), embeddingAi);
         const refinedQueryProfile = enrichQueryProfileWithServiceScopeLabels(
           buildNaturalQueryProfile(subquestion),
           serviceScopeLabels,
@@ -3216,15 +3217,15 @@ export class NodeRagService {
     profileId?: string,
   ): Promise<RetrievalInspectionResponse> {
     await this.initialize();
-    void apiKey;
-    if (this.embeddingAi) {
-      await this.store.ensureEmbeddings(this.embeddingAi);
+    const inspectionEmbeddingAi = this.embeddingAi ?? (safeTrim(apiKey) ? new GoogleGenAI({ apiKey: safeTrim(apiKey) }) : null);
+    if (inspectionEmbeddingAi) {
+      await this.store.ensureEmbeddings(inspectionEmbeddingAi);
     }
     const startedAt = Date.now();
     const query = Array.isArray(input)
       ? [...input.slice(-4)].reverse().find((message) => message.role === 'user')?.text ?? ''
       : input;
-    const planned = await this.runRetrievalPlan(input, mode, serviceScopes, profileId);
+    const planned = await this.runRetrievalPlan(input, mode, serviceScopes, profileId, inspectionEmbeddingAi);
     const compiledPages = this.store.getCompiledPages(mode, planned.evidence.map((item) => item.documentId));
     const indexStatus = this.refreshIndexStatus();
     const guardrails = planned.profile.guardrails.promptInjection ? [detectPromptInjectionSignals(query)] : [];
@@ -3339,9 +3340,8 @@ export class NodeRagService {
       }
 
       const ai = new GoogleGenAI({ apiKey: effectiveApiKey });
-      if (this.embeddingAi) {
-        await this.store.ensureEmbeddings(this.embeddingAi);
-      }
+      const retrievalEmbeddingAi = this.embeddingAi ?? ai;
+      await this.store.ensureEmbeddings(retrievalEmbeddingAi);
 
       const recentMessages = request.messages.slice(-4);
       const latestUserMessage = safeTrim([...recentMessages].reverse().find((message) => message.role === 'user')?.text);
@@ -3380,6 +3380,7 @@ export class NodeRagService {
         request.mode,
         request.serviceScopes,
         request.retrievalProfileId,
+        retrievalEmbeddingAi,
       );
       latency = {
         ...planned.latency,
