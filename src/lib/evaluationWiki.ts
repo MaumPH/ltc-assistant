@@ -1,3 +1,5 @@
+import { safeTrim } from './textGuards';
+
 export interface WikiPage {
   slug: string;
   fileName: string;
@@ -101,21 +103,21 @@ export function splitEvaluationSections(body: string): WikiSection[] {
 }
 
 export function buildJudgementSummary(judgementContent: string | undefined, fallbackBody: string): string {
-  const source = judgementContent?.trim() ? judgementContent : fallbackBody;
+  const source = safeTrim(judgementContent) ? judgementContent : fallbackBody;
   const primaryLine =
     source
       .replace(/\r\n/g, '\n')
       .split('\n')
-      .map((line) => line.trim())
+      .map((line) => safeTrim(line))
       .find((line) => line && !line.startsWith('-') && !line.startsWith('#')) ?? source;
 
   return stripMarkdown(primaryLine).slice(0, 220);
 }
 
 function stripListMarker(line: string): string {
-  let value = line.trim().replace(/^[-*]\s+/, '');
+  let value = safeTrim(line).replace(/^[-*]\s+/, '');
   while (/^-\s+/.test(value)) value = value.replace(/^-\s+/, '');
-  return value.trim();
+  return safeTrim(value);
 }
 
 function normalizeCriterionText(value: string): string {
@@ -133,7 +135,7 @@ function normalizeCriterionText(value: string): string {
 }
 
 function isRoleOnlyLine(value: string): boolean {
-  return /^(①|②|③|④|⑤|⑥|⑦|⑧|⑨|⑩)\s*(기\s*관|직\s*원|수급자)\s*$/u.test(value.trim());
+  return /^(①|②|③|④|⑤|⑥|⑦|⑧|⑨|⑩)\s*(기\s*관|직\s*원|수급자)\s*$/u.test(safeTrim(value));
 }
 
 function comparableCriterionText(value: string): string {

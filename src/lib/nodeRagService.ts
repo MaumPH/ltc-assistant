@@ -576,7 +576,7 @@ function buildNormalizedRetrievalQuery(messages: ChatMessage[]): {
 } {
   const userMessages = messages
     .filter((message) => message.role === 'user')
-    .map((message) => message.text.trim())
+    .map((message) => safeTrim(message.text))
     .filter(Boolean);
   const latest = userMessages[userMessages.length - 1] ?? '';
   const previous = userMessages[userMessages.length - 2];
@@ -2655,9 +2655,10 @@ export class NodeRagService {
     const allSearchChunks = this.getAllSearchChunks();
     const recentMessages = Array.isArray(input) ? input.slice(-4) : [];
     const query = Array.isArray(input)
-      ? [...recentMessages].reverse().find((message) => message.role === 'user')?.text ?? ''
+      ? safeTrim([...recentMessages].reverse().find((message) => message.role === 'user')?.text)
       : input;
-    const singleUserMessagePayload: ChatMessage[] = query.trim() ? [{ role: 'user', text: query.trim() }] : [];
+    const normalizedQueryText = safeTrim(query);
+    const singleUserMessagePayload: ChatMessage[] = normalizedQueryText ? [{ role: 'user', text: normalizedQueryText }] : [];
     const messagePayload: ChatMessage[] = recentMessages.length > 0 ? recentMessages : singleUserMessagePayload;
     const normalizationCacheKey = buildScopedCacheKey([
       this.indexStatus.manifestHash,
@@ -3323,146 +3324,147 @@ export class NodeRagService {
   }
 
   async generateChatResponse(request: GroundedChatRequest): Promise<GroundedChatResponse> {
-    await this.initialize();
-    const startedAt = Date.now();
-    let latency = createEmptyLatencyBreakdown();
-    const effectiveApiKey =
-      this.generationMode === 'server'
-        ? resolveServerGenerationApiKey()
-        : request.apiKey?.trim();
-    if (!effectiveApiKey) {
-      throw new Error('API key is required for grounded chat.');
-    }
-
-    const ai = new GoogleGenAI({ apiKey: effectiveApiKey });
-    if (this.embeddingAi) {
-      await this.store.ensureEmbeddings(this.embeddingAi);
-    }
-
-    const recentMessages = request.messages.slice(-4);
-    const latestUserMessage = [...recentMessages].reverse().find((message) => message.role === 'user')?.text ?? '';
-    const activeProfile = this.getActiveProfile(request.retrievalProfileId);
-    const answerCacheKey = buildScopedCacheKey([
-      this.indexStatus.manifestHash,
-      activeProfile.id,
-      request.mode,
-      request.model,
-      ...(request.serviceScopes ?? []),
-      recentMessages.map((message) => `${message.role}:${message.text}`).join('\n'),
-    ]);
-    if (activeProfile.cache.answer) {
-      const cached = this.runtimeCache.get<GroundedChatResponse>('answer', answerCacheKey);
-      if (cached) {
-        return {
-          ...cached,
-          retrieval: {
-            ...cached.retrieval,
-            cacheHits: {
-              ...cached.retrieval.cacheHits,
-              answer: true,
-            },
-            latency: {
-              ...cached.retrieval.latency,
-              cacheLookupMs: Date.now() - startedAt,
-              totalMs: Date.now() - startedAt,
-            },
-          },
-        };
+    try {
+      await this.initialize();
+      const startedAt = Date.now();
+      let latency = createEmptyLatencyBreakdown();
+      const effectiveApiKey =
+        this.generationMode === 'server'
+          ? resolveServerGenerationApiKey()
+          : request.apiKey?.trim();
+      if (!effectiveApiKey) {
+        throw new Error('API key is required for grounded chat.');
       }
-    }
 
-    const planned = await this.runRetrievalPlan(
-      recentMessages,
-      request.mode,
-      request.serviceScopes,
-      request.retrievalProfileId,
-    );
-    latency = {
-      ...planned.latency,
-      cacheLookupMs:
-        planned.latency.cacheLookupMs +
-        (activeProfile.cache.answer ? Math.max(0, Date.now() - startedAt - planned.latency.totalMs) : 0),
-    };
-    const indexStatus = this.refreshIndexStatus();
-    const guardrails: GuardrailResult[] = planned.profile.guardrails.promptInjection
-      ? [detectPromptInjectionSignals(latestUserMessage)]
-      : [];
-    const retrieval = buildRetrievalDiagnostics(
-      {
-        ...planned.search,
-        evidence: planned.evidence,
-      },
-      planned.normalizedQuery,
-      planned.querySources,
-      this.getAllSearchChunks(),
-      indexStatus,
-      planned.scope,
-      {
-        profile: planned.profile,
-        retrievalPriorityClass: planned.retrievalPriorityClass,
-        priorityPolicyName: planned.priorityPolicyName,
-        selectedServiceScopes: planned.selectedServiceScopes,
-        serviceScopeLabels: planned.serviceScopeLabels,
-        selectedRetrievalMode: planned.selectedRetrievalMode,
-        workflowEventsHit: planned.workflowEventsHit,
-        subquestions: planned.subquestions,
-        basisCoverage: planned.basisCoverage,
-        plannerTrace: planned.plannerTrace,
-        normalizationTrace: planned.queryProfile.normalizationTrace,
-        aliasResolutions: planned.queryProfile.aliasResolutions,
-        parsedLawRefs: planned.queryProfile.parsedLawRefs,
-        semanticFrame: planned.queryProfile.semanticFrame,
-        assumptions: planned.queryProfile.semanticFrame.assumptions,
-        ontologyHits: planned.ontologyHits,
-        validationIssues: planned.validationIssues,
-        claimCoverage: planned.claimCoverage,
-        graphExpansionTrace: planned.graphExpansionTrace,
-        fallbackTriggered: planned.fallbackTriggered,
-        fallbackSources: planned.fallbackSources,
-        guardrails,
-        latency,
-        sectionRouting: planned.sectionRouting,
-        cacheHits: planned.cacheHits,
-      },
-    );
-    this.rememberRetrieval(retrieval, latestUserMessage || planned.normalizedQuery);
+      const ai = new GoogleGenAI({ apiKey: effectiveApiKey });
+      if (this.embeddingAi) {
+        await this.store.ensureEmbeddings(this.embeddingAi);
+      }
 
-    const keyIssueDate = planned.evidence.find((item) => item.effectiveDate)?.effectiveDate;
-    const citations = dedupeCitations(planned.evidence);
-    const question = latestUserMessage || planned.normalizedQuery;
-    const isDefinitionQuery = planned.queryProfile.queryType === 'definition';
-    const hasSelectedServiceScope = planned.selectedServiceScopes.some((scope) => scope !== 'all');
-    const serviceScopeClarification: ServiceScopeClarification = hasSelectedServiceScope
-      ? {
-          needsClarification: false,
-          candidateScopes: [],
-          ambiguitySignals: [],
+      const recentMessages = request.messages.slice(-4);
+      const latestUserMessage = safeTrim([...recentMessages].reverse().find((message) => message.role === 'user')?.text);
+      const activeProfile = this.getActiveProfile(request.retrievalProfileId);
+      const answerCacheKey = buildScopedCacheKey([
+        this.indexStatus.manifestHash,
+        activeProfile.id,
+        request.mode,
+        request.model,
+        ...(request.serviceScopes ?? []),
+        recentMessages.map((message) => `${message.role}:${safeTrim(message.text)}`).join('\n'),
+      ]);
+      if (activeProfile.cache.answer) {
+        const cached = this.runtimeCache.get<GroundedChatResponse>('answer', answerCacheKey);
+        if (cached) {
+          return {
+            ...cached,
+            retrieval: {
+              ...cached.retrieval,
+              cacheHits: {
+                ...cached.retrieval.cacheHits,
+                answer: true,
+              },
+              latency: {
+                ...cached.retrieval.latency,
+                cacheLookupMs: Date.now() - startedAt,
+                totalMs: Date.now() - startedAt,
+              },
+            },
+          };
         }
-      : detectServiceScopeClarification(question);
-    const clarificationDecision = suppressSelectedServiceScopeClarification(
-      planned.profile.queryProcessing.clarify && !isDefinitionQuery
-        ? await detectClarificationNeed({
-            ai,
-            model: request.model,
-            recentMessages,
-            question,
-            normalizedQuery: planned.normalizedQuery,
-            mode: request.mode,
-            questionArchetype: planned.questionArchetype,
-            retrievalMode: planned.selectedRetrievalMode,
-            workflowEvents: planned.workflowEventIds,
-            serviceScopeClarification,
-          })
-        : {
-            needsClarification: false,
-            reason: isDefinitionQuery ? 'clarification-skipped-for-definition-query' : 'clarification-disabled-by-profile',
-            missingDimensions: [],
-            candidateOptions: [],
-          },
-      hasSelectedServiceScope ? planned.serviceScopeLabels : [],
-    );
+      }
 
-    if (clarificationDecision.needsClarification) {
+      const planned = await this.runRetrievalPlan(
+        recentMessages,
+        request.mode,
+        request.serviceScopes,
+        request.retrievalProfileId,
+      );
+      latency = {
+        ...planned.latency,
+        cacheLookupMs:
+          planned.latency.cacheLookupMs +
+          (activeProfile.cache.answer ? Math.max(0, Date.now() - startedAt - planned.latency.totalMs) : 0),
+      };
+      const indexStatus = this.refreshIndexStatus();
+      const guardrails: GuardrailResult[] = planned.profile.guardrails.promptInjection
+        ? [detectPromptInjectionSignals(latestUserMessage)]
+        : [];
+      const retrieval = buildRetrievalDiagnostics(
+        {
+          ...planned.search,
+          evidence: planned.evidence,
+        },
+        planned.normalizedQuery,
+        planned.querySources,
+        this.getAllSearchChunks(),
+        indexStatus,
+        planned.scope,
+        {
+          profile: planned.profile,
+          retrievalPriorityClass: planned.retrievalPriorityClass,
+          priorityPolicyName: planned.priorityPolicyName,
+          selectedServiceScopes: planned.selectedServiceScopes,
+          serviceScopeLabels: planned.serviceScopeLabels,
+          selectedRetrievalMode: planned.selectedRetrievalMode,
+          workflowEventsHit: planned.workflowEventsHit,
+          subquestions: planned.subquestions,
+          basisCoverage: planned.basisCoverage,
+          plannerTrace: planned.plannerTrace,
+          normalizationTrace: planned.queryProfile.normalizationTrace,
+          aliasResolutions: planned.queryProfile.aliasResolutions,
+          parsedLawRefs: planned.queryProfile.parsedLawRefs,
+          semanticFrame: planned.queryProfile.semanticFrame,
+          assumptions: planned.queryProfile.semanticFrame.assumptions,
+          ontologyHits: planned.ontologyHits,
+          validationIssues: planned.validationIssues,
+          claimCoverage: planned.claimCoverage,
+          graphExpansionTrace: planned.graphExpansionTrace,
+          fallbackTriggered: planned.fallbackTriggered,
+          fallbackSources: planned.fallbackSources,
+          guardrails,
+          latency,
+          sectionRouting: planned.sectionRouting,
+          cacheHits: planned.cacheHits,
+        },
+      );
+      this.rememberRetrieval(retrieval, latestUserMessage || planned.normalizedQuery);
+
+      const keyIssueDate = planned.evidence.find((item) => item.effectiveDate)?.effectiveDate;
+      const citations = dedupeCitations(planned.evidence);
+      const question = latestUserMessage || planned.normalizedQuery;
+      const isDefinitionQuery = planned.queryProfile.queryType === 'definition';
+      const hasSelectedServiceScope = planned.selectedServiceScopes.some((scope) => scope !== 'all');
+      const serviceScopeClarification: ServiceScopeClarification = hasSelectedServiceScope
+        ? {
+            needsClarification: false,
+            candidateScopes: [],
+            ambiguitySignals: [],
+          }
+        : detectServiceScopeClarification(question);
+      const clarificationDecision = suppressSelectedServiceScopeClarification(
+        planned.profile.queryProcessing.clarify && !isDefinitionQuery
+          ? await detectClarificationNeed({
+              ai,
+              model: request.model,
+              recentMessages,
+              question,
+              normalizedQuery: planned.normalizedQuery,
+              mode: request.mode,
+              questionArchetype: planned.questionArchetype,
+              retrievalMode: planned.selectedRetrievalMode,
+              workflowEvents: planned.workflowEventIds,
+              serviceScopeClarification,
+            })
+          : {
+              needsClarification: false,
+              reason: isDefinitionQuery ? 'clarification-skipped-for-definition-query' : 'clarification-disabled-by-profile',
+              missingDimensions: [],
+              candidateOptions: [],
+            },
+        hasSelectedServiceScope ? planned.serviceScopeLabels : [],
+      );
+
+      if (clarificationDecision.needsClarification) {
       retrieval.agentDecision = 'clarify';
       retrieval.plannerTrace = [
         ...retrieval.plannerTrace,
@@ -3490,7 +3492,7 @@ export class NodeRagService {
       };
     }
 
-    if (planned.evidence.length === 0) {
+      if (planned.evidence.length === 0) {
       retrieval.agentDecision = 'abstain';
       retrieval.plannerTrace = [
         ...retrieval.plannerTrace,
@@ -3520,8 +3522,8 @@ export class NodeRagService {
       };
     }
 
-    const planningStartedAt = Date.now();
-    const answerPlan = await generateAnswerPlan({
+      const planningStartedAt = Date.now();
+      const answerPlan = await generateAnswerPlan({
       ai,
       model: request.model,
       brain: this.brain,
@@ -3537,21 +3539,21 @@ export class NodeRagService {
       evidence: planned.evidence,
       knowledgeContext: planned.knowledgeContext,
     });
-    const claimPlan = buildClaimPlan({
+      const claimPlan = buildClaimPlan({
       question,
       semanticFrame: planned.queryProfile.semanticFrame,
       evidence: planned.evidence,
     });
-    latency.planningMs = Date.now() - planningStartedAt;
-    retrieval.plannerTrace = [
+      latency.planningMs = Date.now() - planningStartedAt;
+      retrieval.plannerTrace = [
       ...retrieval.plannerTrace,
       { step: 'planner-answer-type', detail: answerPlan.recommendedAnswerType },
       { step: 'planner-tasks', detail: answerPlan.taskCandidates.map((task) => task.title).join(', ') || 'none' },
       { step: 'planner-claims', detail: claimPlan.claims.map((claim) => `${claim.canonicalSubject}:${claim.predicate}`).join(', ') || 'none' },
     ];
 
-    const answerStartedAt = Date.now();
-    const answer = await synthesizeExpertAnswer({
+      const answerStartedAt = Date.now();
+      const answer = await synthesizeExpertAnswer({
       ai,
       model: request.model,
       mode: request.mode,
@@ -3575,12 +3577,12 @@ export class NodeRagService {
       claimPlan,
       semanticFrame: planned.queryProfile.semanticFrame,
     });
-    latency.answerMs = Date.now() - answerStartedAt;
-    const scopedAnswer = applyAnswerScope(answer, planned.serviceScopeLabels);
-    const answerEvidenceIds = new Set(scopedAnswer.citations.map((item) => item.evidenceId));
-    const resolvedCitations = citations.filter((item) => answerEvidenceIds.has(item.id));
-    const finalCitations = resolvedCitations.length > 0 ? resolvedCitations : citations.slice(0, 4);
-    const validatedAnswer = validateAnswerEnvelope({
+      latency.answerMs = Date.now() - answerStartedAt;
+      const scopedAnswer = applyAnswerScope(answer, planned.serviceScopeLabels);
+      const answerEvidenceIds = new Set(scopedAnswer.citations.map((item) => item.evidenceId));
+      const resolvedCitations = citations.filter((item) => answerEvidenceIds.has(item.id));
+      const finalCitations = resolvedCitations.length > 0 ? resolvedCitations : citations.slice(0, 4);
+      const validatedAnswer = validateAnswerEnvelope({
       answer: scopedAnswer,
       semanticFrame: planned.queryProfile.semanticFrame,
       citations: finalCitations,
@@ -3588,10 +3590,10 @@ export class NodeRagService {
       projectRoot: this.projectRoot,
       claimPlan,
     });
-    retrieval.validationIssues = validatedAnswer.validationIssues;
-    retrieval.claimCoverage = validatedAnswer.claimCoverage;
-    let finalAnswer = validatedAnswer.answer;
-    if (validatedAnswer.shouldAbstain) {
+      retrieval.validationIssues = validatedAnswer.validationIssues;
+      retrieval.claimCoverage = validatedAnswer.claimCoverage;
+      let finalAnswer = validatedAnswer.answer;
+      if (validatedAnswer.shouldAbstain) {
       retrieval.agentDecision = 'abstain';
       retrieval.plannerTrace = [
         ...retrieval.plannerTrace,
@@ -3608,38 +3610,41 @@ export class NodeRagService {
         planned.serviceScopeLabels,
       );
     }
-    finalAnswer = planned.profile.guardrails.piiMasking ? applyPiiMasking(finalAnswer) : finalAnswer;
-    if (planned.profile.guardrails.citationWarning) {
-      guardrails.push(buildCitationWarning(finalAnswer, finalCitations));
-    }
-    if (planned.profile.guardrails.hallucinationSignal) {
-      guardrails.push(buildHallucinationSignal(finalAnswer, finalCitations));
-    }
-    if (retrieval.agentDecision !== 'abstain') {
+      finalAnswer = planned.profile.guardrails.piiMasking ? applyPiiMasking(finalAnswer) : finalAnswer;
+      if (planned.profile.guardrails.citationWarning) {
+        guardrails.push(buildCitationWarning(finalAnswer, finalCitations));
+      }
+      if (planned.profile.guardrails.hallucinationSignal) {
+        guardrails.push(buildHallucinationSignal(finalAnswer, finalCitations));
+      }
+      if (retrieval.agentDecision !== 'abstain') {
       retrieval.agentDecision = 'answer';
       retrieval.plannerTrace = [
         ...retrieval.plannerTrace,
         { step: 'agent-decision', detail: 'answer: evidence passed grounding, clarification, and validation gates' },
       ];
     }
-    retrieval.guardrails = guardrails;
-    latency.totalMs = Date.now() - startedAt;
-    retrieval.latency = latency;
+      retrieval.guardrails = guardrails;
+      latency.totalMs = Date.now() - startedAt;
+      retrieval.latency = latency;
 
-    const response: GroundedChatResponse = {
-      answer: finalAnswer,
-      text: formatAnswerAsMarkdown(finalAnswer),
-      search: {
-        ...planned.search,
-        evidence: planned.evidence,
-      },
-      citations: finalCitations,
-      retrieval,
-    };
-    if (planned.profile.cache.answer) {
-      this.runtimeCache.set('answer', answerCacheKey, response, ANSWER_CACHE_TTL_MS);
+      const response: GroundedChatResponse = {
+        answer: finalAnswer,
+        text: formatAnswerAsMarkdown(finalAnswer),
+        search: {
+          ...planned.search,
+          evidence: planned.evidence,
+        },
+        citations: finalCitations,
+        retrieval,
+      };
+      if (planned.profile.cache.answer) {
+        this.runtimeCache.set('answer', answerCacheKey, response, ANSWER_CACHE_TTL_MS);
+      }
+
+      return response;
+    } catch (error) {
+      throw error;
     }
-
-    return response;
   }
 }
