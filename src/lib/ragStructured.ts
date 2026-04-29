@@ -1,4 +1,5 @@
 import { buildCitationLabel, buildPreciseCitationLabel, extractArticleNo, normalizeWhitespace, sha1, toDocumentMetadata } from './ragMetadata';
+import { hasQualifierSignal } from './qualifierPatterns';
 import type { CompiledPage, KnowledgeFile, StructuredChunk, StructuredSection } from './ragTypes';
 
 const MAX_CHUNK_CHARS = 1200;
@@ -231,7 +232,7 @@ function buildParagraphBlocks(content: string): SpanBlock[] {
       const listLineCount = lines.filter((line) => LIST_ITEM_RE.test(line.trim())).length;
       const tableLineCount = lines.filter((line) => TABLE_ROW_RE.test(line.trim())).length;
       const protectedGroup = listLineCount >= 2 || tableLineCount >= 2;
-      const containsCheckList = protectedGroup || CHECKLIST_CUE_RE.test(normalized.text);
+      const containsCheckList = protectedGroup || CHECKLIST_CUE_RE.test(normalized.text) || hasQualifierSignal(normalized.text);
       const block: SpanBlock = {
         ...normalized,
         listGroupId: protectedGroup ? sha1(`${normalized.spanStart}:${normalized.text}`) : undefined,
@@ -300,7 +301,14 @@ function splitOversizedBlock(block: SpanBlock): SpanBlock[] {
   let start = 0;
 
   while (start < block.text.length) {
-    const end = Math.min(start + limit, block.text.length);
+    const baseEnd = Math.min(start + limit, block.text.length);
+    let end = baseEnd;
+    const tailProbe = block.text.slice(Math.max(start, baseEnd - 160), baseEnd);
+    if ((block.protectedGroup || block.containsCheckList) && hasQualifierSignal(tailProbe) && baseEnd < block.text.length) {
+      const extension = block.text.slice(baseEnd, Math.min(block.text.length, baseEnd + 600));
+      const paragraphBoundary = extension.match(/\n\s*\n/u);
+      end = paragraphBoundary ? baseEnd + (paragraphBoundary.index ?? 0) + paragraphBoundary[0].length : Math.min(block.text.length, baseEnd + 600);
+    }
     const segment = block.text.slice(start, end).trim();
     if (segment) {
       const leading = block.text.slice(start, end).search(/\S/);
@@ -405,7 +413,16 @@ function splitSectionText(section: StructuredSection): ChunkWindow[] {
           },
         ];
 
-  return buildWindowsFromBlocks(effectiveBlocks);
+  return buildWindowsFromBlocks(effectiveBlocks).map((window) => {
+    if (!window.text || window.text.startsWith(section.title)) {
+      return window;
+    }
+
+    return {
+      ...window,
+      text: normalizeWhitespace(`${section.title}\n${window.text}`),
+    };
+  });
 }
 
 function buildEmbeddingInput(params: { docTitle: string; section: StructuredSection; text: string }): string {
