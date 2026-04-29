@@ -425,6 +425,8 @@ export interface SearchCandidate extends StructuredChunk {
   headingScore?: number;
   ontologyScore: number;
   matchedTerms: string[];
+  forcedByEntity?: boolean;
+  entityAnchorId?: string;
 }
 
 export interface RetrievalStageTrace {
@@ -456,6 +458,8 @@ export interface SearchRun {
   mismatchSignals?: string[];
   groundingGatePassed?: boolean;
   stageTrace?: RetrievalStageTrace[];
+  enumerationIntent?: boolean;
+  matchedEntityAnchors?: string[];
 }
 
 export interface ClaimPlanItem {
@@ -659,6 +663,7 @@ export interface GroundedAnswer {
   keyIssueDate?: string;
   conclusion: string;
   applicabilityConditions?: string[];
+  coverageIndicators?: string[];
   directEvidence: string[];
   practicalGuidance: string[];
   caveats: string[];

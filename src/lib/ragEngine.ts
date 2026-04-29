@@ -1,5 +1,8 @@
 import { compareIsoDateDesc, detectIntent, extractArticleNo, tokenize } from './ragMetadata';
 import { expandCompoundTerms } from './koreanCompounds';
+import { scoreEntityAnchorText } from './entityAnchors';
+import { hasQualifierSignal } from './qualifierPatterns';
+import { buildQueryExpansionProfile } from './queryIntent';
 import { scoreCandidateByPriority, type RetrievalPriorityPolicy } from './retrievalPriority';
 import { chunkMatchesSelectedServiceScopes, getEffectiveServiceScopes, isChunkCompatibleWithServiceScopes } from './serviceScopes';
 import type {
@@ -273,6 +276,33 @@ function scoreAliasMetadata(alias: string, titleCompact: string, sectionCompact:
 
 function compact(value: string): string {
   return value.replace(/\s+/g, '').toLowerCase();
+}
+
+function queryDebugHash(query: string): string {
+  let hash = 0;
+  for (let index = 0; index < query.length; index += 1) {
+    hash = (hash * 31 + query.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(16);
+}
+
+function debugRecallStage(stage: 'fusion' | 'evidence', query: string, candidates: SearchCandidate[]): void {
+  if (process.env.RAG_DEBUG !== '1') return;
+
+  console.debug('[recall-audit]', {
+    queryHash: queryDebugHash(query),
+    stage,
+    query,
+    candidates: candidates.map((candidate) => ({
+      docTitle: candidate.docTitle,
+      articleNo: candidate.articleNo,
+      parentSectionTitle: candidate.parentSectionTitle,
+      fusedScore: Number(candidate.fusedScore.toFixed(4)),
+      rerankScore: Number(candidate.rerankScore.toFixed(2)),
+      forcedByEntity: candidate.forcedByEntity === true,
+      entityAnchorId: candidate.entityAnchorId,
+    })),
+  });
 }
 
 function scoreLawReference(
@@ -777,15 +807,7 @@ function isAdjacentWindow(left: SearchCandidate, right: SearchCandidate): boolea
 }
 
 function shouldExpandChecklistEvidence(query: string): boolean {
-  const compact = query.replace(/\s+/g, '');
-  const checklistCueTerms = ['해야할', '해야하는', '해야되는', '할일', '체크리스트', '무엇', '뭐', '안내', '설명', '교육', '업무', '절차'];
-  const onboardingOrOperationalTerms = ['입소', '신규', '초기', '준비', '수급자', '보호자', '직원', '평가', '오면', '왔을때', '처음'];
-  const broadChecklistCue =
-    checklistCueTerms.some((term) => compact.includes(term));
-  const onboardingOrOperationalCue =
-    onboardingOrOperationalTerms.some((term) => compact.includes(term));
-
-  return broadChecklistCue && onboardingOrOperationalCue;
+  return buildQueryExpansionProfile(query).checklistExpansion;
 }
 
 function expandEvidenceWithListGroups(
@@ -818,15 +840,149 @@ function expandEvidenceWithListGroups(
   return Array.from(selectedById.values()).sort((left, right) => right.rerankScore - left.rerankScore).slice(0, evidenceTopK);
 }
 
+function indicatorKey(candidate: Pick<SearchCandidate, 'docTitle' | 'articleNo' | 'parentSectionTitle'>): string {
+  return `${candidate.docTitle}::${candidate.articleNo ?? candidate.parentSectionTitle}`;
+}
+
+function enforceEntityCoverage(selected: SearchCandidate[], candidates: SearchCandidate[], query: string): SearchCandidate[] {
+  const profile = buildQueryExpansionProfile(query);
+  if (profile.maxForcedInjections === 0) return selected;
+
+  const annotateSelectedCandidate = (candidate: SearchCandidate): SearchCandidate => {
+    const matchedAnchor = profile.entityAnchors.find((anchor) => scoreEntityAnchorText(candidate.text, anchor.id) > 0);
+    if (!matchedAnchor) return candidate;
+    return {
+      ...candidate,
+      forcedByEntity: true,
+      entityAnchorId: candidate.entityAnchorId ?? matchedAnchor.id,
+      matchedTerms: Array.from(new Set([...candidate.matchedTerms, `entity-match:${matchedAnchor.id}`])),
+    };
+  };
+
+  const annotatedSelected = selected.map(annotateSelectedCandidate);
+  const selectedIds = new Set(annotatedSelected.map((candidate) => candidate.id));
+  const selectedIndicators = new Set(annotatedSelected.map((candidate) => indicatorKey(candidate)));
+  const forced: SearchCandidate[] = [];
+
+  for (const anchor of profile.entityAnchors) {
+    const bestByIndicator = new Map<string, { candidate: SearchCandidate; score: number }>();
+    for (const candidate of candidates) {
+      if (selectedIds.has(candidate.id)) continue;
+      const score = scoreEntityAnchorText(candidate.text, anchor.id);
+      if (score <= 0) continue;
+
+      const key = indicatorKey(candidate);
+      if (selectedIndicators.has(key)) continue;
+      const current = bestByIndicator.get(key);
+      if (!current || score > current.score || (score === current.score && candidate.rerankScore > current.candidate.rerankScore)) {
+        bestByIndicator.set(key, { candidate, score });
+      }
+    }
+
+    for (const { candidate } of Array.from(bestByIndicator.values()).sort((left, right) => {
+      const scoreDiff = right.score - left.score;
+      return scoreDiff !== 0 ? scoreDiff : right.candidate.rerankScore - left.candidate.rerankScore;
+    })) {
+      if (forced.length >= profile.maxForcedInjections) break;
+      const key = indicatorKey(candidate);
+      if (selectedIndicators.has(key)) continue;
+      selectedIndicators.add(key);
+      selectedIds.add(candidate.id);
+      forced.push({
+        ...candidate,
+        forcedByEntity: true,
+        entityAnchorId: anchor.id,
+        matchedTerms: Array.from(new Set([...candidate.matchedTerms, 'entity-forced', `entity-forced:${anchor.id}`])),
+      });
+    }
+
+    if (forced.length >= profile.maxForcedInjections) break;
+  }
+
+  return forced.length > 0 ? [...annotatedSelected, ...forced] : annotatedSelected;
+}
+
+function buildEntityAnchoredCandidates(params: {
+  index: RagCorpusIndex;
+  query: string;
+  mode: PromptMode;
+  intent: QueryIntent;
+  options?: SearchOptions;
+}): SearchCandidate[] {
+  const profile = buildQueryExpansionProfile(params.query);
+  if (profile.entityAnchors.length === 0) return [];
+
+  const bestByIndicator = new Map<string, SearchCandidate>();
+
+  for (const chunk of params.index.chunks) {
+    if (!isChunkInScope(chunk, params.mode, params.options)) continue;
+
+    let strongestAnchorId: string | undefined;
+    let strongestScore = 0;
+    for (const anchor of profile.entityAnchors) {
+      const score = scoreEntityAnchorText(`${chunk.title}\n${chunk.parentSectionTitle}\n${chunk.searchText}\n${chunk.text}`, anchor.id);
+      if (score > strongestScore) {
+        strongestScore = score;
+        strongestAnchorId = anchor.id;
+      }
+    }
+
+    if (!strongestAnchorId || strongestScore <= 0) continue;
+
+    const checklistBoost = chunk.containsCheckList ? 18 : 0;
+    const qualifierBoost = hasQualifierSignal(chunk.text) ? 8 : 0;
+    const sectionBoost = scoreEntityAnchorText(chunk.parentSectionTitle, strongestAnchorId) > 0 ? 12 : 0;
+    const primaryEvaluationBoost = chunk.sourceRole === 'primary_evaluation' ? 40 : 0;
+    const structuredEvaluationDocBoost = /^\d{2}-\d{2}-/.test(chunk.docTitle) ? 80 : 0;
+    const workflowTitleBoost = /(욕구사정|급여제공계획|정보제공|지침|상담|계획)/u.test(`${chunk.docTitle} ${chunk.parentSectionTitle}`) ? 30 : 0;
+    const qualifierTextBoost = /(14일\s*이내|급여제공\s*시작일|8가지|연\s*1회|분기별|다만)/u.test(chunk.text) ? 20 : 0;
+    const qaPenalty = /(Q&A|qa|사례집|업무의 이해)/u.test(`${chunk.docTitle} ${chunk.parentSectionTitle}`) ? -28 : 0;
+    const candidate = rerankCandidate(
+      {
+        ...createCandidate(chunk),
+        lexicalScore: strongestScore / 10,
+        matchedTerms: ['entity-anchor', `entity-anchor:${strongestAnchorId}`],
+      },
+      params.query,
+      params.intent,
+      params.mode,
+      params.options,
+    );
+    const boostedCandidate: SearchCandidate = {
+      ...candidate,
+      rerankScore:
+        candidate.rerankScore +
+        24 +
+        strongestScore +
+        checklistBoost +
+        qualifierBoost +
+        sectionBoost +
+        primaryEvaluationBoost +
+        structuredEvaluationDocBoost +
+        workflowTitleBoost +
+        qualifierTextBoost +
+        qaPenalty,
+      matchedTerms: Array.from(new Set([...candidate.matchedTerms, 'entity-anchor-boosted'])),
+    };
+    const key = indicatorKey(boostedCandidate);
+    const current = bestByIndicator.get(key);
+    if (!current || boostedCandidate.rerankScore > current.rerankScore) {
+      bestByIndicator.set(key, boostedCandidate);
+    }
+  }
+
+  return Array.from(bestByIndicator.values())
+    .sort((left, right) => right.rerankScore - left.rerankScore)
+    .slice(0, 12);
+}
+
 function selectEvidence(candidates: SearchCandidate[], query: string, options?: SearchOptions): SearchCandidate[] {
   const selected: SearchCandidate[] = [];
   const documentClusters = new Map<string, Set<string>>();
   const clusterWindowCounts = new Map<string, number>();
-  const useChecklistExpansion = shouldExpandChecklistEvidence(query);
-  const evidenceTopK = useChecklistExpansion ? CHECKLIST_EVIDENCE_TOP_K : EVIDENCE_TOP_K;
-  const maxEvidenceClustersPerDocument = useChecklistExpansion
-    ? CHECKLIST_MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT
-    : MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT;
+  const profile = buildQueryExpansionProfile(query);
+  const evidenceTopK = profile.evidenceTopK;
+  const maxEvidenceClustersPerDocument = profile.maxEvidenceClustersPerDocument;
 
   for (const candidate of candidates) {
     if (selected.length >= evidenceTopK) break;
@@ -854,7 +1010,8 @@ function selectEvidence(candidates: SearchCandidate[], query: string, options?: 
     clusterWindowCounts.set(clusterKey, clusterCount + 1);
   }
 
-  return expandEvidenceWithListGroups(selected, candidates, evidenceTopK);
+  const expanded = expandEvidenceWithListGroups(selected, candidates, evidenceTopK);
+  return enforceEntityCoverage(expanded, candidates, query);
 }
 
 function detectTopicMismatch(query: string, candidates: SearchCandidate[]): { focusTerms: string[]; mismatchSignals: string[] } {
@@ -1024,6 +1181,7 @@ export function searchCorpus(params: {
   options?: SearchOptions;
 }): SearchRun {
   const { index, query, mode, queryEmbedding = null, queryAliases = [], options } = params;
+  const expansionProfile = buildQueryExpansionProfile(query);
   const intent = detectIntent(mode, query);
   const exactCandidates = index.chunks
     .filter((chunk) => isChunkInScope(chunk, mode, options))
@@ -1033,24 +1191,31 @@ export function searchCorpus(params: {
       const scoreDiff = right.exactScore - left.exactScore;
       return scoreDiff !== 0 ? scoreDiff : compareIsoDateDesc(left.effectiveDate, right.effectiveDate);
     })
-    .slice(0, FUSED_TOP_K * 4);
-  const diversifiedExactCandidates = diversifyCandidatePool(exactCandidates, FUSED_TOP_K);
+    .slice(0, expansionProfile.fusedTopK * 4);
+  const diversifiedExactCandidates = diversifyCandidatePool(exactCandidates, expansionProfile.fusedTopK);
 
-  const lexicalCandidates = scoreLexical(index, query, mode, options).slice(0, FUSED_TOP_K);
+  const lexicalCandidates = scoreLexical(index, query, mode, options).slice(0, expansionProfile.fusedTopK);
   const vectorCandidates = options?.precomputedVectorCandidates ?? scoreVector(index, queryEmbedding, mode, options);
   const rerankedCandidates = reciprocalRankFuse([diversifiedExactCandidates, lexicalCandidates, vectorCandidates])
     .map((candidate) => rerankCandidate(candidate, query, intent, mode, options))
+    .sort((left, right) => right.rerankScore - left.rerankScore);
+  const entityAnchoredCandidates = buildEntityAnchoredCandidates({ index, query, mode, intent, options });
+  const mergedRerankedCandidates = reciprocalRankFuse([rerankedCandidates, entityAnchoredCandidates])
+    .map((candidate) => {
+      const injected = entityAnchoredCandidates.find((item) => item.id === candidate.id);
+      return injected && injected.rerankScore > candidate.rerankScore ? injected : candidate;
+    })
     .sort((left, right) => right.rerankScore - left.rerankScore)
-    .slice(0, FUSED_TOP_K * 2);
+    .slice(0, expansionProfile.fusedTopK * 2);
   const fusedCandidates = diversifyVisibleCandidates(
-    rerankedCandidates,
-    FUSED_TOP_K,
-    shouldExpandChecklistEvidence(query)
-      ? CHECKLIST_MAX_VISIBLE_CANDIDATES_PER_DOCUMENT
-      : MAX_VISIBLE_CANDIDATES_PER_DOCUMENT,
+    mergedRerankedCandidates,
+    expansionProfile.fusedTopK,
+    expansionProfile.maxVisibleCandidatesPerDocument,
   );
+  debugRecallStage('fusion', query, fusedCandidates);
 
   const evidence = selectEvidence(fusedCandidates, query, options);
+  debugRecallStage('evidence', query, evidence);
   const { focusTerms, mismatchSignals } = detectTopicMismatch(query, fusedCandidates);
   const confidence = inferConfidence(intent, evidence, mismatchSignals);
 
@@ -1066,6 +1231,8 @@ export function searchCorpus(params: {
     evidence,
     focusTerms,
     mismatchSignals,
+    enumerationIntent: expansionProfile.enumeration,
+    matchedEntityAnchors: expansionProfile.entityAnchors.map((item) => item.id),
     stageTrace: buildStageTrace({
       query,
       lexicalCandidates,

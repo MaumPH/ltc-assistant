@@ -13,6 +13,7 @@ import {
   type PromptSourceSet,
   type PromptVariant,
 } from './promptAssembly';
+import { detectEnumerationIntent } from './queryIntent';
 import { buildPreciseCitationLabel, formatEvidenceStateLabel } from './ragMetadata';
 import { chunksToEvidenceContext } from './ragStructured';
 import { safeTrim } from './textGuards';
@@ -48,6 +49,29 @@ type ClarificationDimension =
 
 const ANSWER_PLAN_MODEL_TIMEOUT_MS = 20_000;
 const SYNTHESIS_MODEL_TIMEOUT_MS = 75_000;
+
+function getCoverageIndicatorLabel(chunk: StructuredChunk): string {
+  return safeTrim(chunk.parentSectionTitle || chunk.articleNo || chunk.title || chunk.docTitle) || chunk.docTitle;
+}
+
+function buildEnumerationCoverageInstructions(question: string, evidence: StructuredChunk[]): string[] {
+  if (!detectEnumerationIntent(question)) return [];
+
+  const indicators = Array.from(new Set(evidence.map(getCoverageIndicatorLabel).filter(Boolean))).slice(0, 8);
+  const forcedEvidenceHints = evidence
+    .filter((chunk) => 'forcedByEntity' in chunk && chunk.forcedByEntity === true)
+    .slice(0, 3)
+    .map(
+      (chunk, index) =>
+        `Enumeration evidence ${index + 1} (${getCoverageIndicatorLabel(chunk)}): ${safeTrim(chunk.textPreview || chunk.text).slice(0, 180)}`,
+    );
+
+  return [
+    `This question is an enumeration request. Reflect all distinct retrieved indicators at least once: ${indicators.join(', ') || 'none'}.`,
+    'Keep the conclusion concise, but do not omit an indicator that is directly supported by the retrieved evidence.',
+    ...forcedEvidenceHints,
+  ];
+}
 
 export interface ClarificationDecision {
   needsClarification: boolean;
@@ -698,6 +722,7 @@ export async function generateAnswerPlan(params: {
 
   const allowedEvidenceIds = new Set(params.evidence.map((item) => item.id));
   const allowedWorkflowEvents = new Set(params.brain.workflowEvents.map((item) => item.id));
+  const enumerationCoverageInstructions = buildEnumerationCoverageInstructions(params.question, params.evidence);
   const systemInstruction = buildPlannerSystemInstruction({
     mode: params.mode,
     variant: params.variant,
@@ -711,6 +736,7 @@ export async function generateAnswerPlan(params: {
       'Self-check: recommendedAnswerType must match the semantic intent supported by the evidence, not just the surface wording.',
       'Self-check: if blocking validation or authority mismatch makes a verdict unsafe, prefer a conservative plan over a forced verdict.',
       'Self-check: keep the highest-authority evidence in selectedEvidenceIds whenever it materially answers the question.',
+      ...enumerationCoverageInstructions,
     ],
   });
 
@@ -1469,6 +1495,7 @@ export async function synthesizeExpertAnswer(params: {
       (item, index) =>
         `DirectAnswer evidence hint ${index + 1} (${item.docTitle} / ${item.parentSectionTitle || 'section'}): ${trimQuote(item.textPreview || item.text, 200)}`,
     );
+  const enumerationCoverageInstructions = buildEnumerationCoverageInstructions(params.question, params.evidence);
 
   const systemInstruction = buildSynthesizerSystemInstruction({
     mode: params.mode,
@@ -1492,6 +1519,7 @@ export async function synthesizeExpertAnswer(params: {
       'Do not place warning-style caveats before the conclusion.',
       'In evaluation mode, prefer the primary evaluation manual over Q&A or general employee guidance when both are available.',
       'Self-check: the final citations must still include the strongest authority that directly supports the answer.',
+      ...enumerationCoverageInstructions,
     ],
   });
 

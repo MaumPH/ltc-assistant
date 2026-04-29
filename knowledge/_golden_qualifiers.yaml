@@ -4,30 +4,31 @@
     - "급여제공 시작일"
     - "토요일"
     - "공휴일"
+    - "8가지"
   must_cite_indicators:
-    - "지표 20"
-    - "지표 22"
+    - "욕구사정"
+    - "급여제공계획"
+    - "지침설명"
 - query: "수급자(보호자)에게 8가지 지침은 얼마나 자주 설명해야 하나?"
   must_include_substrings:
     - "8가지"
     - "연 1회 이상"
   must_cite_indicators:
-    - "지표 19"
+    - "지침설명"
 - query: "방문상담은 얼마나 자주 해야 하나?"
   must_include_substrings:
-    - "매월 1회 이상"
-    - "30일 이내"
+    - "분기별 1회 이상"
     - "다만"
     - "12월"
   must_cite_indicators:
-    - "지표 22"
+    - "방문상담"
 - query: "상담 결과를 급여에 언제까지 반영해야 하나?"
   must_include_substrings:
     - "30일 이내"
     - "다만"
     - "12월"
   must_cite_indicators:
-    - "지표 22"
+    - "방문상담"
 - query: "직원변경 상담은 언제까지 해야 하나?"
   must_include_substrings:
     - "14일 이내"
@@ -35,13 +36,13 @@
     - "공휴일"
     - "다만"
   must_cite_indicators:
-    - "지표 25"
+    - "직원변경 상담"
 - query: "프로그램관리자 급여관리는 얼마나 자주 해야 하나?"
   must_include_substrings:
     - "월 1회 이상"
     - "모든 수급자"
   must_cite_indicators:
-    - "가산"
+    - "가정방문"
 - query: "기능회복훈련 계획은 얼마나 자주 세워야 하나?"
   must_include_substrings:
     - "연 1회 이상"
@@ -49,4 +50,4 @@
     - "12월"
     - "신규수급자"
   must_cite_indicators:
-    - "지표 18"
+    - "기능회복훈련"
