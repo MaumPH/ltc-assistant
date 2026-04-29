@@ -15,3 +15,9 @@ test('safeTrim never throws on non-string model payload fragments', () => {
   assert.equal(safeTrim([' A ', ' B ']), 'A   B');
   assert.equal(safeTrim(undefined), '');
 });
+
+test('toSafeString extracts nested answer-like object fields used by Gemini payloads', () => {
+  assert.equal(toSafeString({ answer: '직접 답변' }), '직접 답변');
+  assert.equal(toSafeString({ date: '2026-05-01' }), '2026-05-01');
+  assert.equal(toSafeString({ headline: '제목' }), '제목');
+});

@@ -20,7 +20,7 @@ function buildAnswer(): ExpertAnswerEnvelope {
     practicalInterpretation: [
       {
         label: '실무 항목',
-        detail: '세부 내용',
+        detail: '설명 내용',
         actor: { text: '사회복지사' } as unknown as string,
         timeWindow: ['14일 이내'] as unknown as string,
         artifact: { label: '상담기록지' } as unknown as string,
@@ -48,4 +48,37 @@ test('formatAnswerAsMarkdown tolerates non-string block metadata', () => {
   assert.match(markdown, /사회복지사/);
   assert.match(markdown, /14일 이내/);
   assert.match(markdown, /상담기록지/);
+});
+
+test('formatAnswerAsMarkdown tolerates non-string top-level and citation fields', () => {
+  const answer = {
+    ...buildAnswer(),
+    headline: { text: '객체 제목' },
+    summary: ['첫 줄 요약', '둘째 줄 요약'],
+    directAnswer: { answer: '직접 답변' },
+    conclusion: 2026,
+    referenceDate: { value: '2026-05-01' },
+    appliedScope: { label: '주야간보호' },
+    keyIssueDate: ['2026-01-01'],
+    citations: [
+      {
+        evidenceId: 'evidence-1',
+        label: { text: '지표 19' },
+        docTitle: { title: '정보제공' },
+        articleNo: { value: '지표 19' },
+        sectionPath: [{ text: '02. 운영규정' }, '정보제공'],
+        effectiveDate: ['2026-01-01'],
+      },
+    ],
+  } as unknown as ExpertAnswerEnvelope;
+
+  const markdown = formatAnswerAsMarkdown(answer);
+
+  assert.match(markdown, /객체 제목/);
+  assert.match(markdown, /첫 줄 요약/);
+  assert.match(markdown, /직접 답변/);
+  assert.match(markdown, /2026/);
+  assert.match(markdown, /주야간보호/);
+  assert.match(markdown, /지표 19/);
+  assert.match(markdown, /02\. 운영규정 > 정보제공/);
 });
