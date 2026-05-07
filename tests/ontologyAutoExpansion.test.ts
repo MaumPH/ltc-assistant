@@ -111,6 +111,16 @@ test('ontology token overlap links conversational status wording to generated do
   );
 });
 
+test('ontology graph indexes aliases by significant token for bounded overlap lookup', () => {
+  const graph = buildOntologyGraph(emptyBrain, [chunk({})]);
+  const tokenIndexedAliases = Array.from(graph.aliasTokenIndex.values()).flat();
+
+  assert.ok(
+    tokenIndexedAliases.some((match) => match.entityId.includes('concept') && match.alias === '인력신고 현황 자료'),
+    `expected generated concept alias in token index, got ${tokenIndexedAliases.map((match) => match.alias).join(', ')}`,
+  );
+});
+
 test('promoted generated ontology aliases are merged into graph lookup', () => {
   const graph = buildOntologyGraph(emptyBrain, [chunk({})], {
     schema_version: 1,

@@ -109,6 +109,65 @@ ${filler}
   assert.match(qualifierChunk?.text ?? '', /^20\. 방문상담/);
 });
 
+test('qa chunk policy keeps question and answer pairs together', () => {
+  const file = knowledgeFile(`# 급여 Q&A
+
+질문 1. 방문요양 급여계약은 언제 작성하나요?
+답변 1. 급여계약은 서비스 시작 전에 작성하고 보호자에게 주요 내용을 설명합니다.
+
+질문 2. 상담 기록은 언제 반영하나요?
+답변 2. 상담 결과는 상담일로부터 30일 이내에 급여제공계획에 반영합니다.
+`, '급여 질의응답 사례집.md');
+
+  const chunks = buildStructuredChunks([file]);
+  const firstPair = chunks.find((chunk) => chunk.text.includes('방문요양 급여계약') && chunk.text.includes('서비스 시작 전에 작성'));
+  const secondPair = chunks.find((chunk) => chunk.text.includes('상담 기록') && chunk.text.includes('30일 이내'));
+
+  assert.ok(firstPair, 'expected question 1 and answer 1 to stay in one chunk');
+  assert.ok(secondPair, 'expected question 2 and answer 2 to stay in one chunk');
+  assert.equal(firstPair?.sourceType, 'qa');
+  assert.ok(firstPair?.matchedLabels.includes('chunk-policy:qa'));
+});
+
+test('evaluation chunk policy keeps criteria method and evidence blocks searchable', () => {
+  const file = knowledgeFile(`# 평가매뉴얼
+
+평가기준
+수급자 상태 변화에 따라 급여제공계획을 정기적으로 점검한다.
+
+확인방법
+급여제공기록과 상담일지를 함께 확인한다.
+
+관련근거
+장기요양급여 제공기준 및 급여비용 산정방법 등에 관한 고시를 적용한다.
+`, '2026 평가매뉴얼.md');
+
+  const chunks = buildStructuredChunks([file]);
+
+  assert.ok(chunks.some((chunk) => chunk.title === '평가기준' && chunk.text.includes('정기적으로 점검')));
+  assert.ok(chunks.some((chunk) => chunk.title === '확인방법' && chunk.text.includes('상담일지')));
+  assert.ok(chunks.some((chunk) => chunk.title === '관련근거' && chunk.text.includes('고시')));
+  assert.ok(chunks.every((chunk) => chunk.matchedLabels.includes('chunk-policy:evaluation')));
+});
+
+test('law chunk policy keeps article heading with body clauses', () => {
+  const file = knowledgeFile(`제1조(목적)
+이 법은 장기요양급여의 기준을 정하는 것을 목적으로 한다.
+
+제2조(정의)
+① 수급자란 장기요양인정을 받은 사람을 말한다.
+② 장기요양기관은 급여 제공 기록을 보관한다.
+`, '노인장기요양보험법.md');
+
+  const chunks = buildStructuredChunks([file]);
+  const articleChunk = chunks.find((chunk) => chunk.articleNo === '제2조');
+
+  assert.ok(articleChunk, 'expected article 2 chunk');
+  assert.match(articleChunk?.text ?? '', /^제2조\(정의\)/);
+  assert.ok(articleChunk?.text.includes('① 수급자란'));
+  assert.ok(articleChunk?.matchedLabels.includes('chunk-policy:law'));
+});
+
 
 
 

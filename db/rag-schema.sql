@@ -1,4 +1,5 @@
 create extension if not exists vector;
+create extension if not exists pg_trgm;
 
 create table if not exists documents (
   id text primary key,
@@ -80,6 +81,9 @@ create index if not exists chunks_mode_idx on chunks(mode);
 create index if not exists chunks_doc_title_idx on chunks(doc_title);
 create index if not exists chunks_article_idx on chunks(article_no);
 create index if not exists chunks_effective_date_idx on chunks(effective_date desc);
+create index if not exists chunks_search_text_trgm_idx on chunks using gin (search_text gin_trgm_ops);
+create index if not exists chunks_doc_title_trgm_idx on chunks using gin (doc_title gin_trgm_ops);
+create index if not exists chunks_title_trgm_idx on chunks using gin (title gin_trgm_ops);
 create index if not exists chunks_embedding_ivfflat_idx on chunks using ivfflat (embedding vector_cosine_ops) with (lists = 100);
 alter table chunks add column if not exists source_role text not null default 'general';
 alter table chunks add column if not exists linked_document_titles jsonb not null default '[]'::jsonb;

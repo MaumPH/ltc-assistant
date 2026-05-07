@@ -9,6 +9,7 @@ import type {
   ClaimCoverageDetail,
   ClaimPlan,
   ClaimPlanItem,
+  ExpertAnswerBlock,
   ExpertAnswerBlockItem,
   ExpertAnswerEnvelope,
   OntologyRelationType,
@@ -408,22 +409,63 @@ function buildChunkSupportFields(chunk: StructuredChunk): Array<{ weight: number
   ];
 }
 
-function scoreAnchorAgainstChunk(anchor: string, chunk: StructuredChunk): number {
-  const normalizedAnchor = normalizeSupportText(anchor);
-  const compactAnchor = compactSupportText(anchor);
+interface NormalizedSupportField {
+  weight: number;
+  normalized: string;
+  compact: string;
+}
+
+interface ClaimEvidenceSupportCache {
+  anchors: Map<string, { normalized: string; compact: string }>;
+  chunkFields: Map<string, NormalizedSupportField[]>;
+}
+
+function createClaimEvidenceSupportCache(): ClaimEvidenceSupportCache {
+  return {
+    anchors: new Map(),
+    chunkFields: new Map(),
+  };
+}
+
+function getCachedAnchorSupport(anchor: string, cache?: ClaimEvidenceSupportCache): { normalized: string; compact: string } {
+  const cached = cache?.anchors.get(anchor);
+  if (cached) return cached;
+
+  const support = {
+    normalized: normalizeSupportText(anchor),
+    compact: compactSupportText(anchor),
+  };
+  cache?.anchors.set(anchor, support);
+  return support;
+}
+
+function getCachedChunkSupportFields(chunk: StructuredChunk, cache?: ClaimEvidenceSupportCache): NormalizedSupportField[] {
+  const cached = cache?.chunkFields.get(chunk.id);
+  if (cached) return cached;
+
+  const fields = buildChunkSupportFields(chunk)
+    .map((field) => ({
+      weight: field.weight,
+      normalized: normalizeSupportText(field.value),
+      compact: compactSupportText(field.value),
+    }))
+    .filter((field) => field.normalized.length > 0);
+  cache?.chunkFields.set(chunk.id, fields);
+  return fields;
+}
+
+function scoreAnchorAgainstChunk(anchor: string, chunk: StructuredChunk, cache?: ClaimEvidenceSupportCache): number {
+  const { normalized: normalizedAnchor, compact: compactAnchor } = getCachedAnchorSupport(anchor, cache);
   if (!normalizedAnchor) return 0;
 
   let bestScore = 0;
-  for (const field of buildChunkSupportFields(chunk)) {
-    const normalizedField = normalizeSupportText(field.value);
-    if (!normalizedField) continue;
-    if (normalizedField.includes(normalizedAnchor)) {
+  for (const field of getCachedChunkSupportFields(chunk, cache)) {
+    if (field.normalized.includes(normalizedAnchor)) {
       bestScore = Math.max(bestScore, field.weight);
       continue;
     }
 
-    const compactField = compactSupportText(field.value);
-    if (compactAnchor.length >= 2 && compactField.includes(compactAnchor)) {
+    if (compactAnchor.length >= 2 && field.compact.includes(compactAnchor)) {
       bestScore = Math.max(bestScore, Math.max(1, field.weight - 0.4));
     }
   }
@@ -439,6 +481,7 @@ function analyzeClaimEvidenceSupport(
   claim: ClaimPlanItem,
   semanticFrame: SemanticFrame,
   evidence: StructuredChunk[],
+  cache?: ClaimEvidenceSupportCache,
 ): {
   supportedEvidenceIds: string[];
   partialEvidenceIds: string[];
@@ -447,7 +490,7 @@ function analyzeClaimEvidenceSupport(
   const ranked = evidence
     .map((chunk) => {
       const matchedAnchors = claim.supportAnchors
-        .map((anchor) => ({ anchor, score: scoreAnchorAgainstChunk(anchor, chunk) }))
+        .map((anchor) => ({ anchor, score: scoreAnchorAgainstChunk(anchor, chunk, cache) }))
         .filter((entry) => entry.score > 0);
       const matchedAnchorCount = matchedAnchors.length;
       const specificAnchorCount = matchedAnchors.filter((entry) => !isDomainGenericAnchor(entry.anchor)).length;
@@ -515,6 +558,7 @@ function buildClaimCoverageDetails(
   semanticFrame: SemanticFrame,
   evidence: StructuredChunk[],
 ): ClaimCoverageDetail[] {
+  const supportCache = createClaimEvidenceSupportCache();
   return claimPlan.claims.map((claim) => {
     if (claim.claimType === 'assumption') {
       return {
@@ -524,7 +568,7 @@ function buildClaimCoverageDetails(
       };
     }
 
-    const analysis = analyzeClaimEvidenceSupport(claim, semanticFrame, evidence);
+    const analysis = analyzeClaimEvidenceSupport(claim, semanticFrame, evidence, supportCache);
     if (analysis.supportedEvidenceIds.length > 0) {
       return {
         claimId: claim.id,
@@ -554,6 +598,7 @@ export function buildClaimPlan(params: {
   semanticFrame: SemanticFrame;
   evidence: StructuredChunk[];
 }): ClaimPlan {
+  const supportCache = createClaimEvidenceSupportCache();
   const subject =
     params.semanticFrame.canonicalTerms[0] ??
     summarizeSlotValue(params.semanticFrame, 'service_scope') ??
@@ -590,14 +635,24 @@ export function buildClaimPlan(params: {
     supportingEvidenceIds: [],
     assumptions: params.semanticFrame.assumptions,
   };
-  mainClaim.supportingEvidenceIds = analyzeClaimEvidenceSupport(mainClaim, params.semanticFrame, params.evidence).supportedEvidenceIds;
+  mainClaim.supportingEvidenceIds = analyzeClaimEvidenceSupport(
+    mainClaim,
+    params.semanticFrame,
+    params.evidence,
+    supportCache,
+  ).supportedEvidenceIds;
   const workflowStepClaims = buildRecipientOnboardingWorkflowClaims({
     question: params.question,
     semanticFrame: params.semanticFrame,
     subject,
   });
   for (const claim of workflowStepClaims) {
-    claim.supportingEvidenceIds = analyzeClaimEvidenceSupport(claim, params.semanticFrame, params.evidence).supportedEvidenceIds;
+    claim.supportingEvidenceIds = analyzeClaimEvidenceSupport(
+      claim,
+      params.semanticFrame,
+      params.evidence,
+      supportCache,
+    ).supportedEvidenceIds;
   }
 
   const assumptionClaims: ClaimPlanItem[] = params.semanticFrame.assumptions.map((assumption, index) => ({
@@ -720,6 +775,7 @@ function evaluateRuleViolations(
   rules: ValidationRule[],
 ): ValidationIssue[] {
   const evidenceCounts = buildEvidenceCounts(evidence);
+  const evaluationComplianceAuthority = hasEvaluationComplianceAuthority(frame, evidence);
   const issues: ValidationIssue[] = [];
 
   for (const rule of rules) {
@@ -735,6 +791,13 @@ function evaluateRuleViolations(
     }
 
     for (const [bucket, requiredCount] of Object.entries(rule.required_evidence ?? {}) as Array<[BasisBucketKey, number]>) {
+      if (
+        evaluationComplianceAuthority &&
+        (bucket === 'legal' || bucket === 'practical') &&
+        evidenceCounts.evaluation > 0
+      ) {
+        continue;
+      }
       if ((evidenceCounts[bucket] ?? 0) >= requiredCount) continue;
       issues.push({
         code: 'insufficient-evidence-composition',
@@ -756,6 +819,15 @@ function evaluateRuleViolations(
   }
 
   return issues;
+}
+
+function hasEvaluationComplianceAuthority(frame: SemanticFrame, evidence: StructuredChunk[]): boolean {
+  if (frame.primaryIntent !== 'compliance') return false;
+  return evidence.some(
+    (chunk) =>
+      chunk.mode === 'evaluation' &&
+      (chunk.sourceRole === 'primary_evaluation' || chunk.sourceType === 'evaluation'),
+  );
 }
 
 function buildMixedServiceScopeIssues(frame: SemanticFrame, evidence: StructuredChunk[]): ValidationIssue[] {
@@ -786,7 +858,9 @@ function buildMixedServiceScopeIssues(frame: SemanticFrame, evidence: Structured
   if (conflictingEvidenceIds.length === 0) return [];
 
   const shouldWarn =
-    matchingEvidenceIds.length === 0 || conflictingEvidenceIds.length > Math.max(1, matchingEvidenceIds.length);
+    frame.primaryIntent === 'compliance'
+      ? true
+      : matchingEvidenceIds.length === 0 || conflictingEvidenceIds.length > Math.max(1, matchingEvidenceIds.length);
   if (!shouldWarn) return [];
 
   return [
@@ -845,6 +919,7 @@ export function evaluateRetrievalValidation(params: {
     (params.semanticFrame.primaryIntent === 'eligibility' ||
       params.semanticFrame.primaryIntent === 'compliance' ||
       params.semanticFrame.primaryIntent === 'cost') &&
+    !hasEvaluationComplianceAuthority(params.semanticFrame, params.evidence) &&
     (basisCounts.legal <= 0 || !hasDirectLegalSupport)
   ) {
     issues.push({
@@ -1040,6 +1115,24 @@ function appendValidationWarnings(answer: ExpertAnswerEnvelope, issues: Validati
   if (warningIssues.length === 0) return answer;
 
   const warningItems = warningIssues.slice(0, 4).map(formatValidationIssueForAnswer);
+  const warningBlockTitle = '추가 확인이 필요한 부분';
+  const blocks = safeArray(answer.blocks);
+  const warningBlockIndex = blocks.findIndex((block) => block.type === 'warning' && block.title === warningBlockTitle);
+  const existingWarningItems = warningBlockIndex >= 0 ? safeArray(blocks[warningBlockIndex].items) : [];
+  const existingWarningItemKeys = new Set(existingWarningItems.map((item) => `${item.label}::${item.detail}`));
+  const mergedWarningItems = [
+    ...existingWarningItems,
+    ...warningItems.filter((item) => !existingWarningItemKeys.has(`${item.label}::${item.detail}`)),
+  ].slice(0, 4);
+  const warningBlock: ExpertAnswerBlock = {
+    type: 'warning',
+    title: warningBlockTitle,
+    items: mergedWarningItems,
+  };
+  const mergedBlocks =
+    warningBlockIndex >= 0
+      ? blocks.map((block, index) => (index === warningBlockIndex ? warningBlock : block))
+      : [...blocks, warningBlock];
   const additionalChecks = safeArray(answer.additionalChecks);
   const existing = new Set(additionalChecks.map((item) => `${item.label}::${item.detail}`));
   const mergedAdditionalChecks = [
@@ -1049,6 +1142,7 @@ function appendValidationWarnings(answer: ExpertAnswerEnvelope, issues: Validati
 
   return {
     ...answer,
+    blocks: mergedBlocks,
     additionalChecks: mergedAdditionalChecks,
   };
 }

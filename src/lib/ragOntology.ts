@@ -71,6 +71,7 @@ export interface OntologyGraph {
   edges: OntologyEdge[];
   entityById: Map<string, OntologyEntity>;
   aliasIndex: Map<string, AliasMatch[]>;
+  aliasTokenIndex: Map<string, AliasMatch[]>;
   adjacency: Map<string, OntologyEdge[]>;
   documentIdsByEntityId: Map<string, Set<string>>;
   documentPathsById: Map<string, string>;
@@ -418,6 +419,7 @@ function createGraph(): OntologyGraph {
     edges: [],
     entityById: new Map<string, OntologyEntity>(),
     aliasIndex: new Map<string, AliasMatch[]>(),
+    aliasTokenIndex: new Map<string, AliasMatch[]>(),
     adjacency: new Map<string, OntologyEdge[]>(),
     documentIdsByEntityId: new Map<string, Set<string>>(),
     documentPathsById: new Map<string, string>(),
@@ -464,6 +466,12 @@ function addAlias(
   const index = graph.aliasIndex.get(normalized) ?? [];
   index.push({ entityId, alias, weight });
   graph.aliasIndex.set(normalized, index);
+
+  for (const token of significantOntologyTokens(alias)) {
+    const tokenIndex = graph.aliasTokenIndex.get(token) ?? [];
+    tokenIndex.push({ entityId, alias, weight });
+    graph.aliasTokenIndex.set(token, tokenIndex);
+  }
 }
 
 function addEdge(
@@ -1078,29 +1086,33 @@ function lookupEntityHits(graph: OntologyGraph, profile: NaturalLanguageQueryPro
       }
     }
 
-    for (const matches of graph.aliasIndex.values()) {
-      for (const match of matches) {
-        const scoreFromOverlap = scoreAliasTokenOverlap(queryTokens, match.alias);
-        if (scoreFromOverlap <= 0) continue;
-
-        const entity = graph.entityById.get(match.entityId);
-        if (!entity) continue;
-        const current = hits.get(match.entityId);
-        const score = Math.max(current?.score ?? 0, scoreFromOverlap * match.weight);
-        hits.set(match.entityId, {
-          entityId: entity.id,
-          label: entity.label,
-          entityType: entity.entityType,
-          matchedAlias: match.alias,
-          score,
-          documentIds: Array.from(graph.documentIdsByEntityId.get(entity.id) ?? []),
-          depth: 0,
-          status:
-            typeof entity.metadata?.status === 'string' && entity.metadata.status !== 'rejected'
-              ? (entity.metadata.status as OntologyHit['status'])
-              : undefined,
-        });
+    const overlapCandidates = new Map<string, AliasMatch>();
+    for (const token of queryTokens) {
+      for (const match of graph.aliasTokenIndex.get(token) ?? []) {
+        overlapCandidates.set(`${match.entityId}:${match.alias}`, match);
       }
+    }
+    for (const match of overlapCandidates.values()) {
+      const scoreFromOverlap = scoreAliasTokenOverlap(queryTokens, match.alias);
+      if (scoreFromOverlap <= 0) continue;
+
+      const entity = graph.entityById.get(match.entityId);
+      if (!entity) continue;
+      const current = hits.get(match.entityId);
+      const score = Math.max(current?.score ?? 0, scoreFromOverlap * match.weight);
+      hits.set(match.entityId, {
+        entityId: entity.id,
+        label: entity.label,
+        entityType: entity.entityType,
+        matchedAlias: match.alias,
+        score,
+        documentIds: Array.from(graph.documentIdsByEntityId.get(entity.id) ?? []),
+        depth: 0,
+        status:
+          typeof entity.metadata?.status === 'string' && entity.metadata.status !== 'rejected'
+            ? (entity.metadata.status as OntologyHit['status'])
+            : undefined,
+      });
     }
   }
 

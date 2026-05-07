@@ -586,6 +586,21 @@ function normalizeClarificationDecision(
   };
 }
 
+function isBroadWorkflowQuestionAnswerable(params: {
+  question: string;
+  questionArchetype: string;
+  retrievalMode: RetrievalMode;
+  workflowEvents: string[];
+  serviceScopeClarification: ServiceScopeClarification;
+}): boolean {
+  if (params.serviceScopeClarification.needsClarification) return false;
+  if (params.workflowEvents.length === 0 || params.retrievalMode !== 'workflow-global') return false;
+  const compactQuestion = params.question.replace(/\s+/g, '');
+  const hasWorkflowCue = /업무|절차|단계|체크리스트|준비|챙겨|무엇|뭐|해야|어떻게/u.test(params.question);
+  const hasOnboardingCue = /신규수급자|새수급자|입소초기|계약초기|급여제공시작|처음|오면|왔을때/u.test(compactQuestion);
+  return hasWorkflowCue && hasOnboardingCue;
+}
+
 function buildClarificationPrompt(params: {
   recentMessages: ChatMessage[];
   question: string;
@@ -651,6 +666,16 @@ export async function detectClarificationNeed(params: {
 
   if (serviceScopeFallback.needsClarification) {
     return serviceScopeFallback;
+  }
+
+  if (isBroadWorkflowQuestionAnswerable(params)) {
+    return {
+      needsClarification: false,
+      reason: 'workflow-enumeration-answerable-with-conditional-guidance',
+      missingDimensions: [],
+      clarificationQuestion: undefined,
+      candidateOptions: [],
+    };
   }
 
   if (!params.question.trim()) {
@@ -1905,10 +1930,36 @@ export function renderExpertAnswerMarkdown(answer: ExpertAnswerEnvelope): string
 
 export function buildExpertKnowledgeContext(params: {
   evidence: StructuredChunk[];
+  contextOnlyChunks?: StructuredChunk[];
   workflowBriefs: WorkflowBrief[];
 }): string {
+  const contextOnlyChunks = params.contextOnlyChunks ?? [];
+  const contextOnlyNeighborContext =
+    contextOnlyChunks.length > 0
+      ? [
+          'Context-only neighboring windows',
+          'These chunks provide adjacent parent-section context. Do not cite ContextOnlyId values directly.',
+          '',
+          contextOnlyChunks
+            .map((chunk) =>
+              [
+                `ContextOnlyId: ${chunk.id}`,
+                `Source: ${buildPreciseCitationLabel(chunk)}`,
+                `Document: ${chunk.docTitle}`,
+                chunk.articleNo ? `Article: ${chunk.articleNo}` : null,
+                chunk.sectionPath.length > 0 ? `Path: ${chunk.sectionPath.join(' > ')}` : null,
+                `Content:\n${chunk.text}`,
+              ]
+                .filter(Boolean)
+                .join('\n'),
+            )
+            .join('\n\n---\n\n'),
+        ].join('\n')
+      : '';
+
   return [
     chunksToEvidenceContext(params.evidence),
+    contextOnlyNeighborContext,
     params.workflowBriefs.length > 0 ? JSON.stringify(params.workflowBriefs, null, 2) : '',
   ]
     .filter(Boolean)

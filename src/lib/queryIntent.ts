@@ -41,7 +41,7 @@ export function buildQueryExpansionProfile(query: string): QueryExpansionProfile
     checklistExpansion,
     enumeration,
     entityAnchors,
-    fusedTopK: enumeration ? 48 : 32,
+    fusedTopK: enumeration ? 48 : 24,
     evidenceTopK: enumeration ? 28 : checklistExpansion ? 22 : 18,
     maxVisibleCandidatesPerDocument: enumeration ? 5 : checklistExpansion ? 4 : 3,
     maxEvidenceClustersPerDocument: enumeration ? 5 : checklistExpansion ? 3 : 2,

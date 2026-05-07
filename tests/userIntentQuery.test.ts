@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBrainQueryProfile, loadDomainBrain } from '../src/lib/brain';
+import { buildBrainQueryProfile, detectServiceScopeClarification, loadDomainBrain } from '../src/lib/brain';
 import { deriveFocusTerms } from '../src/lib/ragEngine';
 import { buildNaturalLanguageQueryProfile } from '../src/lib/ragNaturalQuery';
+import { detectClarificationNeed } from '../src/lib/expertAnswering';
 
 const brain = loadDomainBrain(process.cwd());
 
@@ -50,4 +51,38 @@ test('conversational intent words do not become retrieval focus terms', () => {
   assert.deepEqual(deriveFocusTerms('인력현황 이게 뭐야?'), ['인력현황', '인력', '현황']);
   assert.deepEqual(deriveFocusTerms('인력현황 이렇게 하면 돼?'), ['인력현황', '인력', '현황']);
   assert.deepEqual(deriveFocusTerms('인력현황 뭐 준비해?'), ['인력현황', '인력', '현황']);
+});
+
+test('new recipient business questions are routed to workflow checklist retrieval', () => {
+  const profile = buildBrainQueryProfile(brain, '신규 수급자 업무', 'integrated');
+
+  assert.equal(profile.recommendedAnswerType, 'checklist');
+  assert.equal(profile.preferredRetrievalMode, 'workflow-global');
+  assert.ok(profile.workflowEvents.includes('new-recipient-onboarding'));
+});
+
+test('new recipient workflow questions do not become clarification-only answers', async () => {
+  const throwingAi = {
+    models: {
+      generateContent: async () => {
+        throw new Error('clarification model should not be called for answerable onboarding workflow');
+      },
+    },
+  };
+
+  const decision = await detectClarificationNeed({
+    ai: throwingAi as never,
+    model: 'test-model',
+    recentMessages: [],
+    question: '신규 수급자 업무',
+    normalizedQuery: '신규 수급자 업무',
+    mode: 'integrated',
+    questionArchetype: 'mixed-general',
+    retrievalMode: 'workflow-global',
+    workflowEvents: ['new-recipient-onboarding'],
+    serviceScopeClarification: detectServiceScopeClarification('주야간보호 신규 수급자 업무'),
+  });
+
+  assert.equal(decision.needsClarification, false);
+  assert.equal(decision.reason, 'workflow-enumeration-answerable-with-conditional-guidance');
 });

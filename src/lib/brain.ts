@@ -294,9 +294,10 @@ export function buildBrainQueryProfile(brain: DomainBrain, query: string, mode: 
       queryCompact.includes(compact(term)),
     );
   const recommendedAnswerType =
-    workflowEvents.length > 0 && broadWorkflowCue && archetype.preferred_answer_type === 'definition'
+    workflowEvents.length > 0 && broadWorkflowCue && archetype.preferred_answer_type !== 'procedure'
       ? 'checklist'
       : archetype.preferred_answer_type;
+
   const preferredRetrievalMode =
     workflowEvents.length > 0 && broadWorkflowCue && archetype.retrieval_mode === 'local'
       ? 'workflow-global'
