@@ -18,12 +18,15 @@ import { buildRetrievalDiagnostics, createEmptyCacheHitSummary, createEmptyLaten
 import { Pool, type PoolClient } from 'pg';
 import {
   buildRagCorpusIndex,
+  createLexicalScoringCache,
   deriveFocusTerms,
   diversifyVisibleCandidates,
   getCandidateFocusMatches,
   isGenericQueryTerm,
   searchCorpus,
+  type LexicalScoringCache,
   type RagCorpusIndex,
+  type SearchDiagnosticsEntry,
   type SearchOptions,
 } from './ragEngine';
 import { LawMcpClient, type LawMcpFallbackResult } from './lawMcpClient';
@@ -80,6 +83,7 @@ import {
   buildProcedureAspectQueries,
   buildNaturalLanguageQueryProfile as buildNaturalQueryProfile,
   enrichQueryProfileWithServiceScopeLabels,
+  shouldExpandProcedureAspectQueries,
 } from './ragNaturalQuery';
 import { loadKnowledgeCorporaFromDisk } from './nodeKnowledge';
 import {
@@ -109,6 +113,17 @@ import { loadPromptSourceSet } from './nodePrompts';
 import type { PromptVariant } from './promptAssembly';
 import { RuntimeRagCache } from './ragRuntimeCache';
 import { resolveEmbeddingApiKey, resolveGenerationMode, resolveServerGenerationApiKey } from './ragRuntime';
+import {
+  buildOperationalRetrievalLogEntry,
+  rememberOperationalRetrievalLog,
+  type OperationalRetrievalLogEntry,
+  type OperationalRetrievalLogResponse,
+} from './ragOperationalLog';
+import {
+  buildOperationalRetrievalLogReport,
+  type OperationalRetrievalLogReport,
+  type OperationalRetrievalLogReportOptions,
+} from './ragOperationalLogReport';
 import {
   describeError,
   EMBEDDING_BATCH_SIZE,
@@ -140,6 +155,7 @@ import {
   applyGroundingGate,
   applyOriginalFocusGate,
   buildDocumentRepresentativeMap,
+  buildSmallToBigContextExpansion,
   documentPathsFromIds,
   injectEvidenceCandidates,
   mergeDocumentScoreBoostMaps,
@@ -206,6 +222,7 @@ import type {
   RetrievalProfile,
   RetrievalReadiness,
   RecentRetrievalMatch,
+  SemanticFrame,
   SearchCandidate,
   SearchRun,
   ValidationIssue,
@@ -393,10 +410,56 @@ const LAW_FALLBACK_CONFIDENCE_THRESHOLD = (process.env.LAW_FALLBACK_CONFIDENCE_T
 const LAW_MCP_ENABLED = (process.env.LAW_MCP_ENABLED || 'true').toLowerCase() !== 'false';
 const LAW_MCP_BASE_URL = process.env.LAW_MCP_BASE_URL || '';
 const ONTOLOGY_GRAPH_DEPTH = Math.max(1, parsePositiveInteger(process.env.ONTOLOGY_GRAPH_DEPTH, 1));
+const INTEGRATED_INITIAL_MAX_LEXICAL_CHUNKS = parsePositiveInteger(process.env.RAG_INTEGRATED_INITIAL_MAX_LEXICAL_CHUNKS, 2_000);
+const INTEGRATED_INITIAL_MAX_EXACT_CHUNKS = parsePositiveInteger(
+  process.env.RAG_INTEGRATED_INITIAL_MAX_EXACT_CHUNKS,
+  1_600,
+);
+const INTEGRATED_RERANKED_MAX_LEXICAL_CHUNKS = parsePositiveInteger(
+  process.env.RAG_INTEGRATED_RERANKED_MAX_LEXICAL_CHUNKS,
+  2_000,
+);
+const INTEGRATED_RERANKED_MAX_EXACT_CHUNKS = parsePositiveInteger(
+  process.env.RAG_INTEGRATED_RERANKED_MAX_EXACT_CHUNKS,
+  1_600,
+);
+const DIRECT_SUPPORT_MAX_LEXICAL_CHUNKS = parsePositiveInteger(process.env.RAG_DIRECT_SUPPORT_MAX_LEXICAL_CHUNKS, 900);
+const EVALUATION_ROUTING_MAX_LEXICAL_CHUNKS = parsePositiveInteger(
+  process.env.RAG_EVALUATION_ROUTING_MAX_LEXICAL_CHUNKS,
+  2_400,
+);
+const EVALUATION_ROUTING_MAX_EXACT_CHUNKS = parsePositiveInteger(
+  process.env.RAG_EVALUATION_ROUTING_MAX_EXACT_CHUNKS,
+  EVALUATION_ROUTING_MAX_LEXICAL_CHUNKS,
+);
+const EVALUATION_BASE_MAX_LEXICAL_CHUNKS = parsePositiveInteger(process.env.RAG_EVALUATION_BASE_MAX_LEXICAL_CHUNKS, 3_000);
+const EVALUATION_BASE_MAX_EXACT_CHUNKS = parsePositiveInteger(
+  process.env.RAG_EVALUATION_BASE_MAX_EXACT_CHUNKS,
+  2_800,
+);
+const EVALUATION_BASE_LEXICAL_POOL_REUSE_ENABLED =
+  (process.env.RAG_ENABLE_EVALUATION_BASE_LEXICAL_POOL_REUSE || 'false').toLowerCase() === 'true';
+const EVALUATION_BASE_LEXICAL_POOL_MERGE_ENABLED =
+  (process.env.RAG_ENABLE_EVALUATION_BASE_LEXICAL_POOL_MERGE || 'true').toLowerCase() === 'true';
+const EVALUATION_AUTHORITY_DRIFT_GUARD_ENABLED =
+  (process.env.RAG_ENABLE_EVALUATION_AUTHORITY_DRIFT_GUARD || 'false').toLowerCase() === 'true';
 const MAX_CONTEXT_CHARS_BY_MODE: Record<PromptMode, number> = {
   integrated: 16_000,
   evaluation: 12_000,
 };
+const SMALL_TO_BIG_CONTEXT_MAX_CHUNKS = parsePositiveInteger(process.env.RAG_SMALL_TO_BIG_CONTEXT_MAX_CHUNKS, 6);
+const SMALL_TO_BIG_CONTEXT_MAX_CHARS = parsePositiveInteger(process.env.RAG_SMALL_TO_BIG_CONTEXT_MAX_CHARS, 2400);
+const SMALL_TO_BIG_CONTEXT_PRIMARY_MAX_CHARS = parsePositiveInteger(process.env.RAG_SMALL_TO_BIG_CONTEXT_PRIMARY_MAX_CHARS, 3200);
+const SMALL_TO_BIG_CONTEXT_SUPPORT_MAX_CHARS = parsePositiveInteger(process.env.RAG_SMALL_TO_BIG_CONTEXT_SUPPORT_MAX_CHARS, 2520);
+const SMALL_TO_BIG_CONTEXT_MAX_CHUNK_CHARS = parsePositiveInteger(process.env.RAG_SMALL_TO_BIG_CONTEXT_MAX_CHUNK_CHARS, 700);
+const SMALL_TO_BIG_CONTEXT_PRIMARY_CHUNK_CHARS = parsePositiveInteger(
+  process.env.RAG_SMALL_TO_BIG_CONTEXT_PRIMARY_CHUNK_CHARS,
+  900,
+);
+const SMALL_TO_BIG_CONTEXT_SUPPORT_CHUNK_CHARS = parsePositiveInteger(
+  process.env.RAG_SMALL_TO_BIG_CONTEXT_SUPPORT_CHUNK_CHARS,
+  500,
+);
 const EMBEDDING_CACHE_FILE = 'embeddings.json';
 const NORMALIZATION_CACHE_TTL_MS = parsePositiveInteger(process.env.RAG_NORMALIZATION_CACHE_TTL_MS, 10 * 60 * 1000);
 const HYDE_CACHE_TTL_MS = parsePositiveInteger(process.env.RAG_HYDE_CACHE_TTL_MS, 30 * 60 * 1000);
@@ -404,6 +467,7 @@ const RETRIEVAL_CACHE_TTL_MS = parsePositiveInteger(process.env.RAG_RETRIEVAL_CA
 const ANSWER_CACHE_TTL_MS = parsePositiveInteger(process.env.RAG_ANSWER_CACHE_TTL_MS, 5 * 60 * 1000);
 const FALLBACK_CACHE_TTL_MS = parsePositiveInteger(process.env.RAG_FALLBACK_CACHE_TTL_MS, 60 * 60 * 1000);
 const BACKEND_HEALTH_TIMEOUT_MS = parsePositiveInteger(process.env.RAG_BACKEND_HEALTH_TIMEOUT_MS, 2_000);
+const OPERATIONAL_RETRIEVAL_LOG_LIMIT = parsePositiveInteger(process.env.RAG_OPERATIONAL_RETRIEVAL_LOG_LIMIT, 50);
 
 function buildLawFallbackPath(cacheKey: string): string {
   return `/external/korean-law-mcp/${sha1(cacheKey).slice(0, 16)}.md`;
@@ -619,6 +683,115 @@ interface SearchExecutionResult {
   ontologyHits: OntologyHit[];
   graphExpansionTrace: GraphExpansionTrace[];
   sectionRouting: SectionRoutingDecision;
+  subSearchLatencyMs: Record<string, number>;
+  plannerTrace: Array<{ step: string; detail: string }>;
+}
+
+function recordSubSearchLatency(target: Record<string, number>, stage: string, startedAt: number): void {
+  target[stage] = Date.now() - startedAt;
+}
+
+function formatSubSearchLatencyTrace(subSearchLatencyMs: Record<string, number>): string {
+  return Object.entries(subSearchLatencyMs)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([stage, latencyMs]) => `${stage}=${latencyMs}ms`)
+    .join(', ');
+}
+
+function formatCorpusPhaseTimingTrace(entry: SearchDiagnosticsEntry): string {
+  const timings = entry.corpusPhaseTimings;
+  if (!timings) return '';
+  return [
+    `phaseLexicalPool=${timings.lexicalPoolMs}ms`,
+    `phaseExact=${timings.exactMs}ms`,
+    `phaseLexical=${timings.lexicalMs}ms`,
+    `phaseVector=${timings.vectorMs}ms`,
+    `phaseFusion=${timings.fusionMs}ms`,
+    ...(timings.fusionDetails
+      ? [
+          `phaseFusionRrf=${timings.fusionDetails.rrfMs}ms`,
+          `phaseFusionRerank=${timings.fusionDetails.rerankMs}ms`,
+          `phaseFusionEntity=${timings.fusionDetails.entityAnchorMs}ms`,
+          `phaseFusionMerge=${timings.fusionDetails.mergeMs}ms`,
+          `phaseFusionDiversify=${timings.fusionDetails.diversifyMs}ms`,
+        ]
+      : []),
+    ...(timings.candidateCounts
+      ? [
+          `phaseLexicalPoolCandidates=${timings.candidateCounts.lexicalPoolChunks}`,
+          `phaseExactInput=${timings.candidateCounts.exactInputChunks}`,
+          `phaseExactScored=${timings.candidateCounts.exactScoredChunks}`,
+          `phaseExactCandidates=${timings.candidateCounts.exactCandidates}`,
+          `phaseLexicalInput=${timings.candidateCounts.lexicalInputChunks}`,
+          `phaseLexicalCandidates=${timings.candidateCounts.lexicalCandidates}`,
+        ]
+      : []),
+    `phaseEvidence=${timings.evidenceMs}ms`,
+    `phaseTotal=${timings.totalMs}ms`,
+  ].join(',');
+}
+
+function formatSearchStoreLatencyTrace(entries: SearchDiagnosticsEntry[]): string {
+  return entries
+    .map((entry) => {
+      const base = `${entry.stage}:dbLexical=${entry.dbLexicalMs}ms,vector=${entry.vectorMs}ms,corpus=${entry.corpusMs}ms,total=${entry.totalMs}ms,dbLexicalCandidates=${entry.dbLexicalCandidates},vectorCandidates=${entry.vectorCandidates}`;
+      const phase = formatCorpusPhaseTimingTrace(entry);
+      return phase ? `${base},${phase}` : base;
+    })
+    .join('; ');
+}
+
+export function buildLexicalPoolReuseDiagnostic(params: {
+  targetStage: string;
+  previousStages: Array<{ stage: string; lexicalCandidates: SearchCandidate[] }>;
+  targetLexicalCandidates: SearchCandidate[];
+}): { step: string; detail: string } | null {
+  if (params.targetLexicalCandidates.length === 0) return null;
+
+  const previousIds = new Set<string>();
+  for (const previous of params.previousStages) {
+    for (const candidate of previous.lexicalCandidates) {
+      previousIds.add(candidate.id);
+    }
+  }
+  const targetIds = new Set(params.targetLexicalCandidates.map((candidate) => candidate.id));
+  const overlap = Array.from(targetIds).filter((id) => previousIds.has(id)).length;
+  const coverage = Number(((overlap / targetIds.size) * 100).toFixed(1));
+  const stages = params.previousStages
+    .map((item) => `${item.stage}:${item.lexicalCandidates.length}`)
+    .join('|');
+
+  return {
+    step: 'lexical-pool-reuse',
+    detail: `target=${params.targetStage}, previous=${previousIds.size}, targetLexical=${targetIds.size}, overlap=${overlap}, coverage=${coverage.toFixed(1)}%, stages=${stages}`,
+  };
+}
+
+export function buildLexicalPoolReuseCandidatePool(
+  previousStages: Array<{ stage: string; lexicalCandidates: SearchCandidate[] }>,
+  maxCandidates = 64,
+): SearchCandidate[] {
+  const candidates: SearchCandidate[] = [];
+  const seen = new Set<string>();
+
+  for (const previous of previousStages) {
+    for (const candidate of previous.lexicalCandidates) {
+      if (seen.has(candidate.id)) continue;
+      seen.add(candidate.id);
+      candidates.push(candidate);
+      if (candidates.length >= maxCandidates) return candidates;
+    }
+  }
+
+  return candidates;
+}
+
+export function shouldFallbackLexicalPoolReuse(search: SearchRun): boolean {
+  if (search.confidence === 'low') return true;
+  if ((search.mismatchSignals ?? []).length > 0) return true;
+  if (search.evidence.length < 3) return true;
+  if (search.lexicalCandidates.length < Math.min(12, search.fusedCandidates.length)) return true;
+  return false;
 }
 
 interface SearchPlanningOptions {
@@ -631,6 +804,185 @@ interface SearchPlanningOptions {
   priorityPolicyName?: string;
   evaluationLinked?: boolean;
   selectedServiceScopes?: ServiceScopeId[];
+  searchMemo?: SearchStoreMemo;
+  lexicalScoringCache?: LexicalScoringCache;
+}
+
+type SearchStoreRunner = (
+  query: string,
+  mode: PromptMode,
+  queryEmbedding: number[] | null,
+  queryAliases?: string[],
+  options?: SearchOptions,
+) => Promise<SearchRun>;
+
+export interface SearchStoreMemo {
+  search: SearchStoreRunner;
+  getStats: () => {
+    hits: number;
+    misses: number;
+    size: number;
+  };
+}
+
+function sortedSetValues<T>(values?: Set<T>): T[] | undefined {
+  if (!values) return undefined;
+  return Array.from(values).sort((left, right) => String(left).localeCompare(String(right)));
+}
+
+function sortedMapEntries<T>(values?: Map<string, T>): Array<[string, T]> | undefined {
+  if (!values) return undefined;
+  return Array.from(values.entries()).sort(([left], [right]) => left.localeCompare(right));
+}
+
+function canonicalizeMemoValue(value: unknown): unknown {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (value instanceof Set) return sortedSetValues(value);
+  if (value instanceof Map) return sortedMapEntries(value).map(([key, entryValue]) => [key, canonicalizeMemoValue(entryValue)]);
+  if (Array.isArray(value)) return value.map((item) => canonicalizeMemoValue(item));
+  if (typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .flatMap(([key, entryValue]) => {
+          const canonical = canonicalizeMemoValue(entryValue);
+          return canonical === undefined ? [] : [[key, canonical]];
+        }),
+    );
+  }
+  return value;
+}
+
+function candidateMemoEntries(candidates?: SearchCandidate[]): unknown {
+  if (!candidates) return undefined;
+  return candidates
+    .map((candidate) => ({
+      id: candidate.id,
+      documentId: candidate.documentId,
+      sourceRole: candidate.sourceRole,
+      rerankScore: candidate.rerankScore,
+      lexicalScore: candidate.lexicalScore,
+      vectorScore: candidate.vectorScore,
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function chunkMemoEntries(chunks?: StructuredChunk[]): unknown {
+  if (!chunks) return undefined;
+  return chunks
+    .map((chunk) => ({
+      id: chunk.id,
+      documentId: chunk.documentId,
+      sourceRole: chunk.sourceRole,
+      mode: chunk.mode,
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function canonicalizeSearchMemoOptions(options?: SearchOptions): unknown {
+  if (!options) return null;
+  return canonicalizeMemoValue({
+    allowedDocumentIds: sortedSetValues(options.allowedDocumentIds),
+    documentScoreBoosts: sortedMapEntries(options.documentScoreBoosts),
+    chunkScoreBoosts: sortedMapEntries(options.chunkScoreBoosts),
+    excludedEvidenceRoles: sortedSetValues(options.excludedEvidenceRoles),
+    lawRefs: options.lawRefs
+      ?.map((ref) => ({
+        raw: ref.raw,
+        canonicalLawName: ref.canonicalLawName,
+        article: ref.article,
+        jo: ref.jo,
+        clause: ref.clause,
+        item: ref.item,
+        subItem: ref.subItem,
+        matchedAlias: ref.matchedAlias,
+      }))
+      .sort((left, right) =>
+        [
+          left.canonicalLawName,
+          left.article ?? '',
+          left.jo ?? '',
+          left.clause ?? '',
+          left.item ?? '',
+          left.subItem ?? '',
+          left.raw,
+        ].join(':').localeCompare([
+          right.canonicalLawName,
+          right.article ?? '',
+          right.jo ?? '',
+          right.clause ?? '',
+          right.item ?? '',
+          right.subItem ?? '',
+          right.raw,
+        ].join(':')),
+      ),
+    queryType: options.queryType,
+    semanticFrame: options.semanticFrame,
+    selectedServiceScopes: options.selectedServiceScopes ? [...options.selectedServiceScopes].sort() : undefined,
+    retrievalPriorityClass: options.retrievalPriorityClass,
+    retrievalPriorityPolicy: options.retrievalPriorityPolicy,
+    evaluationLinked: options.evaluationLinked,
+    precomputedLexicalCandidateChunks: chunkMemoEntries(options.precomputedLexicalCandidateChunks),
+    mergePrecomputedLexicalCandidateChunks: options.mergePrecomputedLexicalCandidateChunks,
+    precomputedLexicalCandidates: candidateMemoEntries(options.precomputedLexicalCandidates),
+    precomputedVectorCandidates: candidateMemoEntries(options.precomputedVectorCandidates),
+    maxLexicalCandidateChunks: options.maxLexicalCandidateChunks,
+    maxExactCandidateChunks: options.maxExactCandidateChunks,
+    evaluationAuthorityDriftGuard: options.evaluationAuthorityDriftGuard,
+  });
+}
+
+export function buildSearchStoreMemoKey({
+  query,
+  mode,
+  queryEmbedding,
+  queryAliases = [],
+  options,
+}: {
+  query: string;
+  mode: PromptMode;
+  queryEmbedding: number[] | null;
+  queryAliases?: string[];
+  options?: SearchOptions;
+}): string {
+  const embeddingKey = queryEmbedding
+    ? sha1(queryEmbedding.map((value) => Number(value).toFixed(6)).join(','))
+    : null;
+  return sha1(JSON.stringify(canonicalizeMemoValue({
+    query,
+    mode,
+    queryEmbedding: embeddingKey,
+    queryAliases: uniqueNonEmptyLines(queryAliases),
+    options: canonicalizeSearchMemoOptions(options),
+  })));
+}
+
+export function createSearchStoreMemo(runner: SearchStoreRunner): SearchStoreMemo {
+  const cache = new Map<string, Promise<SearchRun>>();
+  let hits = 0;
+  let misses = 0;
+  return {
+    search(query, mode, queryEmbedding, queryAliases = [], options) {
+      const key = buildSearchStoreMemoKey({ query, mode, queryEmbedding, queryAliases, options });
+      const cached = cache.get(key);
+      if (cached) {
+        hits += 1;
+        return cached;
+      }
+      misses += 1;
+      const pending = runner(query, mode, queryEmbedding, queryAliases, options);
+      cache.set(key, pending);
+      return pending;
+    },
+    getStats() {
+      return {
+        hits,
+        misses,
+        size: cache.size,
+      };
+    },
+  };
 }
 
 interface RetrievalPlanResult {
@@ -690,6 +1042,76 @@ function buildTitleToDocumentIdsMap(chunks: StructuredChunk[]): Map<string, Set<
   }
 
   return lookup;
+}
+
+export function shouldSearchIntegratedSupportReferences(params: {
+  mode: PromptMode;
+  normalizedQuery: string;
+  semanticFrame?: SemanticFrame;
+}): boolean {
+  if (params.mode !== 'evaluation') return false;
+
+  const asksForReferenceDocument =
+    /(참고\s*문서|참고자료|문서|자료|매뉴얼|사례집|q&a|Q&A|질의|바로알기|어떤\s*게|어떤\s*것|찾아|어디|확인)/u.test(
+      params.normalizedQuery,
+    );
+  if (asksForReferenceDocument) return true;
+
+  const primaryIntent = params.semanticFrame?.primaryIntent;
+  if (!primaryIntent) return true;
+  return primaryIntent !== 'compliance';
+}
+
+function textIncludesTerm(text: string, term: string): boolean {
+  return text.toLowerCase().includes(term.toLowerCase());
+}
+
+export function selectIntegratedSupportReferenceScope(params: {
+  chunks: StructuredChunk[];
+  query: string;
+  aliases?: string[];
+  maxDocuments?: number;
+}): Set<string> {
+  const maxDocuments = params.maxDocuments ?? 8;
+  const focusTerms = deriveFocusTerms(uniqueNonEmptyLines([params.query, ...(params.aliases ?? [])]).join('\n'));
+  const supportRepresentatives = buildDocumentRepresentativeMap(
+    params.chunks.filter((chunk) => chunk.mode === 'integrated' && chunk.sourceRole === 'support_reference'),
+  );
+  if (supportRepresentatives.size <= maxDocuments) {
+    return new Set(supportRepresentatives.keys());
+  }
+  if (focusTerms.length === 0) {
+    return new Set(Array.from(supportRepresentatives.keys()).slice(0, maxDocuments));
+  }
+
+  const ranked = Array.from(supportRepresentatives.values())
+    .map((chunk) => {
+      let score = 0;
+      const title = `${chunk.docTitle} ${chunk.fileName}`;
+      const section = `${chunk.parentSectionTitle} ${chunk.sectionPath.join(' ')}`;
+      const body = chunk.searchText;
+
+      for (const term of focusTerms) {
+        if (isGenericQueryTerm(term)) continue;
+        if (textIncludesTerm(title, term)) score += 10;
+        if (textIncludesTerm(section, term)) score += 6;
+        if (textIncludesTerm(body, term)) score += 2;
+      }
+
+      if (hasRecipientOnboardingSupportAnchor(chunk)) {
+        score += 4;
+      }
+
+      return { documentId: chunk.documentId, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score);
+  const topScore = ranked[0]?.score ?? 0;
+  const scored = ranked
+    .filter((item) => item.score >= Math.max(4, topScore * 0.5))
+    .slice(0, maxDocuments);
+
+  return new Set(scored.map((item) => item.documentId));
 }
 
 function isRecipientOnboardingQuery(query: string): boolean {
@@ -821,7 +1243,7 @@ const RECIPIENT_ONBOARDING_SUPPORT_ANCHORS = [
   '공단통보',
 ] as const;
 
-function hasRecipientOnboardingSupportAnchor(candidate: SearchCandidate): boolean {
+function hasRecipientOnboardingSupportAnchor(candidate: Pick<StructuredChunk, 'docTitle' | 'parentSectionTitle' | 'searchText'>): boolean {
   const compactText = [candidate.docTitle, candidate.parentSectionTitle, candidate.searchText]
     .filter(Boolean)
     .join('\n')
@@ -1402,6 +1824,7 @@ export class NodeRagService {
   private adminQueueRunning = false;
   private profilesUpdatedAt = new Date().toISOString();
   private lastRetrievalByPath = new Map<string, RecentRetrievalMatch>();
+  private readonly operationalRetrievalLog: OperationalRetrievalLogEntry[] = [];
   private readonly queryEmbeddingCache = new Map<string, number[] | null>();
   private embeddingRefreshTimer: NodeJS.Timeout | null = null;
   private initialized = false;
@@ -1481,6 +1904,17 @@ export class NodeRagService {
 
   getAdminOntologyReview(): AdminOntologyReviewResponse {
     return buildAdminOntologyReview(this.projectRoot);
+  }
+
+  getAdminRetrievalLog(): OperationalRetrievalLogResponse {
+    return {
+      updatedAt: new Date().toISOString(),
+      entries: this.operationalRetrievalLog,
+    };
+  }
+
+  getAdminRetrievalLogReport(options: OperationalRetrievalLogReportOptions = {}): OperationalRetrievalLogReport {
+    return buildOperationalRetrievalLogReport(this.operationalRetrievalLog, options);
   }
 
   updateOntologyConceptReview(params: {
@@ -1976,6 +2410,34 @@ export class NodeRagService {
     this.lastRetrievalByPath = matches;
   }
 
+  private rememberOperationalRetrieval(
+    retrieval: RetrievalDiagnostics,
+    query: string,
+    mode: PromptMode,
+    confidence: ConfidenceLevel,
+  ): void {
+    rememberOperationalRetrievalLog(
+      this.operationalRetrievalLog,
+      buildOperationalRetrievalLogEntry({
+        query,
+        normalizedQuery: retrieval.normalizedQuery,
+        mode,
+        profileId: retrieval.profile.id,
+        selectedServiceScopes: retrieval.selectedServiceScopes,
+        selectedRetrievalMode: retrieval.selectedRetrievalMode,
+        confidence,
+        retrievalReadiness: retrieval.retrievalReadiness,
+        candidateDiagnostics: retrieval.candidateDiagnostics,
+        finalEvidenceDocuments: retrieval.finalEvidenceDocuments,
+        validationIssues: retrieval.validationIssues,
+        claimCoverage: retrieval.claimCoverage,
+        fallbackTriggered: retrieval.fallbackTriggered,
+        latency: retrieval.latency,
+      }),
+      OPERATIONAL_RETRIEVAL_LOG_LIMIT,
+    );
+  }
+
   private hasMissingLawReferenceEvidence(search: SearchRun, queryProfile: NaturalLanguageQueryProfile): boolean {
     if (queryProfile.parsedLawRefs.length === 0) return false;
 
@@ -2182,7 +2644,52 @@ export class NodeRagService {
   ): Promise<SearchExecutionResult> {
     const combinedAliases = uniqueNonEmptyLines([...(options?.extraAliases ?? []), ...aliases]);
     const searchQuery = uniqueNonEmptyLines([normalizedQuery, ...combinedAliases]).join('\n');
+    const localLexicalScoringCache = options?.lexicalScoringCache ?? createLexicalScoringCache();
+    const searchMemo = options?.searchMemo ?? createSearchStoreMemo((query, searchMode, embedding, searchAliases, searchOptions) =>
+      this.searchStore(query, searchMode, embedding, searchAliases, {
+        ...searchOptions,
+        lexicalScoringCache: localLexicalScoringCache,
+        evaluationAuthorityDriftGuard:
+          EVALUATION_AUTHORITY_DRIFT_GUARD_ENABLED || searchOptions?.evaluationAuthorityDriftGuard,
+      }),
+    );
     const sectionRoutingEnabled = options?.profile?.retrieval.sectionRouting ?? false;
+    const subSearchLatencyMs: Record<string, number> = {};
+    const plannerTrace: Array<{ step: string; detail: string }> = [];
+    const executeSearchPhaseTimings: Record<string, number> = {};
+    const recordExecuteSearchPhaseTiming = (phase: string, startedAt: number) => {
+      executeSearchPhaseTimings[phase] = (executeSearchPhaseTimings[phase] ?? 0) + (Date.now() - startedAt);
+    };
+    const pushExecuteSearchPhaseTiming = () => {
+      const detail = Object.entries(executeSearchPhaseTimings)
+        .filter(([, value]) => value > 0)
+        .map(([phase, value]) => `${phase}=${value}ms`)
+        .join(', ');
+      if (detail) {
+        plannerTrace.push({
+          step: 'execute-search-phase-timing',
+          detail,
+        });
+      }
+    };
+    const recordOntologyExpansionDiagnostic = (
+      stage: string,
+      startedAt: number,
+      seedDocumentIds: string[],
+      result: OntologySearchResult,
+    ) => {
+      plannerTrace.push({
+        step: 'ontology-expansion',
+        detail: [
+          `stage=${stage}`,
+          `seeds=${seedDocumentIds.length}`,
+          `hits=${result.hits.length}`,
+          `boosts=${result.documentScoreBoosts.size}`,
+          `trace=${result.trace.length}`,
+          `elapsed=${Date.now() - startedAt}ms`,
+        ].join(','),
+      });
+    };
     const emptyScope: RetrievalScopeContext = {
       routeOnlyDocumentIds: new Set<string>(),
       primaryExpansionDocumentIds: new Set<string>(),
@@ -2197,43 +2704,56 @@ export class NodeRagService {
     const emptySectionRouting = summarizeSectionRouting([], sectionRoutingEnabled);
 
     if (mode !== 'evaluation') {
+      const integratedSetupStartedAt = Date.now();
       const allChunks = this.getAllSearchChunks();
       const representatives = buildDocumentRepresentativeMap(allChunks);
       const baseDocumentScoreBoosts = mergeDocumentScoreBoostMaps(
         buildOperationalDocumentBoosts(allChunks, normalizedQuery),
         options?.additionalDocumentScoreBoosts ?? new Map<string, number>(),
       );
-      const initialSearch = applySectionRoutingBoost(
-        await this.searchStore(
-          searchQuery,
-          mode,
-          queryEmbedding,
-          combinedAliases,
-          {
-            documentScoreBoosts: baseDocumentScoreBoosts,
-            chunkScoreBoosts: options?.additionalChunkScoreBoosts,
-            lawRefs: options?.queryProfile?.parsedLawRefs,
-            queryType: options?.queryProfile?.queryType,
-            semanticFrame: options?.queryProfile?.semanticFrame,
-            selectedServiceScopes: options?.selectedServiceScopes,
-            retrievalPriorityClass: options?.retrievalPriorityClass,
-            retrievalPriorityPolicy: options?.retrievalPriorityClass
-              ? INTENT_PRIORITY_MATRIX[options.retrievalPriorityClass]
-              : undefined,
-            evaluationLinked: options?.evaluationLinked,
-          },
-        ),
-        sectionRoutingEnabled,
+      recordExecuteSearchPhaseTiming('integrated-setup', integratedSetupStartedAt);
+      const initialSearchStartedAt = Date.now();
+      const initialSearchResult = await searchMemo.search(searchQuery, mode, queryEmbedding, combinedAliases, {
+        searchDiagnosticStage: 'integrated-initial',
+        documentScoreBoosts: baseDocumentScoreBoosts,
+        chunkScoreBoosts: options?.additionalChunkScoreBoosts,
+        maxLexicalCandidateChunks: INTEGRATED_INITIAL_MAX_LEXICAL_CHUNKS,
+        maxExactCandidateChunks: INTEGRATED_INITIAL_MAX_EXACT_CHUNKS,
+        lawRefs: options?.queryProfile?.parsedLawRefs,
+        queryType: options?.queryProfile?.queryType,
+        semanticFrame: options?.queryProfile?.semanticFrame,
+        selectedServiceScopes: options?.selectedServiceScopes,
+        retrievalPriorityClass: options?.retrievalPriorityClass,
+        retrievalPriorityPolicy: options?.retrievalPriorityClass
+          ? INTENT_PRIORITY_MATRIX[options.retrievalPriorityClass]
+          : undefined,
+        evaluationLinked: options?.evaluationLinked,
+      });
+      recordSubSearchLatency(subSearchLatencyMs, 'integrated-initial', initialSearchStartedAt);
+      const integratedSectionRoutingStartedAt = Date.now();
+      const initialSearch = applySectionRoutingBoost(initialSearchResult, sectionRoutingEnabled);
+      recordExecuteSearchPhaseTiming('integrated-section-routing', integratedSectionRoutingStartedAt);
+      const integratedOntologyExpandStartedAt = Date.now();
+      const integratedOntologySeedDocumentIds = uniqueDocumentCandidates(initialSearch.fusedCandidates, 4).map(
+        (candidate) => candidate.documentId,
       );
       const ontologyResult =
         this.ontologyGraph && options?.queryProfile
           ? expandDocumentsWithOntology(
               this.ontologyGraph,
               options.queryProfile,
-              uniqueDocumentCandidates(initialSearch.fusedCandidates, 4).map((candidate) => candidate.documentId),
+              integratedOntologySeedDocumentIds,
               ONTOLOGY_GRAPH_DEPTH,
             )
           : emptyOntologyResult;
+      recordOntologyExpansionDiagnostic(
+        'integrated-initial',
+        integratedOntologyExpandStartedAt,
+        integratedOntologySeedDocumentIds,
+        ontologyResult,
+      );
+      recordExecuteSearchPhaseTiming('integrated-ontology-expand', integratedOntologyExpandStartedAt);
+      const integratedRoutingResolveStartedAt = Date.now();
       const heuristicDocumentScoreBoosts = mergeDocumentScoreBoostMaps(
         baseDocumentScoreBoosts,
         ontologyResult.documentScoreBoosts,
@@ -2243,17 +2763,22 @@ export class NodeRagService {
         4,
       );
       const primaryExpansionDocumentIds = resolveRoutingExpansionDocumentIds(routingCandidates, allChunks);
+      recordExecuteSearchPhaseTiming('integrated-routing-resolve', integratedRoutingResolveStartedAt);
 
       if (primaryExpansionDocumentIds.size === 0) {
+        pushExecuteSearchPhaseTiming();
         return {
           search: pruneIrrelevantSupportEvidence(applyGroundingGate(initialSearch)),
           scope: emptyScope,
           ontologyHits: ontologyResult.hits,
           graphExpansionTrace: ontologyResult.trace,
           sectionRouting: summarizeSectionRouting(initialSearch.fusedCandidates.slice(0, 6), sectionRoutingEnabled),
+          subSearchLatencyMs,
+          plannerTrace,
         };
       }
 
+      const integratedExpansionSetupStartedAt = Date.now();
       const routeOnlyDocumentIds = new Set(routingCandidates.map((candidate) => candidate.documentId));
       const documentScoreBoosts = mergeDocumentScoreBoostMaps(heuristicDocumentScoreBoosts);
       for (const documentId of primaryExpansionDocumentIds) {
@@ -2273,25 +2798,31 @@ export class NodeRagService {
         ...routingCandidates.map((candidate) => candidate.docTitle),
         ...routingCandidates.map((candidate) => candidate.parentSectionTitle),
       ]).join('\n');
+      recordExecuteSearchPhaseTiming('integrated-expansion-setup', integratedExpansionSetupStartedAt);
 
-      const rerankedSearch = applyGroundingGate(applySectionRoutingBoost(
-        await this.searchStore(searchQuery, mode, queryEmbedding, combinedAliases, {
-          documentScoreBoosts,
-          chunkScoreBoosts: options?.additionalChunkScoreBoosts,
-          excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
-          lawRefs: options?.queryProfile?.parsedLawRefs,
-          queryType: options?.queryProfile?.queryType,
-          semanticFrame: options?.queryProfile?.semanticFrame,
-          selectedServiceScopes: options?.selectedServiceScopes,
-          retrievalPriorityClass: options?.retrievalPriorityClass,
-          retrievalPriorityPolicy: options?.retrievalPriorityClass
-            ? INTENT_PRIORITY_MATRIX[options.retrievalPriorityClass]
-            : undefined,
-          evaluationLinked: options?.evaluationLinked,
-        }),
-        sectionRoutingEnabled,
-      ));
-      const promotedPrimarySearch = await this.searchStore(expansionQuery, mode, queryEmbedding, expansionAliases, {
+      const rerankedSearchStartedAt = Date.now();
+      const rerankedSearchResult = await searchMemo.search(searchQuery, mode, queryEmbedding, combinedAliases, {
+        searchDiagnosticStage: 'integrated-reranked',
+        documentScoreBoosts,
+        chunkScoreBoosts: options?.additionalChunkScoreBoosts,
+        excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+        maxLexicalCandidateChunks: INTEGRATED_RERANKED_MAX_LEXICAL_CHUNKS,
+        maxExactCandidateChunks: INTEGRATED_RERANKED_MAX_EXACT_CHUNKS,
+        lawRefs: options?.queryProfile?.parsedLawRefs,
+        queryType: options?.queryProfile?.queryType,
+        semanticFrame: options?.queryProfile?.semanticFrame,
+        selectedServiceScopes: options?.selectedServiceScopes,
+        retrievalPriorityClass: options?.retrievalPriorityClass,
+        retrievalPriorityPolicy: options?.retrievalPriorityClass
+          ? INTENT_PRIORITY_MATRIX[options.retrievalPriorityClass]
+          : undefined,
+        evaluationLinked: options?.evaluationLinked,
+      });
+      recordSubSearchLatency(subSearchLatencyMs, 'integrated-reranked', rerankedSearchStartedAt);
+      const rerankedSearch = applyGroundingGate(applySectionRoutingBoost(rerankedSearchResult, sectionRoutingEnabled));
+      const promotedPrimarySearchStartedAt = Date.now();
+      const promotedPrimarySearch = await searchMemo.search(expansionQuery, mode, queryEmbedding, expansionAliases, {
+        searchDiagnosticStage: 'integrated-promoted-primary',
         allowedDocumentIds: primaryExpansionDocumentIds,
         documentScoreBoosts,
         chunkScoreBoosts: options?.additionalChunkScoreBoosts,
@@ -2306,6 +2837,8 @@ export class NodeRagService {
           : undefined,
         evaluationLinked: options?.evaluationLinked,
       });
+      recordSubSearchLatency(subSearchLatencyMs, 'integrated-promoted-primary', promotedPrimarySearchStartedAt);
+      const integratedFinalAssemblyStartedAt = Date.now();
       const promotedPrimaryCandidates = uniqueDocumentCandidates(
         promotedPrimarySearch.fusedCandidates.filter(
           (candidate) =>
@@ -2318,6 +2851,8 @@ export class NodeRagService {
         ),
         4,
       );
+      recordExecuteSearchPhaseTiming('integrated-final-assembly', integratedFinalAssemblyStartedAt);
+      pushExecuteSearchPhaseTiming();
 
         return {
           search: pruneIrrelevantSupportEvidence(injectEvidenceCandidates(rerankedSearch, promotedPrimaryCandidates)),
@@ -2330,9 +2865,12 @@ export class NodeRagService {
           ontologyHits: ontologyResult.hits,
           graphExpansionTrace: ontologyResult.trace,
           sectionRouting: summarizeSectionRouting(rerankedSearch.fusedCandidates.slice(0, 6), sectionRoutingEnabled),
+          subSearchLatencyMs,
+          plannerTrace,
         };
       }
 
+    const evaluationSetupStartedAt = Date.now();
     const allChunks = this.getAllSearchChunks();
     const representatives = buildDocumentRepresentativeMap(allChunks);
     const baseDocumentScoreBoosts = mergeDocumentScoreBoostMaps(
@@ -2349,11 +2887,16 @@ export class NodeRagService {
         .filter((chunk) => chunk.sourceRole === 'routing_summary')
         .map((chunk) => chunk.documentId),
     );
+    recordExecuteSearchPhaseTiming('evaluation-setup', evaluationSetupStartedAt);
 
-    const routingSearch = applySectionRoutingBoost(await this.searchStore(searchQuery, mode, queryEmbedding, combinedAliases, {
+    const routingSearchStartedAt = Date.now();
+    const routingSearchResult = await searchMemo.search(searchQuery, mode, queryEmbedding, combinedAliases, {
+      searchDiagnosticStage: 'evaluation-routing',
       allowedDocumentIds: evaluationDocumentIds,
       documentScoreBoosts: baseDocumentScoreBoosts,
       chunkScoreBoosts: options?.additionalChunkScoreBoosts,
+      maxLexicalCandidateChunks: EVALUATION_ROUTING_MAX_LEXICAL_CHUNKS,
+      maxExactCandidateChunks: EVALUATION_ROUTING_MAX_EXACT_CHUNKS,
       lawRefs: options?.queryProfile?.parsedLawRefs,
       queryType: options?.queryProfile?.queryType,
       semanticFrame: options?.queryProfile?.semanticFrame,
@@ -2361,46 +2904,84 @@ export class NodeRagService {
       retrievalPriorityClass,
       retrievalPriorityPolicy,
       evaluationLinked: options?.evaluationLinked,
-    }), sectionRoutingEnabled);
+    });
+    recordSubSearchLatency(subSearchLatencyMs, 'evaluation-routing', routingSearchStartedAt);
+    const evaluationSectionRoutingStartedAt = Date.now();
+    const routingSearch = applySectionRoutingBoost(routingSearchResult, sectionRoutingEnabled);
+    recordExecuteSearchPhaseTiming('evaluation-section-routing', evaluationSectionRoutingStartedAt);
+    const evaluationOntologyExpandStartedAt = Date.now();
+    const evaluationOntologySeedDocumentIds = uniqueDocumentCandidates(routingSearch.fusedCandidates, 4).map(
+      (candidate) => candidate.documentId,
+    );
     const ontologyResult =
       this.ontologyGraph && options?.queryProfile
         ? expandDocumentsWithOntology(
             this.ontologyGraph,
             options.queryProfile,
-            uniqueDocumentCandidates(routingSearch.fusedCandidates, 4).map((candidate) => candidate.documentId),
+            evaluationOntologySeedDocumentIds,
             ONTOLOGY_GRAPH_DEPTH,
           )
         : emptyOntologyResult;
+    recordOntologyExpansionDiagnostic(
+      'evaluation-routing',
+      evaluationOntologyExpandStartedAt,
+      evaluationOntologySeedDocumentIds,
+      ontologyResult,
+    );
+    recordExecuteSearchPhaseTiming('evaluation-ontology-expand', evaluationOntologyExpandStartedAt);
+    const evaluationRoutingResolveStartedAt = Date.now();
     const routingCandidates = uniqueDocumentCandidates(
       routingSearch.fusedCandidates.filter((candidate) => candidate.sourceRole === 'routing_summary'),
       4,
     );
     const primaryExpansionDocumentIds = resolveRoutingExpansionDocumentIds(routingCandidates, allChunks);
+    recordExecuteSearchPhaseTiming('evaluation-routing-resolve', evaluationRoutingResolveStartedAt);
 
+    const evaluationSupportSetupStartedAt = Date.now();
     const integratedSupportDocumentIds = new Set(
       allChunks
         .filter((chunk) => chunk.mode === 'integrated' && chunk.sourceRole === 'support_reference')
         .map((chunk) => chunk.documentId),
     );
-    const directSupportSearch =
-      integratedSupportDocumentIds.size > 0
-        ? await this.searchStore(searchQuery, mode, queryEmbedding, combinedAliases, {
-            allowedDocumentIds: integratedSupportDocumentIds,
-            documentScoreBoosts: baseDocumentScoreBoosts,
-            chunkScoreBoosts: options?.additionalChunkScoreBoosts,
-            lawRefs: options?.queryProfile?.parsedLawRefs,
-            queryType: options?.queryProfile?.queryType,
-            semanticFrame: options?.queryProfile?.semanticFrame,
-            selectedServiceScopes: options?.selectedServiceScopes,
-            retrievalPriorityClass,
-            retrievalPriorityPolicy,
-            evaluationLinked: options?.evaluationLinked,
-          })
-        : null;
+    const searchIntegratedSupportReferences = shouldSearchIntegratedSupportReferences({
+      mode,
+      normalizedQuery,
+      semanticFrame: options?.queryProfile?.semanticFrame,
+    });
+    const scopedIntegratedSupportDocumentIds = searchIntegratedSupportReferences
+      ? selectIntegratedSupportReferenceScope({
+          chunks: allChunks,
+          query: searchQuery,
+          aliases: combinedAliases,
+        })
+      : new Set<string>();
+    const directSupportSearchDocumentIds =
+      scopedIntegratedSupportDocumentIds.size > 0 ? scopedIntegratedSupportDocumentIds : integratedSupportDocumentIds;
+    recordExecuteSearchPhaseTiming('evaluation-support-setup', evaluationSupportSetupStartedAt);
+    let directSupportSearch: SearchRun | null = null;
+    if (searchIntegratedSupportReferences && directSupportSearchDocumentIds.size > 0) {
+      const directSupportSearchStartedAt = Date.now();
+      directSupportSearch = await searchMemo.search(searchQuery, mode, queryEmbedding, combinedAliases, {
+        searchDiagnosticStage: 'evaluation-direct-support',
+        allowedDocumentIds: directSupportSearchDocumentIds,
+        documentScoreBoosts: baseDocumentScoreBoosts,
+        chunkScoreBoosts: options?.additionalChunkScoreBoosts,
+        maxLexicalCandidateChunks: DIRECT_SUPPORT_MAX_LEXICAL_CHUNKS,
+        lawRefs: options?.queryProfile?.parsedLawRefs,
+        queryType: options?.queryProfile?.queryType,
+        semanticFrame: options?.queryProfile?.semanticFrame,
+        selectedServiceScopes: options?.selectedServiceScopes,
+        retrievalPriorityClass,
+        retrievalPriorityPolicy,
+        evaluationLinked: options?.evaluationLinked,
+      });
+      recordSubSearchLatency(subSearchLatencyMs, 'evaluation-direct-support', directSupportSearchStartedAt);
+    }
     const directSupportDocumentIds = directSupportSearch
       ? selectDirectSupportReferenceIds(directSupportSearch)
       : new Set<string>();
 
+    const evaluationBaseSetupStartedAt = Date.now();
     const allowedDocumentIds = new Set<string>([
       ...evaluationDocumentIds,
       ...primaryExpansionDocumentIds,
@@ -2433,9 +3014,85 @@ export class NodeRagService {
       ...routingCandidates.map((candidate) => candidate.parentSectionTitle),
     ]).join('\n');
 
-    const baseSearch = applyGroundingGate(applySectionRoutingBoost(
-      await this.searchStore(searchQuery, mode, queryEmbedding, combinedAliases, {
-        allowedDocumentIds,
+    const lexicalPoolReuseStages = [
+      {
+        stage: 'evaluation-routing',
+        lexicalCandidates: routingSearchResult.lexicalCandidates,
+      },
+      ...(directSupportSearch
+        ? [
+            {
+              stage: 'evaluation-direct-support',
+              lexicalCandidates: directSupportSearch.lexicalCandidates,
+            },
+          ]
+        : []),
+    ];
+    const lexicalPoolReuseCandidates = buildLexicalPoolReuseCandidatePool(lexicalPoolReuseStages);
+    const baseSearchOptions: SearchOptions = {
+      searchDiagnosticStage: 'evaluation-base',
+      allowedDocumentIds,
+      documentScoreBoosts,
+      chunkScoreBoosts: options?.additionalChunkScoreBoosts,
+      excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+      maxLexicalCandidateChunks: EVALUATION_BASE_MAX_LEXICAL_CHUNKS,
+      maxExactCandidateChunks: EVALUATION_BASE_MAX_EXACT_CHUNKS,
+      lawRefs: options?.queryProfile?.parsedLawRefs,
+      queryType: options?.queryProfile?.queryType,
+      semanticFrame: options?.queryProfile?.semanticFrame,
+      selectedServiceScopes: options?.selectedServiceScopes,
+      retrievalPriorityClass,
+      retrievalPriorityPolicy,
+      evaluationLinked: options?.evaluationLinked,
+    };
+    recordExecuteSearchPhaseTiming('evaluation-base-setup', evaluationBaseSetupStartedAt);
+    const baseSearchStartedAt = Date.now();
+    const shouldAttemptBaseLexicalPoolReuse =
+      (EVALUATION_BASE_LEXICAL_POOL_REUSE_ENABLED || EVALUATION_BASE_LEXICAL_POOL_MERGE_ENABLED) &&
+      lexicalPoolReuseCandidates.length > 0;
+    const lexicalPoolReuseStrategy = EVALUATION_BASE_LEXICAL_POOL_MERGE_ENABLED ? 'merge-only' : 'replacement';
+    let baseSearchResult = await searchMemo.search(searchQuery, mode, queryEmbedding, combinedAliases, {
+      searchDiagnosticStage: 'evaluation-base',
+      ...baseSearchOptions,
+      ...(shouldAttemptBaseLexicalPoolReuse
+        ? {
+            precomputedLexicalCandidateChunks: lexicalPoolReuseCandidates,
+            mergePrecomputedLexicalCandidateChunks: EVALUATION_BASE_LEXICAL_POOL_MERGE_ENABLED,
+          }
+        : {}),
+    });
+    const reusedBaseFallback = shouldAttemptBaseLexicalPoolReuse && shouldFallbackLexicalPoolReuse(baseSearchResult);
+    if (reusedBaseFallback) {
+      recordSubSearchLatency(subSearchLatencyMs, 'evaluation-base-reuse-attempt', baseSearchStartedAt);
+      const baseFallbackStartedAt = Date.now();
+      baseSearchResult = await searchMemo.search(searchQuery, mode, queryEmbedding, combinedAliases, baseSearchOptions);
+      recordSubSearchLatency(subSearchLatencyMs, 'evaluation-base', baseFallbackStartedAt);
+    } else {
+      recordSubSearchLatency(subSearchLatencyMs, 'evaluation-base', baseSearchStartedAt);
+    }
+    if (lexicalPoolReuseCandidates.length > 0) {
+      plannerTrace.push({
+        step: 'lexical-pool-reuse-guard',
+        detail: `target=evaluation-base, pool=${lexicalPoolReuseCandidates.length}, result=${
+          shouldAttemptBaseLexicalPoolReuse ? (reusedBaseFallback ? 'fallback' : 'accepted') : 'disabled'
+        }, strategy=${shouldAttemptBaseLexicalPoolReuse ? lexicalPoolReuseStrategy : 'disabled'}`,
+      });
+    }
+    const lexicalPoolReuse = buildLexicalPoolReuseDiagnostic({
+      targetStage: 'evaluation-base',
+      previousStages: lexicalPoolReuseStages,
+      targetLexicalCandidates: baseSearchResult.lexicalCandidates,
+    });
+    if (lexicalPoolReuse) plannerTrace.push(lexicalPoolReuse);
+    const evaluationBasePostprocessStartedAt = Date.now();
+    const baseSearch = applyGroundingGate(applySectionRoutingBoost(baseSearchResult, sectionRoutingEnabled));
+    recordExecuteSearchPhaseTiming('evaluation-base-postprocess', evaluationBasePostprocessStartedAt);
+    let promotedPrimaryCandidates: SearchCandidate[] = [];
+    if (primaryExpansionDocumentIds.size > 0) {
+      const promotedPrimarySearchStartedAt = Date.now();
+      const promotedPrimarySearch = await searchMemo.search(expansionQuery, mode, queryEmbedding, expansionAliases, {
+        searchDiagnosticStage: 'evaluation-promoted-primary',
+        allowedDocumentIds: primaryExpansionDocumentIds,
         documentScoreBoosts,
         chunkScoreBoosts: options?.additionalChunkScoreBoosts,
         excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
@@ -2446,30 +3103,13 @@ export class NodeRagService {
         retrievalPriorityClass,
         retrievalPriorityPolicy,
         evaluationLinked: options?.evaluationLinked,
-      }),
-      sectionRoutingEnabled,
-    ));
-    const promotedPrimaryCandidates =
-      primaryExpansionDocumentIds.size > 0
-        ? uniqueDocumentCandidates(
-            (
-              await this.searchStore(expansionQuery, mode, queryEmbedding, expansionAliases, {
-                allowedDocumentIds: primaryExpansionDocumentIds,
-                documentScoreBoosts,
-                chunkScoreBoosts: options?.additionalChunkScoreBoosts,
-                excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
-                lawRefs: options?.queryProfile?.parsedLawRefs,
-                queryType: options?.queryProfile?.queryType,
-                semanticFrame: options?.queryProfile?.semanticFrame,
-                selectedServiceScopes: options?.selectedServiceScopes,
-                retrievalPriorityClass,
-                retrievalPriorityPolicy,
-                evaluationLinked: options?.evaluationLinked,
-              })
-            ).fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
-            4,
-          )
-        : [];
+      });
+      recordSubSearchLatency(subSearchLatencyMs, 'evaluation-promoted-primary', promotedPrimarySearchStartedAt);
+      promotedPrimaryCandidates = uniqueDocumentCandidates(
+        promotedPrimarySearch.fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
+        4,
+      );
+    }
     const primaryManualDocumentIds = new Set(
       allChunks
         .filter(
@@ -2481,49 +3121,52 @@ export class NodeRagService {
         )
         .map((chunk) => chunk.documentId),
     );
-    const primaryManualCandidates =
-      retrievalPriorityClass === 'evaluation_readiness' && primaryManualDocumentIds.size > 0
-        ? uniqueDocumentCandidates(
-            (
-              await this.searchStore(
-                uniqueNonEmptyLines([
-                  searchQuery,
-                  ...routingSearch.fusedCandidates.slice(0, 4).flatMap((candidate) => [
-                    candidate.docTitle,
-                    candidate.parentSectionTitle,
-                    ...candidate.sectionPath.slice(-2),
-                  ]),
-                ]).join('\n'),
-                mode,
-                queryEmbedding,
-                uniqueNonEmptyLines([
-                  ...combinedAliases,
-                  ...routingSearch.fusedCandidates.slice(0, 4).flatMap((candidate) => [
-                    candidate.docTitle,
-                    candidate.parentSectionTitle,
-                    ...candidate.sectionPath.slice(-2),
-                  ]),
-                ]),
-                {
-                  allowedDocumentIds: primaryManualDocumentIds,
-                  documentScoreBoosts,
-                  chunkScoreBoosts: options?.additionalChunkScoreBoosts,
-                  excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
-                  lawRefs: options?.queryProfile?.parsedLawRefs,
-                  queryType: options?.queryProfile?.queryType,
-                  semanticFrame: options?.queryProfile?.semanticFrame,
-                  selectedServiceScopes: options?.selectedServiceScopes,
-                  retrievalPriorityClass,
-                  retrievalPriorityPolicy,
-                  evaluationLinked: options?.evaluationLinked,
-                },
-              )
-            ).fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
-            2,
-          )
-        : [];
+    let primaryManualCandidates: SearchCandidate[] = [];
+    if (retrievalPriorityClass === 'evaluation_readiness' && primaryManualDocumentIds.size > 0) {
+      const primaryManualSearchStartedAt = Date.now();
+      const primaryManualSearch = await searchMemo.search(
+        uniqueNonEmptyLines([
+          searchQuery,
+          ...routingSearch.fusedCandidates.slice(0, 4).flatMap((candidate) => [
+            candidate.docTitle,
+            candidate.parentSectionTitle,
+            ...candidate.sectionPath.slice(-2),
+          ]),
+        ]).join('\n'),
+        mode,
+        queryEmbedding,
+        uniqueNonEmptyLines([
+          ...combinedAliases,
+          ...routingSearch.fusedCandidates.slice(0, 4).flatMap((candidate) => [
+            candidate.docTitle,
+            candidate.parentSectionTitle,
+            ...candidate.sectionPath.slice(-2),
+          ]),
+        ]),
+        {
+          searchDiagnosticStage: 'evaluation-primary-manual',
+          allowedDocumentIds: primaryManualDocumentIds,
+          documentScoreBoosts,
+          chunkScoreBoosts: options?.additionalChunkScoreBoosts,
+          excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
+          lawRefs: options?.queryProfile?.parsedLawRefs,
+          queryType: options?.queryProfile?.queryType,
+          semanticFrame: options?.queryProfile?.semanticFrame,
+          selectedServiceScopes: options?.selectedServiceScopes,
+          retrievalPriorityClass,
+          retrievalPriorityPolicy,
+          evaluationLinked: options?.evaluationLinked,
+        },
+      );
+      recordSubSearchLatency(subSearchLatencyMs, 'evaluation-primary-manual', primaryManualSearchStartedAt);
+      primaryManualCandidates = uniqueDocumentCandidates(
+        primaryManualSearch.fusedCandidates.filter((candidate) => candidate.sourceRole !== 'routing_summary'),
+        2,
+      );
+    }
 
-    return {
+    const evaluationFinalAssemblyStartedAt = Date.now();
+    const executionResult: SearchExecutionResult = {
       search: pruneIrrelevantSupportEvidence(injectEvidenceCandidates(baseSearch, [...promotedPrimaryCandidates, ...primaryManualCandidates])),
       scope: {
         routeOnlyDocumentIds,
@@ -2537,6 +3180,13 @@ export class NodeRagService {
         baseSearch.fusedCandidates.length > 0
           ? summarizeSectionRouting(baseSearch.fusedCandidates.slice(0, 6), sectionRoutingEnabled)
           : emptySectionRouting,
+      subSearchLatencyMs,
+      plannerTrace,
+    };
+    recordExecuteSearchPhaseTiming('evaluation-final-assembly', evaluationFinalAssemblyStartedAt);
+    pushExecuteSearchPhaseTiming();
+    return {
+      ...executionResult,
     };
   }
 
@@ -2799,6 +3449,21 @@ export class NodeRagService {
 
     const embeddingQuery = [normalized.normalizedQuery, ...aliases].filter(Boolean).join('\n');
     const queryEmbedding = await this.getQueryEmbedding(embeddingQuery, embeddingAi);
+    const lexicalScoringCache = createLexicalScoringCache();
+    const searchStoreDiagnostics: SearchDiagnosticsEntry[] = [];
+    const searchMemo = createSearchStoreMemo((queryText, searchMode, embedding, searchAliases, searchOptions) =>
+      this.searchStore(queryText, searchMode, embedding, searchAliases, {
+        ...searchOptions,
+        lexicalScoringCache,
+        evaluationAuthorityDriftGuard:
+          EVALUATION_AUTHORITY_DRIFT_GUARD_ENABLED || searchOptions?.evaluationAuthorityDriftGuard,
+        searchDiagnostics: {
+          record(entry) {
+            searchStoreDiagnostics.push(entry);
+          },
+        },
+      }),
+    );
     const serviceScopeChunkBoosts = runtimeProfile.retrieval.scopeBoosts
       ? buildServiceScopeChunkBoosts(
           allSearchChunks,
@@ -2824,7 +3489,25 @@ export class NodeRagService {
     const workflowAliasHints = workflowBriefs.flatMap((brief) => [brief.label, brief.summary]);
     let selectedRetrievalMode: RetrievalMode = profile.preferredRetrievalMode;
     const retrievalStartedAt = Date.now();
-    let { search, scope, ontologyHits, graphExpansionTrace, sectionRouting } = await this.executeSearch(
+    const retrievalPhaseTimings: Record<string, number> = {};
+    const recordRetrievalPhaseTiming = (phase: string, startedAt: number) => {
+      retrievalPhaseTimings[phase] = (retrievalPhaseTimings[phase] ?? 0) + (Date.now() - startedAt);
+    };
+    const formatRetrievalPhaseTimingTrace = () =>
+      Object.entries(retrievalPhaseTimings)
+        .filter(([, value]) => value > 0)
+        .map(([phase, value]) => `${phase}=${value}ms`)
+        .join(', ');
+    const executeSearchStartedAt = Date.now();
+    let {
+      search,
+      scope,
+      ontologyHits,
+      graphExpansionTrace,
+      sectionRouting,
+      subSearchLatencyMs,
+      plannerTrace: searchPlannerTrace,
+    } = await this.executeSearch(
       mode,
       normalized.normalizedQuery,
       queryEmbedding,
@@ -2839,20 +3522,32 @@ export class NodeRagService {
         priorityPolicyName,
         evaluationLinked,
         selectedServiceScopes,
+        searchMemo,
+        lexicalScoringCache,
       },
     );
+    recordRetrievalPhaseTiming('execute-search', executeSearchStartedAt);
+    if (Object.keys(subSearchLatencyMs).length > 0) {
+      plannerTrace.push({
+        step: 'sub-search-latency',
+        detail: formatSubSearchLatencyTrace(subSearchLatencyMs),
+      });
+    }
+    plannerTrace.push(...searchPlannerTrace);
     const workflowFacetEvidenceCandidates: SearchCandidate[] = [];
     if (workflowFacetClaims.length > 0) {
+      const workflowFacetStartedAt = Date.now();
       const retrievalPriorityPolicy = INTENT_PRIORITY_MATRIX[retrievalPriorityClass];
       const facetCandidates: SearchCandidate[] = [];
       for (const claim of workflowFacetClaims) {
         const facetAliases = uniqueNonEmptyLines([...aliases, ...workflowAliasHints, ...claim.supportAnchors]);
-        const facetSearch = await this.searchStore(
+        const facetSearch = await searchMemo.search(
           buildWorkflowFacetQuery(normalized.normalizedQuery, claim, serviceScopeContext),
           mode,
           null,
           facetAliases,
           {
+            searchDiagnosticStage: 'workflow-facet',
             documentScoreBoosts: workflowBoosts,
             chunkScoreBoosts: serviceScopeChunkBoosts,
             excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
@@ -2876,10 +3571,20 @@ export class NodeRagService {
           detail: `${facetCandidates.length} candidates across ${workflowFacetClaims.length} facets`,
         });
       }
+      recordRetrievalPhaseTiming('workflow-facet', workflowFacetStartedAt);
     }
 
-    const procedureAspectQueries = buildProcedureAspectQueries(normalized.normalizedQuery).slice(0, 5);
+    const procedureAspectQueries = shouldExpandProcedureAspectQueries({
+      query: normalized.normalizedQuery,
+      confidence: search.confidence,
+      evidenceCount: search.evidence.length,
+      uniqueEvidenceDocumentCount: new Set(search.evidence.map((item) => item.documentId)).size,
+      enumerationIntent: search.enumerationIntent,
+    })
+      ? buildProcedureAspectQueries(normalized.normalizedQuery).slice(0, 5)
+      : [];
     if (procedureAspectQueries.length > 0) {
+      const procedureAspectStartedAt = Date.now();
       const mergedEvidence = new Map(search.evidence.map((item) => [item.id, item]));
       const mergedCandidates = new Map(search.fusedCandidates.map((item) => [item.id, item]));
       const uniqueDocumentCountBefore = new Set(search.evidence.map((item) => item.documentId)).size;
@@ -2901,6 +3606,7 @@ export class NodeRagService {
           priorityPolicyName,
           evaluationLinked,
           selectedServiceScopes,
+          searchMemo,
         });
 
         aspectSearch.search.evidence.slice(0, 4).forEach((item) => {
@@ -2942,6 +3648,7 @@ export class NodeRagService {
         step: 'procedure-aspect-union',
         detail: `${procedureAspectQueries.length} aspects, docs ${uniqueDocumentCountBefore}->${uniqueDocumentCountAfter}`,
       });
+      recordRetrievalPhaseTiming('procedure-aspect', procedureAspectStartedAt);
     }
 
     const subquestions: string[] = [];
@@ -2953,6 +3660,7 @@ export class NodeRagService {
       profile.preferredRetrievalMode !== 'local' &&
       (search.confidence === 'low' || search.evidence.length < 2 || (search.mismatchSignals ?? []).length > 0)
     ) {
+      const driftRefineStartedAt = Date.now();
       const refined = buildDriftSubquestions(this.brain, normalized.normalizedQuery, profile, mode);
       subquestions.push(...refined);
       plannerTrace.push({ step: 'drift-refine', detail: refined.length > 0 ? refined.join(' | ') : 'no-subquestions' });
@@ -2977,6 +3685,7 @@ export class NodeRagService {
           priorityPolicyName,
           evaluationLinked,
           selectedServiceScopes,
+          searchMemo,
         });
 
         refinedSearch.search.evidence.forEach((item) => {
@@ -3010,6 +3719,7 @@ export class NodeRagService {
           .slice(0, Math.max(search.evidence.length, 18)),
       };
       selectedRetrievalMode = refined.length > 0 ? 'drift-refine' : selectedRetrievalMode;
+      recordRetrievalPhaseTiming('drift-refine', driftRefineStartedAt);
     }
 
     const shouldAttemptFallback =
@@ -3043,8 +3753,10 @@ export class NodeRagService {
           detail: 'triggered-but-no-fallback-result',
         });
       }
+      recordRetrievalPhaseTiming('law-fallback', fallbackStartedAt);
     }
 
+    const postSearchGatesStartedAt = Date.now();
     search = applyOriginalFocusGate(search, normalized.normalizedQuery, aliases);
     search = prioritizeConcreteFocusEvidence(search, [
       normalized.normalizedQuery,
@@ -3074,7 +3786,9 @@ export class NodeRagService {
     if (workflowFacetClaims.length > 0) {
       search = promoteWorkflowFacetEvidence(search, workflowFacetClaims, search.evidence);
     }
+    recordRetrievalPhaseTiming('post-search-gates', postSearchGatesStartedAt);
 
+    const evidenceAssemblyStartedAt = Date.now();
     const expandedEvidence = filterEvidenceByServiceScopes(
       expandEvidenceWithNeighbors(search.evidence, allSearchChunks),
       selectedServiceScopes,
@@ -3097,6 +3811,8 @@ export class NodeRagService {
         [...workflowFacetEvidenceCandidates, ...search.evidence, ...evidence],
       ).evidence;
     }
+    recordRetrievalPhaseTiming('evidence-assembly', evidenceAssemblyStartedAt);
+    const semanticValidationStartedAt = Date.now();
     const retrievalValidation = evaluateRetrievalValidation({
       semanticFrame: queryProfile.semanticFrame,
       evidence,
@@ -3139,16 +3855,33 @@ export class NodeRagService {
         groundingGatePassed: false,
       };
     }
+    recordRetrievalPhaseTiming('semantic-validation', semanticValidationStartedAt);
+    const contextAssemblyStartedAt = Date.now();
     const basisCoverage = buildBasisCoverage(evidence);
+    const smallToBigContext = buildSmallToBigContextExpansion(allSearchChunks, evidence, {
+      maxContextChunks: SMALL_TO_BIG_CONTEXT_MAX_CHUNKS,
+      maxContextChars: SMALL_TO_BIG_CONTEXT_MAX_CHARS,
+      maxContextCharsByAnchorSourceRole: {
+        primary_evaluation: SMALL_TO_BIG_CONTEXT_PRIMARY_MAX_CHARS,
+        support_reference: SMALL_TO_BIG_CONTEXT_SUPPORT_MAX_CHARS,
+      },
+      maxContextChunkChars: SMALL_TO_BIG_CONTEXT_MAX_CHUNK_CHARS,
+      maxContextChunkCharsBySourceRole: {
+        primary_evaluation: SMALL_TO_BIG_CONTEXT_PRIMARY_CHUNK_CHARS,
+        support_reference: SMALL_TO_BIG_CONTEXT_SUPPORT_CHUNK_CHARS,
+      },
+    });
     const knowledgeContext = [
       serviceScopeContext,
       buildExpertKnowledgeContext({
         evidence,
+        contextOnlyChunks: smallToBigContext.contextChunks,
         workflowBriefs,
       }),
     ]
       .filter(Boolean)
       .join('\n\n');
+    recordRetrievalPhaseTiming('context-assembly', contextAssemblyStartedAt);
     plannerTrace.push({
       step: 'workflow-events',
       detail: profile.workflowEvents.length > 0 ? summarizeWorkflowEvents(this.brain, profile.workflowEvents).join(', ') : 'none',
@@ -3164,6 +3897,37 @@ export class NodeRagService {
           ? retrievalValidation.validationIssues.map((issue) => `${issue.severity}:${issue.code}`).join(', ')
           : 'clean',
     });
+    plannerTrace.push({
+      step: 'small-to-big-context',
+      detail: `candidates=${smallToBigContext.candidateWindowCount}, included=${smallToBigContext.includedWindowCount}, skipped=${smallToBigContext.skippedByGuardCount}, skippedByMaxChunks=${smallToBigContext.skippedByMaxChunksCount}, skippedByMaxChars=${smallToBigContext.skippedByMaxCharsCount}, chars=${smallToBigContext.includedCharCount}, maxChars=${smallToBigContext.effectiveMaxContextChars}`,
+    });
+    const searchMemoStats = searchMemo.getStats();
+    if (searchMemoStats.hits > 0 || searchMemoStats.misses > 0) {
+      plannerTrace.push({
+        step: 'search-memo',
+        detail: `hits=${searchMemoStats.hits}, misses=${searchMemoStats.misses}, size=${searchMemoStats.size}`,
+      });
+    }
+    const lexicalScoringCacheStats = lexicalScoringCache.getStats();
+    if (lexicalScoringCacheStats.hits > 0 || lexicalScoringCacheStats.misses > 0) {
+      plannerTrace.push({
+        step: 'lexical-score-cache',
+        detail: `hits=${lexicalScoringCacheStats.hits}, misses=${lexicalScoringCacheStats.misses}, size=${lexicalScoringCacheStats.size}`,
+      });
+    }
+    if (searchStoreDiagnostics.length > 0) {
+      plannerTrace.push({
+        step: 'search-store-latency',
+        detail: formatSearchStoreLatencyTrace(searchStoreDiagnostics),
+      });
+    }
+    const retrievalPhaseTimingTrace = formatRetrievalPhaseTimingTrace();
+    if (retrievalPhaseTimingTrace) {
+      plannerTrace.push({
+        step: 'retrieval-phase-timing',
+        detail: retrievalPhaseTimingTrace,
+      });
+    }
 
     const result: RetrievalPlanResult = {
       normalizedQuery: normalized.normalizedQuery,
@@ -3357,20 +4121,27 @@ export class NodeRagService {
       if (activeProfile.cache.answer) {
         const cached = this.runtimeCache.get<GroundedChatResponse>('answer', answerCacheKey);
         if (cached) {
+          const retrieval = {
+            ...cached.retrieval,
+            cacheHits: {
+              ...cached.retrieval.cacheHits,
+              answer: true,
+            },
+            latency: {
+              ...cached.retrieval.latency,
+              cacheLookupMs: Date.now() - startedAt,
+              totalMs: Date.now() - startedAt,
+            },
+          };
+          this.rememberOperationalRetrieval(
+            retrieval,
+            latestUserMessage || cached.retrieval.normalizedQuery,
+            request.mode,
+            cached.search.confidence,
+          );
           return {
             ...cached,
-            retrieval: {
-              ...cached.retrieval,
-              cacheHits: {
-                ...cached.retrieval.cacheHits,
-                answer: true,
-              },
-              latency: {
-                ...cached.retrieval.latency,
-                cacheLookupMs: Date.now() - startedAt,
-                totalMs: Date.now() - startedAt,
-              },
-            },
+            retrieval,
           };
         }
       }
@@ -3431,6 +4202,12 @@ export class NodeRagService {
         },
       );
       this.rememberRetrieval(retrieval, latestUserMessage || planned.normalizedQuery);
+      this.rememberOperationalRetrieval(
+        retrieval,
+        latestUserMessage || planned.normalizedQuery,
+        request.mode,
+        planned.search.confidence,
+      );
 
       const keyIssueDate = planned.evidence.find((item) => item.effectiveDate)?.effectiveDate;
       const citations = dedupeCitations(planned.evidence);

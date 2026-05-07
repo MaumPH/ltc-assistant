@@ -12,6 +12,7 @@ import type {
   SearchCandidate,
   SearchRun,
   SectionRoutingDecision,
+  SourceRole,
   StructuredChunk,
 } from './ragTypes';
 
@@ -125,6 +126,165 @@ export function buildChunkWindowRef(
   };
 }
 
+export interface SmallToBigContextExpansionOptions {
+  maxContextChunks?: number;
+  maxContextChars?: number;
+  maxContextCharsByAnchorSourceRole?: Partial<Record<SourceRole, number>>;
+  maxContextChunkChars?: number;
+  maxContextChunkCharsBySourceRole?: Partial<Record<SourceRole, number>>;
+}
+
+export interface SmallToBigContextExpansion {
+  contextChunks: StructuredChunk[];
+  candidateWindowCount: number;
+  includedWindowCount: number;
+  skippedByGuardCount: number;
+  skippedByMaxChunksCount: number;
+  skippedByMaxCharsCount: number;
+  includedCharCount: number;
+  effectiveMaxContextChars: number;
+}
+
+export function buildSmallToBigContextExpansion(
+  allChunks: StructuredChunk[],
+  evidence: StructuredChunk[],
+  options: SmallToBigContextExpansionOptions = {},
+): SmallToBigContextExpansion {
+  const maxContextChunks = options.maxContextChunks ?? 6;
+  const maxContextChars = getSmallToBigMaxContextChars(evidence, options.maxContextChars ?? 2400, options.maxContextCharsByAnchorSourceRole);
+  const maxContextChunkChars = options.maxContextChunkChars ?? 700;
+  const byParentSection = new Map<string, StructuredChunk[]>();
+  const evidenceIds = new Set(evidence.map((chunk) => chunk.id));
+  const includedIds = new Set<string>();
+  const candidateRecords: Array<{
+    chunk: StructuredChunk;
+    anchor: StructuredChunk;
+    relationOrder: number;
+    evidenceOrder: number;
+  }> = [];
+  const contextChunks: StructuredChunk[] = [];
+  let skippedByGuardCount = 0;
+  let skippedByMaxChunksCount = 0;
+  let skippedByMaxCharsCount = 0;
+  let includedCharCount = 0;
+
+  for (const chunk of allChunks) {
+    const key = `${chunk.documentId}:${chunk.parentSectionId}`;
+    const current = byParentSection.get(key) ?? [];
+    current.push(chunk);
+    byParentSection.set(key, current);
+  }
+
+  for (let evidenceOrder = 0; evidenceOrder < evidence.length; evidenceOrder += 1) {
+    const chunk = evidence[evidenceOrder];
+    const key = `${chunk.documentId}:${chunk.parentSectionId}`;
+    const siblings = (byParentSection.get(key) ?? []).slice().sort((left, right) => left.windowIndex - right.windowIndex);
+    const index = siblings.findIndex((item) => item.id === chunk.id);
+    if (index < 0) continue;
+
+    for (const [relationOrder, neighbor] of [siblings[index - 1], siblings[index + 1]].entries()) {
+      if (!neighbor || evidenceIds.has(neighbor.id) || includedIds.has(neighbor.id)) continue;
+      candidateRecords.push({ chunk: neighbor, anchor: chunk, relationOrder, evidenceOrder });
+      includedIds.add(neighbor.id);
+    }
+  }
+
+  candidateRecords.sort((left, right) => {
+    const priorityDiff = getSmallToBigContextPriority(right) - getSmallToBigContextPriority(left);
+    if (priorityDiff !== 0) return priorityDiff;
+    if (left.evidenceOrder !== right.evidenceOrder) return left.evidenceOrder - right.evidenceOrder;
+    return left.relationOrder - right.relationOrder;
+  });
+
+  for (const record of candidateRecords) {
+    const roleMaxContextChunkChars = options.maxContextChunkCharsBySourceRole?.[record.chunk.sourceRole] ?? maxContextChunkChars;
+    const contextChunk = trimSmallToBigContextChunk(record.chunk, roleMaxContextChunkChars);
+    const nextCharCount = includedCharCount + contextChunk.text.length;
+    if (contextChunks.length >= maxContextChunks) {
+      skippedByGuardCount += 1;
+      skippedByMaxChunksCount += 1;
+      continue;
+    }
+    if (nextCharCount > maxContextChars) {
+      skippedByGuardCount += 1;
+      skippedByMaxCharsCount += 1;
+      continue;
+    }
+    contextChunks.push(contextChunk);
+    includedCharCount = nextCharCount;
+  }
+
+  return {
+    contextChunks,
+    candidateWindowCount: candidateRecords.length,
+    includedWindowCount: contextChunks.length,
+    skippedByGuardCount,
+    skippedByMaxChunksCount,
+    skippedByMaxCharsCount,
+    includedCharCount,
+    effectiveMaxContextChars: maxContextChars,
+  };
+}
+
+function getSmallToBigMaxContextChars(
+  evidence: StructuredChunk[],
+  baseMaxContextChars: number,
+  maxContextCharsByAnchorSourceRole?: Partial<Record<SourceRole, number>>,
+): number {
+  if (!maxContextCharsByAnchorSourceRole) return baseMaxContextChars;
+  return evidence.reduce((maxChars, chunk) => {
+    const roleMaxChars = maxContextCharsByAnchorSourceRole[chunk.sourceRole];
+    return roleMaxChars && roleMaxChars > maxChars ? roleMaxChars : maxChars;
+  }, baseMaxContextChars);
+}
+
+function trimSmallToBigContextChunk(chunk: StructuredChunk, maxChars: number): StructuredChunk {
+  if (maxChars <= 0 || chunk.text.length <= maxChars) return chunk;
+  const trimmedText = `${chunk.text.slice(0, Math.max(0, maxChars)).trimEnd()}...`;
+  return {
+    ...chunk,
+    text: trimmedText,
+    textPreview: trimmedText.length > 180 ? `${trimmedText.slice(0, 177).trimEnd()}...` : trimmedText,
+    searchText: trimmedText,
+  };
+}
+
+function getChunkNumericScore(chunk: StructuredChunk, key: string): number {
+  const value = (chunk as unknown as Record<string, unknown>)[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function getSourceRolePriority(chunk: StructuredChunk): number {
+  switch (chunk.sourceRole) {
+    case 'primary_evaluation':
+      return 40;
+    case 'support_reference':
+      return 20;
+    case 'routing_summary':
+      return 15;
+    default:
+      return 10;
+  }
+}
+
+function getChunkPolicyPriority(chunk: StructuredChunk): number {
+  if (chunk.matchedLabels.includes('chunk-policy:evaluation')) return 12;
+  if (chunk.matchedLabels.includes('chunk-policy:law')) return 10;
+  if (chunk.matchedLabels.includes('chunk-protected:checklist')) return 8;
+  if (chunk.matchedLabels.includes('chunk-protected:group')) return 6;
+  if (chunk.matchedLabels.includes('chunk-policy:manual')) return 4;
+  return 0;
+}
+
+function getSmallToBigContextPriority(record: { chunk: StructuredChunk; anchor: StructuredChunk }): number {
+  return (
+    getSourceRolePriority(record.chunk) +
+    getSourceRolePriority(record.anchor) +
+    getChunkPolicyPriority(record.chunk) +
+    getChunkNumericScore(record.anchor, 'rerankScore') / 10
+  );
+}
+
 export function uniqueDocumentPaths(chunks: Array<Pick<StructuredChunk, 'documentId' | 'path'>>): string[] {
   const seen = new Set<string>();
   const paths: string[] = [];
@@ -202,11 +362,24 @@ export function injectEvidenceCandidates(search: SearchRun, candidates: Array<Se
   if (uniqueCandidates.length === 0) return search;
 
   const topScore = search.fusedCandidates[0]?.rerankScore ?? uniqueCandidates[0].rerankScore;
+  const strongSupportLookupHit = search.fusedCandidates.find(
+    (candidate) =>
+      candidate.sourceRole === 'support_reference' &&
+      (candidate.matchedTerms.includes('document-title') ||
+        (candidate.matchedTerms.includes('document-lookup-source') &&
+          ['comparison', 'guide', 'manual', 'qa'].includes(candidate.sourceType))) &&
+      candidate.exactScore >= 80,
+  );
   const promotedCandidates = uniqueCandidates.map((candidate, index) =>
     candidate.sourceRole === 'primary_evaluation' || candidate.sourceRole === 'support_reference'
       ? {
           ...candidate,
-          rerankScore: Math.max(candidate.rerankScore, topScore + 1 - index * 0.1),
+          rerankScore: Math.max(
+            candidate.rerankScore,
+            strongSupportLookupHit && candidate.documentId !== strongSupportLookupHit.documentId
+              ? strongSupportLookupHit.rerankScore - 0.1 - index * 0.1
+              : topScore + 1 - index * 0.1,
+          ),
           matchedTerms: Array.from(new Set([...candidate.matchedTerms, 'routing-expanded-primary'])),
         }
       : candidate,
@@ -501,6 +674,11 @@ export function buildRetrievalStageTrace(
       `exact=${search.exactCandidates.length}`,
       `lexical=${search.lexicalCandidates.length}`,
       `vector=${search.vectorCandidates.length}`,
+      ...(search.exactCandidates.length > 0 ? [`exact-top=${search.exactCandidates[0].docTitle}`] : []),
+      ...(search.fusedCandidates.length > 0 ? [`fusion-top=${search.fusedCandidates[0].docTitle}`] : []),
+      ...(search.fusedCandidates.some((candidate) => candidate.matchedTerms.includes('evaluation-authority-drift-guard'))
+        ? ['evaluation-authority-drift-guard=enabled']
+        : []),
     ],
   });
   stages.push({

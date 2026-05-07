@@ -224,6 +224,7 @@ RAG_GENERATION_MODE=user
 | `npm run rag:compiled` | 구조화 문서 페이지 생성 점검 |
 | `npm run rag:test` | RAG 회귀 테스트 |
 | `npm run rag:bench` | golden benchmark 실행 |
+| `npm run rag:baseline` | Phase 2 final benchmark archive 기준선 검사 |
 | `npm run rag:eval` | 평가 trial 실행 |
 | `npm run ontology:generate` | 온톨로지 후보 생성 |
 
@@ -301,9 +302,20 @@ RAG_GENERATION_MODE=user
 ```bash
 npm run rag:test
 npm run rag:bench
+npm run rag:baseline
 ```
 
 `benchmarks/golden-cases.json`에는 기대 문서, 금지 validation code, 최소 supported claim 수 같은 게이트가 들어갑니다.
+
+Phase 2 final 기준선은 `benchmarks/results/rag-benchmark-2026-05-06T14-46-10-399Z.json`입니다. CI는 이 archive가 Top-3/Top-5 96.3%, evidence/citation/validation/claim coverage 100%, retrieval latency avg 120ms 이하 및 p95 250ms 이하 기준을 만족하는지 빠르게 확인합니다. 전체 benchmark를 새로 생성해야 할 때는 `npm run rag:bench`, `npm run rag:quality-report`, `npm run rag:benchmark-diagnostics`를 수동으로 실행한 뒤 새 archive를 검토합니다.
+
+`RAG_ENABLE_EVALUATION_AUTHORITY_DRIFT_GUARD`는 기본 off인 실험 flag입니다. 잔여 authority drift를 조사할 때만 benchmark/admin diagnostics 용도로 켜고, 일반 사용자-facing retrieval trace에는 세부 drift 진단을 노출하지 않습니다.
+
+운영 중 residual ranking을 다시 볼 때는 관리자 API `GET /api/admin/rag/retrieval-log`를 확인합니다. 사람이 반복 signal을 검토할 때는 `GET /api/admin/rag/retrieval-log/report?limit=20`를 사용합니다. report limit은 최대 100으로 제한됩니다. 이 로그는 서버 메모리에만 유지되며 재시작 시 초기화됩니다. 질문 원문 전체 대신 hash와 PII-masked preview, Top-5 문서, 최종 evidence 문서, validation issue, unsupported claim, fallback, rank/evidence gap 같은 review signal만 남깁니다. 같은 normalized query hash에서 ranking-relevant signal이 2회 이상 반복되는 경우에만 `review_ranking`으로 표시하고, `evaluation-employee-rights-education`, `evaluation-function-training`류 ranking 조정을 다시 검토합니다.
+
+Phase 3 operational review handoff는 [`docs/reports/rag-phase3-operational-review-handoff.md`](docs/reports/rag-phase3-operational-review-handoff.md)에 정리되어 있습니다. 변경 묶음, admin API boundary, privacy boundary, ranking review gate, 남은 risk를 PR/commit review 단위로 확인할 때 이 문서를 기준으로 삼습니다.
+
+관리자 session과 admin-only RAG 운영 API 응답은 `Cache-Control: no-store`를 반환해야 합니다. 운영 로그/report는 원문 질문을 저장하지 않더라도 hash, masked preview, review signal을 포함하므로 브라우저나 프록시 캐시에 남기지 않습니다.
 
 ---
 

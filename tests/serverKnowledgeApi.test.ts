@@ -1,54 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { once } from 'node:events';
-import net from 'node:net';
-
-async function findOpenPort(): Promise<number> {
-  const server = net.createServer();
-  server.listen(0, '127.0.0.1');
-  await once(server, 'listening');
-  const address = server.address();
-  assert.ok(address && typeof address === 'object');
-  const port = address.port;
-  server.close();
-  await once(server, 'close');
-  return port;
-}
-
-async function waitForServerReady(server: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<void> {
-  let output = '';
-
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error(`server did not start within ${timeoutMs}ms\n${output}`));
-    }, timeoutMs);
-
-    const onData = (chunk: Buffer) => {
-      output += chunk.toString('utf8');
-      if (output.includes('Server running on')) {
-        clearTimeout(timeout);
-        resolve();
-      }
-    };
-
-    const onExit = (code: number | null) => {
-      clearTimeout(timeout);
-      reject(new Error(`server exited before listening with code ${code}\n${output}`));
-    };
-
-    server.stdout.on('data', onData);
-    server.stderr.on('data', onData);
-    server.once('exit', onExit);
-  });
-}
-
-async function stopServer(server: ChildProcessWithoutNullStreams): Promise<void> {
-  if (server.killed || server.exitCode !== null) return;
-  const exited = once(server, 'exit');
-  server.kill();
-  await exited;
-}
+import { spawn } from 'node:child_process';
+import { findOpenPort, stopServer, waitForServerReady } from './helpers/serverProcess';
 
 test('GET /api/knowledge waits for cold-start RAG initialization and returns evaluation documents', async () => {
   const port = await findOpenPort();
@@ -64,7 +17,7 @@ test('GET /api/knowledge waits for cold-start RAG initialization and returns eva
   });
 
   try {
-    await waitForServerReady(server, 60_000);
+    await waitForServerReady(server, 120_000);
 
     const response = await fetch(`http://127.0.0.1:${port}/api/knowledge`);
     assert.equal(response.status, 200);

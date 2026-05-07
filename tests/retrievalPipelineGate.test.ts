@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildRagCorpusIndex, deriveFocusTerms, searchCorpus } from '../src/lib/ragEngine';
-import { applyGroundingGate, applyOriginalFocusGate } from '../src/lib/retrievalPipeline';
+import { applyGroundingGate, applyOriginalFocusGate, buildSmallToBigContextExpansion } from '../src/lib/retrievalPipeline';
 import type { SearchCandidate, SearchRun, StructuredChunk } from '../src/lib/ragTypes';
 
 function candidate(overrides: Partial<SearchCandidate> = {}): SearchCandidate {
@@ -184,6 +184,381 @@ test('applyOriginalFocusGate relaxes focus matching for broad procedure queries'
   assert.equal(result.groundingGatePassed, true);
   assert.equal(result.confidence, 'medium');
   assert.deepEqual(result.mismatchSignals, []);
+});
+
+test('buildSmallToBigContextExpansion selects adjacent context windows without mutating evidence', () => {
+  const evidence = chunk({
+    id: 'section-a-1',
+    documentId: 'doc-a',
+    parentSectionId: 'section-a',
+    parentSectionTitle: '절차 섹션',
+    windowIndex: 1,
+    text: '선택된 evidence chunk',
+  });
+  const allChunks = [
+    chunk({
+      id: 'section-a-0',
+      documentId: 'doc-a',
+      parentSectionId: 'section-a',
+      parentSectionTitle: '절차 섹션',
+      windowIndex: 0,
+      text: '앞쪽 context chunk',
+    }),
+    evidence,
+    chunk({
+      id: 'section-a-2',
+      documentId: 'doc-a',
+      parentSectionId: 'section-a',
+      parentSectionTitle: '절차 섹션',
+      windowIndex: 2,
+      text: '뒤쪽 context chunk',
+    }),
+    chunk({
+      id: 'section-b-0',
+      documentId: 'doc-a',
+      parentSectionId: 'section-b',
+      parentSectionTitle: '다른 섹션',
+      windowIndex: 0,
+      text: '다른 parent section chunk',
+    }),
+  ];
+
+  const expansion = buildSmallToBigContextExpansion(allChunks, [evidence], {
+    maxContextChunks: 2,
+    maxContextChars: 1000,
+  });
+
+  assert.deepEqual(expansion.contextChunks.map((item) => item.id), ['section-a-0', 'section-a-2']);
+  assert.equal(expansion.candidateWindowCount, 2);
+  assert.equal(expansion.includedWindowCount, 2);
+  assert.equal(expansion.skippedByGuardCount, 0);
+  assert.equal(expansion.includedCharCount, '앞쪽 context chunk뒤쪽 context chunk'.length);
+  assert.deepEqual([evidence.id], ['section-a-1']);
+});
+
+test('buildSmallToBigContextExpansion reports guard skips when context caps are reached', () => {
+  const evidence = chunk({
+    id: 'section-a-1',
+    documentId: 'doc-a',
+    parentSectionId: 'section-a',
+    windowIndex: 1,
+    text: '선택 evidence',
+  });
+  const allChunks = [
+    chunk({
+      id: 'section-a-0',
+      documentId: 'doc-a',
+      parentSectionId: 'section-a',
+      windowIndex: 0,
+      text: '앞쪽 긴 context chunk',
+    }),
+    evidence,
+    chunk({
+      id: 'section-a-2',
+      documentId: 'doc-a',
+      parentSectionId: 'section-a',
+      windowIndex: 2,
+      text: '뒤쪽 긴 context chunk',
+    }),
+  ];
+
+  const expansion = buildSmallToBigContextExpansion(allChunks, [evidence], {
+    maxContextChunks: 1,
+    maxContextChars: 1000,
+  });
+
+  assert.deepEqual(expansion.contextChunks.map((item) => item.id), ['section-a-0']);
+  assert.equal(expansion.candidateWindowCount, 2);
+  assert.equal(expansion.includedWindowCount, 1);
+  assert.equal(expansion.skippedByGuardCount, 1);
+  assert.equal(expansion.skippedByMaxChunksCount, 1);
+  assert.equal(expansion.skippedByMaxCharsCount, 0);
+});
+
+test('buildSmallToBigContextExpansion prioritizes stronger neighbor context when caps are tight', () => {
+  const lowPriorityEvidence = candidate({
+    id: 'low-evidence',
+    documentId: 'doc-low',
+    parentSectionId: 'section-low',
+    parentSectionTitle: '보조 섹션',
+    sourceRole: 'support_reference',
+    rerankScore: 10,
+    windowIndex: 1,
+  });
+  const highPriorityEvidence = candidate({
+    id: 'high-evidence',
+    documentId: 'doc-high',
+    parentSectionId: 'section-high',
+    parentSectionTitle: '평가 섹션',
+    sourceRole: 'primary_evaluation',
+    rerankScore: 90,
+    windowIndex: 1,
+  });
+  const allChunks = [
+    chunk({
+      id: 'low-neighbor',
+      documentId: 'doc-low',
+      parentSectionId: 'section-low',
+      parentSectionTitle: '보조 섹션',
+      sourceRole: 'support_reference',
+      windowIndex: 0,
+      text: '보조 context chunk',
+    }),
+    lowPriorityEvidence,
+    chunk({
+      id: 'high-neighbor',
+      documentId: 'doc-high',
+      parentSectionId: 'section-high',
+      parentSectionTitle: '평가 섹션',
+      sourceRole: 'primary_evaluation',
+      windowIndex: 0,
+      text: '평가 원문 context chunk',
+      matchedLabels: ['chunk-policy:evaluation'],
+    }),
+    highPriorityEvidence,
+  ];
+
+  const expansion = buildSmallToBigContextExpansion(allChunks, [lowPriorityEvidence, highPriorityEvidence], {
+    maxContextChunks: 1,
+    maxContextChars: 1000,
+  });
+
+  assert.deepEqual(expansion.contextChunks.map((item) => item.id), ['high-neighbor']);
+  assert.equal(expansion.candidateWindowCount, 2);
+  assert.equal(expansion.includedWindowCount, 1);
+  assert.equal(expansion.skippedByGuardCount, 1);
+  assert.equal(expansion.skippedByMaxChunksCount, 1);
+});
+
+test('buildSmallToBigContextExpansion trims long context-only neighbors before applying char caps', () => {
+  const longText = '긴 context 문장 '.repeat(120);
+  const evidence = chunk({
+    id: 'trim-evidence',
+    documentId: 'doc-trim',
+    parentSectionId: 'section-trim',
+    windowIndex: 1,
+    text: '선택 evidence',
+  });
+  const longNeighbor = chunk({
+    id: 'trim-neighbor',
+    documentId: 'doc-trim',
+    parentSectionId: 'section-trim',
+    windowIndex: 0,
+    text: longText,
+  });
+
+  const expansion = buildSmallToBigContextExpansion([longNeighbor, evidence], [evidence], {
+    maxContextChunks: 1,
+    maxContextChars: 260,
+    maxContextChunkChars: 200,
+  });
+
+  assert.equal(expansion.candidateWindowCount, 1);
+  assert.equal(expansion.includedWindowCount, 1);
+  assert.equal(expansion.skippedByGuardCount, 0);
+  assert.equal(expansion.contextChunks[0]?.id, 'trim-neighbor');
+  assert.ok((expansion.contextChunks[0]?.text.length ?? 0) <= 203);
+  assert.equal(longNeighbor.text, longText);
+});
+
+test('buildSmallToBigContextExpansion reports max char skip reason separately', () => {
+  const evidence = chunk({
+    id: 'char-evidence',
+    documentId: 'doc-char',
+    parentSectionId: 'section-char',
+    windowIndex: 1,
+    text: '선택 evidence',
+  });
+  const neighbor = chunk({
+    id: 'char-neighbor',
+    documentId: 'doc-char',
+    parentSectionId: 'section-char',
+    windowIndex: 0,
+    text: '긴 context '.repeat(100),
+  });
+
+  const expansion = buildSmallToBigContextExpansion([neighbor, evidence], [evidence], {
+    maxContextChunks: 2,
+    maxContextChars: 100,
+    maxContextChunkChars: 300,
+  });
+
+  assert.equal(expansion.candidateWindowCount, 1);
+  assert.equal(expansion.includedWindowCount, 0);
+  assert.equal(expansion.skippedByGuardCount, 1);
+  assert.equal(expansion.skippedByMaxChunksCount, 0);
+  assert.equal(expansion.skippedByMaxCharsCount, 1);
+});
+
+test('buildSmallToBigContextExpansion applies source-role specific context excerpt caps', () => {
+  const primaryEvidence = chunk({
+    id: 'primary-evidence',
+    documentId: 'doc-primary',
+    parentSectionId: 'section-primary',
+    sourceRole: 'primary_evaluation',
+    windowIndex: 1,
+    text: '선택 evidence',
+  });
+  const supportEvidence = chunk({
+    id: 'support-evidence',
+    documentId: 'doc-support',
+    parentSectionId: 'section-support',
+    sourceRole: 'support_reference',
+    windowIndex: 1,
+    text: '선택 evidence',
+  });
+  const primaryNeighbor = chunk({
+    id: 'primary-neighbor',
+    documentId: 'doc-primary',
+    parentSectionId: 'section-primary',
+    sourceRole: 'primary_evaluation',
+    windowIndex: 0,
+    text: '평가 원문 '.repeat(200),
+  });
+  const supportNeighbor = chunk({
+    id: 'support-neighbor',
+    documentId: 'doc-support',
+    parentSectionId: 'section-support',
+    sourceRole: 'support_reference',
+    windowIndex: 0,
+    text: '보조 자료 '.repeat(200),
+  });
+
+  const expansion = buildSmallToBigContextExpansion(
+    [primaryNeighbor, primaryEvidence, supportNeighbor, supportEvidence],
+    [primaryEvidence, supportEvidence],
+    {
+      maxContextChunks: 2,
+      maxContextChars: 2000,
+      maxContextChunkChars: 700,
+      maxContextChunkCharsBySourceRole: {
+        primary_evaluation: 900,
+        support_reference: 300,
+      },
+    },
+  );
+
+  const primaryContext = expansion.contextChunks.find((item) => item.id === 'primary-neighbor');
+  const supportContext = expansion.contextChunks.find((item) => item.id === 'support-neighbor');
+
+  assert.ok((primaryContext?.text.length ?? 0) > 700);
+  assert.ok((primaryContext?.text.length ?? 0) <= 903);
+  assert.ok((supportContext?.text.length ?? 0) <= 303);
+});
+
+test('buildSmallToBigContextExpansion applies source-role specific total char budgets for authority anchors', () => {
+  const primaryEvidence = chunk({
+    id: 'primary-budget-evidence',
+    documentId: 'doc-primary-budget',
+    parentSectionId: 'section-primary-budget',
+    sourceRole: 'primary_evaluation',
+    windowIndex: 1,
+    text: '선택 evidence',
+  });
+  const previousNeighbor = chunk({
+    id: 'primary-budget-previous',
+    documentId: 'doc-primary-budget',
+    parentSectionId: 'section-primary-budget',
+    sourceRole: 'primary_evaluation',
+    windowIndex: 0,
+    text: '평가 이전 문맥 '.repeat(60),
+  });
+  const nextNeighbor = chunk({
+    id: 'primary-budget-next',
+    documentId: 'doc-primary-budget',
+    parentSectionId: 'section-primary-budget',
+    sourceRole: 'primary_evaluation',
+    windowIndex: 2,
+    text: '평가 다음 문맥 '.repeat(60),
+  });
+
+  const expansion = buildSmallToBigContextExpansion([previousNeighbor, primaryEvidence, nextNeighbor], [primaryEvidence], {
+    maxContextChunks: 2,
+    maxContextChars: 900,
+    maxContextCharsByAnchorSourceRole: {
+      primary_evaluation: 1500,
+    },
+    maxContextChunkChars: 700,
+  });
+
+  assert.deepEqual(expansion.contextChunks.map((item) => item.id), ['primary-budget-previous', 'primary-budget-next']);
+  assert.equal(expansion.includedWindowCount, 2);
+  assert.equal(expansion.skippedByGuardCount, 0);
+  assert.ok(expansion.includedCharCount > 900);
+  assert.ok(expansion.includedCharCount <= 1500);
+  assert.equal(expansion.effectiveMaxContextChars, 1500);
+});
+
+test('searchCorpus caps ordinary lexical and fusion candidates for latency-sensitive lookups', () => {
+  const query = 'latency cap policy';
+  const chunks = Array.from({ length: 40 }, (_, index) =>
+    chunk({
+      id: `latency-cap-${index + 1}`,
+      documentId: `latency-doc-${index + 1}`,
+      parentSectionId: `latency-section-${index + 1}`,
+      parentSectionTitle: `Latency section ${index + 1}`,
+      text: `latency cap policy chunk ${index + 1}`,
+    }),
+  );
+
+  const result = searchCorpus({
+    index: buildRagCorpusIndex(chunks),
+    query,
+    mode: 'integrated',
+    queryEmbedding: null,
+  });
+
+  assert.equal(result.lexicalCandidates.length, 24);
+  assert.equal(result.fusedCandidates.length, 24);
+  assert.equal(result.stageTrace?.find((stage) => stage.stage === 'lexical_candidates')?.outputCount, 24);
+  assert.equal(result.stageTrace?.find((stage) => stage.stage === 'fusion')?.outputCount, 24);
+});
+
+test('searchCorpus applies lexical candidate budget with rare query terms first', () => {
+  const target = chunk({
+    id: 'rare-target',
+    documentId: 'rare-target-doc',
+    parentSectionId: 'rare-target-section',
+    parentSectionTitle: 'Rare target section',
+    text: 'common common raretopic precise policy evidence',
+  });
+  const distractors = Array.from({ length: 40 }, (_, index) =>
+    chunk({
+      id: `common-distractor-${index}`,
+      documentId: `common-distractor-doc-${index}`,
+      parentSectionId: `common-distractor-section-${index}`,
+      parentSectionTitle: `Common distractor ${index}`,
+      text: 'common common general operations policy',
+    }),
+  );
+
+  const result = searchCorpus({
+    index: buildRagCorpusIndex([...distractors, target]),
+    query: 'common raretopic',
+    mode: 'integrated',
+    queryEmbedding: null,
+    options: {
+      maxLexicalCandidateChunks: 6,
+    },
+  });
+
+  assert.ok(result.lexicalCandidates.some((candidate) => candidate.documentId === 'rare-target-doc'));
+  assert.ok(result.lexicalCandidates.length <= 6);
+});
+
+test('buildRagCorpusIndex precomputes lexical term frequencies for retrieval reuse', () => {
+  const index = buildRagCorpusIndex([
+    chunk({
+      id: 'tf-cache',
+      text: 'latency latency cap policy',
+    }),
+  ]);
+
+  assert.equal(index.tokenCountMap.get('tf-cache'), 3);
+  assert.equal(index.tfMap.get('tf-cache')?.get('latency'), 1);
+  assert.equal(index.tfMap.get('tf-cache')?.get('cap'), 1);
+  assert.ok(index.postingMap.get('latency')?.has('tf-cache'));
+  assert.ok(index.chunkById.get('tf-cache'));
 });
 
 test('searchCorpus relaxes per-document cap for enumeration queries', () => {

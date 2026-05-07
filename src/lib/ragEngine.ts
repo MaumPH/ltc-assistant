@@ -1,6 +1,6 @@
 import { compareIsoDateDesc, detectIntent, extractArticleNo, tokenize } from './ragMetadata';
 import { expandCompoundTerms } from './koreanCompounds';
-import { scoreEntityAnchorText } from './entityAnchors';
+import { ENTITY_ANCHORS, scoreEntityAnchorText } from './entityAnchors';
 import { hasQualifierSignal } from './qualifierPatterns';
 import { buildQueryExpansionProfile } from './queryIntent';
 import { scoreCandidateByPriority, type RetrievalPriorityPolicy } from './retrievalPriority';
@@ -15,6 +15,7 @@ import type {
   SemanticFrame,
   RetrievalStageTrace,
   SearchCandidate,
+  SearchCorpusPhaseTimings,
   SearchRun,
   ServiceScopeId,
   SourceRole,
@@ -23,8 +24,62 @@ import type {
 
 export interface RagCorpusIndex {
   chunks: StructuredChunk[];
+  chunkById: Map<string, StructuredChunk>;
+  chunkOrdinalMap: Map<string, number>;
+  chunksByDocumentId: Map<string, StructuredChunk[]>;
+  documentLookupEntries: RagDocumentLookupEntry[];
+  exactMetadataByChunkId: Map<string, RagExactChunkMetadata>;
+  entityAnchorScoresByChunkId: Map<string, Map<string, number>>;
+  entityAnchorPostingMap: Map<string, string[]>;
   tokenMap: Map<string, string[]>;
+  tokenCountMap: Map<string, number>;
+  tfMap: Map<string, Map<string, number>>;
+  postingMap: Map<string, Set<string>>;
   dfMap: Map<string, number>;
+}
+
+export interface RagDocumentLookupEntry {
+  documentId: string;
+  representative: StructuredChunk;
+  titleCompact: string;
+  fileNameCompact: string;
+  pathCompact: string;
+}
+
+interface RagExactChunkMetadata {
+  titleCompact: string;
+  fileNameCompact: string;
+  sectionCompact: string;
+}
+
+export type LexicalScoringCacheEntry = {
+  lexicalScore: number;
+  matchedTerms: string[];
+} | null;
+
+export interface LexicalScoringCache {
+  get: (key: string) => LexicalScoringCacheEntry | undefined;
+  set: (key: string, value: LexicalScoringCacheEntry) => void;
+  getStats: () => {
+    hits: number;
+    misses: number;
+    size: number;
+  };
+}
+
+export interface SearchDiagnosticsEntry {
+  stage: string;
+  dbLexicalMs: number;
+  vectorMs: number;
+  corpusMs: number;
+  totalMs: number;
+  dbLexicalCandidates: number;
+  vectorCandidates: number;
+  corpusPhaseTimings?: SearchCorpusPhaseTimings;
+}
+
+export interface SearchDiagnosticsCollector {
+  record: (entry: SearchDiagnosticsEntry) => void;
 }
 
 export interface SearchOptions {
@@ -39,11 +94,47 @@ export interface SearchOptions {
   retrievalPriorityClass?: RetrievalPriorityClass;
   retrievalPriorityPolicy?: RetrievalPriorityPolicy;
   evaluationLinked?: boolean;
+  precomputedLexicalCandidateChunks?: StructuredChunk[];
+  mergePrecomputedLexicalCandidateChunks?: boolean;
+  precomputedLexicalCandidates?: SearchCandidate[];
   precomputedVectorCandidates?: SearchCandidate[];
+  maxLexicalCandidateChunks?: number;
+  maxExactCandidateChunks?: number;
+  evaluationAuthorityDriftGuard?: boolean;
+  lexicalScoringCache?: LexicalScoringCache;
+  searchDiagnosticStage?: string;
+  searchDiagnostics?: SearchDiagnosticsCollector;
+}
+
+export function createLexicalScoringCache(): LexicalScoringCache {
+  const cache = new Map<string, LexicalScoringCacheEntry>();
+  let hits = 0;
+  let misses = 0;
+
+  return {
+    get(key) {
+      if (cache.has(key)) {
+        hits += 1;
+        return cache.get(key);
+      }
+      misses += 1;
+      return undefined;
+    },
+    set(key, value) {
+      cache.set(key, value);
+    },
+    getStats() {
+      return {
+        hits,
+        misses,
+        size: cache.size,
+      };
+    },
+  };
 }
 
 const VECTOR_TOP_K = 48;
-const FUSED_TOP_K = 32;
+const FUSED_TOP_K = 24;
 const EVIDENCE_TOP_K = 18;
 const CHECKLIST_EVIDENCE_TOP_K = 22;
 const MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT = 2;
@@ -185,20 +276,136 @@ function stripDocumentQueryNoise(value: string): string {
   );
 }
 
-export function buildRagCorpusIndex(chunks: StructuredChunk[]): RagCorpusIndex {
-  const tokenMap = new Map<string, string[]>();
-  const dfMap = new Map<string, number>();
+function hasExplicitDocumentLookupSignal(query: string): boolean {
+  return /(document|manual|guide|file|form|찾아|찾아줘|확인|어디|문서|자료|매뉴얼|서식|바로알기|보여|근거)/iu.test(query);
+}
 
-  for (const chunk of chunks) {
-    const tokens = tokenize(`${chunk.searchText}\n${chunk.embeddingInput ?? ''}`);
-    tokenMap.set(chunk.id, tokens);
-    const uniqueTokens = new Set(tokens);
-    for (const token of uniqueTokens) {
-      dfMap.set(token, (dfMap.get(token) ?? 0) + 1);
+function titleMatchesDocumentLookupProbe(entry: RagDocumentLookupEntry, probe: string): boolean {
+  if (probe.length < 4) return false;
+
+  const titleCandidates = [entry.titleCompact, entry.fileNameCompact, entry.pathCompact]
+    .filter((value) => value.length >= 4)
+    .sort((left, right) => right.length - left.length);
+
+  return titleCandidates.some((candidateTitle) => {
+    if (candidateTitle === probe) return true;
+    if (probe.length >= 8 && candidateTitle.includes(probe)) return true;
+    return candidateTitle.length >= 8 && probe.includes(candidateTitle);
+  });
+}
+
+function resolveDocumentFastPathDocumentIds(
+  index: RagCorpusIndex,
+  query: string,
+  mode: PromptMode,
+  options?: SearchOptions,
+): Set<string> | null {
+  if (options?.allowedDocumentIds) return null;
+  const expansionProfile = buildQueryExpansionProfile(query);
+  if (expansionProfile.enumeration) return null;
+  if (!hasExplicitDocumentLookupSignal(query)) return null;
+
+  const compactQuery = compactForMetadata(query);
+  const documentQueryProbe = stripDocumentQueryNoise(compactQuery);
+  if (documentQueryProbe.length < 4) return null;
+
+  const matchedDocumentIds = new Set<string>();
+  for (const entry of index.documentLookupEntries) {
+    if (!isChunkInScope(entry.representative, mode)) continue;
+    if (titleMatchesDocumentLookupProbe(entry, documentQueryProbe)) {
+      matchedDocumentIds.add(entry.documentId);
     }
   }
 
-  return { chunks, tokenMap, dfMap };
+  if (matchedDocumentIds.size === 0 || matchedDocumentIds.size > 4) return null;
+  return matchedDocumentIds;
+}
+
+export function buildRagCorpusIndex(chunks: StructuredChunk[]): RagCorpusIndex {
+  const chunkById = new Map<string, StructuredChunk>();
+  const chunkOrdinalMap = new Map<string, number>();
+  const chunksByDocumentId = new Map<string, StructuredChunk[]>();
+  const representatives = new Map<string, StructuredChunk>();
+  const exactMetadataByChunkId = new Map<string, RagExactChunkMetadata>();
+  const entityAnchorScoresByChunkId = new Map<string, Map<string, number>>();
+  const entityAnchorPostingSets = new Map<string, Set<string>>();
+  const tokenMap = new Map<string, string[]>();
+  const tokenCountMap = new Map<string, number>();
+  const tfMap = new Map<string, Map<string, number>>();
+  const postingMap = new Map<string, Set<string>>();
+  const dfMap = new Map<string, number>();
+
+  for (const [chunkOrdinal, chunk] of chunks.entries()) {
+    chunkById.set(chunk.id, chunk);
+    chunkOrdinalMap.set(chunk.id, chunkOrdinal);
+    exactMetadataByChunkId.set(chunk.id, {
+      titleCompact: compactForMetadata(chunk.docTitle),
+      fileNameCompact: compactForMetadata(chunk.fileName),
+      sectionCompact: compactForMetadata(chunk.sectionPath.join(' ')),
+    });
+    const documentChunks = chunksByDocumentId.get(chunk.documentId) ?? [];
+    documentChunks.push(chunk);
+    chunksByDocumentId.set(chunk.documentId, documentChunks);
+    if (!representatives.has(chunk.documentId)) {
+      representatives.set(chunk.documentId, chunk);
+    }
+
+    const entityAnchorSearchText = `${chunk.title}\n${chunk.parentSectionTitle}\n${chunk.searchText}\n${chunk.text}`;
+    const entityAnchorScores = new Map<string, number>();
+    for (const anchor of ENTITY_ANCHORS) {
+      const score = scoreEntityAnchorText(entityAnchorSearchText, anchor.id);
+      if (score <= 0) continue;
+      entityAnchorScores.set(anchor.id, score);
+      const postings = entityAnchorPostingSets.get(anchor.id) ?? new Set<string>();
+      postings.add(chunk.id);
+      entityAnchorPostingSets.set(anchor.id, postings);
+    }
+    if (entityAnchorScores.size > 0) {
+      entityAnchorScoresByChunkId.set(chunk.id, entityAnchorScores);
+    }
+
+    const tokens = tokenize(`${chunk.searchText}\n${chunk.embeddingInput ?? ''}`);
+    tokenMap.set(chunk.id, tokens);
+    tokenCountMap.set(chunk.id, tokens.length);
+    const frequencies = new Map<string, number>();
+    for (const token of tokens) {
+      frequencies.set(token, (frequencies.get(token) ?? 0) + 1);
+    }
+    tfMap.set(chunk.id, frequencies);
+    for (const token of frequencies.keys()) {
+      dfMap.set(token, (dfMap.get(token) ?? 0) + 1);
+      const postings = postingMap.get(token) ?? new Set<string>();
+      postings.add(chunk.id);
+      postingMap.set(token, postings);
+    }
+  }
+
+  const documentLookupEntries = Array.from(representatives.entries()).map(([documentId, representative]) => ({
+    documentId,
+    representative,
+    titleCompact: compactForMetadata(representative.docTitle),
+    fileNameCompact: compactForMetadata(representative.fileName),
+    pathCompact: compactForMetadata(representative.path),
+  }));
+  const entityAnchorPostingMap = new Map(
+    Array.from(entityAnchorPostingSets.entries()).map(([anchorId, chunkIds]) => [anchorId, Array.from(chunkIds)]),
+  );
+
+  return {
+    chunks,
+    chunkById,
+    chunkOrdinalMap,
+    chunksByDocumentId,
+    documentLookupEntries,
+    exactMetadataByChunkId,
+    entityAnchorScoresByChunkId,
+    entityAnchorPostingMap,
+    tokenMap,
+    tokenCountMap,
+    tfMap,
+    postingMap,
+    dfMap,
+  };
 }
 
 function createCandidate(chunk: StructuredChunk): SearchCandidate {
@@ -221,6 +428,133 @@ function isChunkInScope(chunk: StructuredChunk, mode: PromptMode, options?: Sear
   }
 
   return mode !== 'evaluation' || chunk.mode === 'evaluation';
+}
+
+function scopedChunks(index: RagCorpusIndex, mode: PromptMode, options?: SearchOptions): StructuredChunk[] {
+  if (!options?.allowedDocumentIds) return index.chunks;
+
+  return Array.from(options.allowedDocumentIds)
+    .flatMap((documentId) => index.chunksByDocumentId.get(documentId) ?? [])
+    .filter((chunk) => isChunkInScope(chunk, mode, options));
+}
+
+function chunkHasAnyToken(index: RagCorpusIndex, chunkId: string, tokenSet: Set<string>): boolean {
+  const chunkTokens = index.tokenMap.get(chunkId);
+  if (!chunkTokens) return false;
+  return chunkTokens.some((token) => tokenSet.has(token));
+}
+
+function lexicalCandidateChunks(
+  index: RagCorpusIndex,
+  tokens: string[],
+  mode: PromptMode,
+  options?: SearchOptions,
+): StructuredChunk[] {
+  const tokenSet = new Set(tokens);
+  const candidateLimit = options?.maxLexicalCandidateChunks ?? Number.POSITIVE_INFINITY;
+
+  if (options?.allowedDocumentIds) {
+    const candidateIds = new Set<string>();
+    const rareFirstTokens = [...tokens].sort((left, right) => {
+      const leftDf = index.dfMap.get(left) ?? Number.MAX_SAFE_INTEGER;
+      const rightDf = index.dfMap.get(right) ?? Number.MAX_SAFE_INTEGER;
+      return leftDf - rightDf;
+    });
+
+    for (const token of rareFirstTokens) {
+      for (const chunkId of index.postingMap.get(token) ?? []) {
+        const chunk = index.chunkById.get(chunkId);
+        if (chunk && isChunkInScope(chunk, mode, options)) {
+          candidateIds.add(chunkId);
+        }
+      }
+    }
+
+    const scoped = Array.from(candidateIds)
+      .map((chunkId) => index.chunkById.get(chunkId))
+      .filter((chunk): chunk is StructuredChunk => Boolean(chunk))
+      .sort(
+        (left, right) =>
+          (index.chunkOrdinalMap.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+          (index.chunkOrdinalMap.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+      );
+    return Number.isFinite(candidateLimit) ? scoped.slice(0, candidateLimit) : scoped;
+  }
+
+  const candidateIds = new Set<string>();
+  const rareFirstTokens = [...tokens].sort((left, right) => {
+    const leftDf = index.dfMap.get(left) ?? Number.MAX_SAFE_INTEGER;
+    const rightDf = index.dfMap.get(right) ?? Number.MAX_SAFE_INTEGER;
+    return leftDf - rightDf;
+  });
+
+  for (const token of rareFirstTokens) {
+    for (const chunkId of index.postingMap.get(token) ?? []) {
+      if (candidateIds.size >= candidateLimit) break;
+      candidateIds.add(chunkId);
+    }
+    if (candidateIds.size >= candidateLimit) break;
+  }
+
+  return Array.from(candidateIds)
+    .map((chunkId) => index.chunkById.get(chunkId))
+    .filter((chunk): chunk is StructuredChunk => Boolean(chunk) && isChunkInScope(chunk, mode, options));
+}
+
+function resolveLexicalCandidateChunks(
+  index: RagCorpusIndex,
+  tokens: string[],
+  tokenSet: Set<string>,
+  mode: PromptMode,
+  options?: SearchOptions,
+): StructuredChunk[] {
+  if (options?.precomputedLexicalCandidateChunks) {
+    const precomputedChunks = options.precomputedLexicalCandidateChunks
+      .filter((chunk) => isChunkInScope(chunk, mode, options))
+      .filter((chunk) => tokens.length === 0 || chunkHasAnyToken(index, chunk.id, tokenSet));
+    if (!options.mergePrecomputedLexicalCandidateChunks) return precomputedChunks;
+
+    const merged = new Map<string, StructuredChunk>();
+    for (const chunk of lexicalCandidateChunks(index, tokens, mode, options)) {
+      merged.set(chunk.id, chunk);
+    }
+    for (const chunk of precomputedChunks) {
+      merged.set(chunk.id, chunk);
+    }
+    return Array.from(merged.values());
+  }
+
+  return lexicalCandidateChunks(index, tokens, mode, options);
+}
+
+function exactCandidateChunks(
+  index: RagCorpusIndex,
+  query: string,
+  tokens: string[],
+  mode: PromptMode,
+  options?: SearchOptions,
+  lexicalChunkPool?: StructuredChunk[],
+): StructuredChunk[] {
+  const limitExactChunks = (chunks: StructuredChunk[]) => {
+    const limit = options?.maxExactCandidateChunks ?? Number.POSITIVE_INFINITY;
+    return Number.isFinite(limit) && limit > 0 ? chunks.slice(0, limit) : chunks;
+  };
+
+  if (options?.precomputedLexicalCandidateChunks) {
+    return limitExactChunks(lexicalChunkPool ?? []);
+  }
+
+  if (lexicalChunkPool) {
+    return limitExactChunks(lexicalChunkPool.length > 0 ? lexicalChunkPool : scopedChunks(index, mode, options));
+  }
+
+  if (!Number.isFinite(options?.maxLexicalCandidateChunks ?? Number.POSITIVE_INFINITY)) {
+    return limitExactChunks(scopedChunks(index, mode, options));
+  }
+
+  if (tokens.length === 0) return limitExactChunks(scopedChunks(index, mode, options));
+  const candidates = lexicalChunkPool ?? lexicalCandidateChunks(index, tokens, mode, options);
+  return limitExactChunks(candidates.length > 0 ? candidates : scopedChunks(index, mode, options));
 }
 
 function boostCandidate(base: SearchCandidate, patch: Partial<SearchCandidate>): SearchCandidate {
@@ -257,17 +591,22 @@ export function getCandidateFocusMatches(candidate: StructuredChunk, focusTerms:
   return focusTerms.filter((term) => searchText.includes(term.toLowerCase()));
 }
 
-function scoreAliasMetadata(alias: string, titleCompact: string, sectionCompact: string, matchedTerms: Set<string>): number {
-  const aliasCompact = compactForMetadata(alias);
+function scoreAliasMetadata(
+  alias: { raw: string; compact: string },
+  titleCompact: string,
+  sectionCompact: string,
+  matchedTerms: Set<string>,
+): number {
+  const aliasCompact = alias.compact;
   if (aliasCompact.length < 2) return 0;
 
   if (titleCompact.includes(aliasCompact)) {
-    matchedTerms.add(alias);
+    matchedTerms.add(alias.raw);
     return 30;
   }
 
   if (sectionCompact.includes(aliasCompact)) {
-    matchedTerms.add(alias);
+    matchedTerms.add(alias.raw);
     return 18;
   }
 
@@ -307,13 +646,13 @@ function debugRecallStage(stage: 'fusion' | 'evidence', query: string, candidate
 
 function scoreLawReference(
   chunk: StructuredChunk,
-  lawRef: ParsedLawReference,
+  lawRef: ParsedLawReference & { canonicalLawCompact?: string },
   titleCompact: string,
   sectionCompact: string,
   matchedTerms: Set<string>,
 ): number {
   let score = 0;
-  const lawCompact = compact(lawRef.canonicalLawName);
+  const lawCompact = lawRef.canonicalLawCompact ?? compact(lawRef.canonicalLawName);
 
   if (lawCompact && titleCompact.includes(lawCompact)) {
     score += 38;
@@ -344,20 +683,88 @@ function scoreLawReference(
   return score;
 }
 
-function scoreExact(
-  chunk: StructuredChunk,
+interface ExactScoringContext {
+  compactQuery: string;
+  documentQueryProbe: string;
+  queryArticle?: string;
+  queryTokens: Array<{ raw: string; compact: string }>;
+  queryDateProbe?: string;
+  queryAliases: Array<{ raw: string; compact: string }>;
+  lawRefs: Array<ParsedLawReference & { canonicalLawCompact: string }>;
+  intentSourceSignal?: {
+    sourceTypes: Set<string>;
+    score: number;
+    matchedTerm: string;
+  };
+  modeEvaluation: boolean;
+}
+
+function buildExactIntentSourceSignal(intent: QueryIntent): ExactScoringContext['intentSourceSignal'] {
+  if (intent === 'legal-exact') {
+    return {
+      sourceTypes: new Set(['law', 'ordinance', 'rule', 'notice']),
+      score: 8,
+      matchedTerm: 'legal-source',
+    };
+  }
+  if (intent === 'manual-qna') {
+    return {
+      sourceTypes: new Set(['manual', 'qa', 'guide', 'wiki']),
+      score: 8,
+      matchedTerm: 'manual-source',
+    };
+  }
+  if (intent === 'synthesis') {
+    return {
+      sourceTypes: new Set(['comparison', 'qa', 'manual', 'notice']),
+      score: 4,
+      matchedTerm: 'synthesis-source',
+    };
+  }
+  return undefined;
+}
+
+function buildExactScoringContext(
   query: string,
+  queryAliases: string[],
   intent: QueryIntent,
   mode: PromptMode,
-  queryAliases: string[] = [],
-  options?: SearchOptions,
-): SearchCandidate {
-  const candidate = createCandidate(chunk);
+  lawRefs: ParsedLawReference[] = [],
+): ExactScoringContext {
   const compactQuery = compactForMetadata(query);
-  const titleCompact = compactForMetadata(chunk.docTitle);
-  const fileNameCompact = compactForMetadata(chunk.fileName);
-  const sectionCompact = compactForMetadata(chunk.sectionPath.join(' '));
-  const documentQueryProbe = stripDocumentQueryNoise(compactQuery);
+  const queryDateMatch = query.match(/20\d{2}[.\-/]\d{1,2}(?:[.\-/]\d{1,2})?/);
+  return {
+    compactQuery,
+    documentQueryProbe: stripDocumentQueryNoise(compactQuery),
+    queryArticle: extractArticleNo(query),
+    queryTokens: queryTokens(query).map((token) => ({ raw: token, compact: compactForMetadata(token) })),
+    queryDateProbe: queryDateMatch?.[0].replace(/[^\d]/g, '').slice(0, 6),
+    queryAliases: queryAliases.map((alias) => ({ raw: alias, compact: compactForMetadata(alias) })),
+    lawRefs: lawRefs.map((lawRef) => ({
+      ...lawRef,
+      canonicalLawCompact: compact(lawRef.canonicalLawName),
+    })),
+    intentSourceSignal: buildExactIntentSourceSignal(intent),
+    modeEvaluation: mode === 'evaluation',
+  };
+}
+
+function scoreExact(
+  chunk: StructuredChunk,
+  context: ExactScoringContext,
+  metadata: RagExactChunkMetadata,
+): SearchCandidate | null {
+  const {
+    compactQuery,
+    documentQueryProbe,
+    queryArticle,
+    queryAliases,
+    queryDateProbe,
+    lawRefs,
+    intentSourceSignal,
+    modeEvaluation,
+  } = context;
+  const { titleCompact, fileNameCompact, sectionCompact } = metadata;
   const matchedTerms = new Set<string>();
   let score = 0;
 
@@ -378,7 +785,6 @@ function scoreExact(
     matchedTerms.add('document-title');
   }
 
-  const queryArticle = extractArticleNo(query);
   if (queryArticle && chunk.articleNo === queryArticle) {
     score += 40;
     matchedTerms.add(queryArticle);
@@ -387,15 +793,15 @@ function scoreExact(
     matchedTerms.add(queryArticle);
   }
 
-  for (const token of queryTokens(query)) {
-    const compactToken = compactForMetadata(token);
-    if (titleCompact.includes(compactToken)) {
+  for (const token of context.queryTokens) {
+    const compactToken = token.compact;
+    if (compactToken && titleCompact.includes(compactToken)) {
       score += 6;
-      matchedTerms.add(token);
+      matchedTerms.add(token.raw);
     }
-    if (sectionCompact.includes(compactToken)) {
+    if (compactToken && sectionCompact.includes(compactToken)) {
       score += 4;
-      matchedTerms.add(token);
+      matchedTerms.add(token.raw);
     }
   }
 
@@ -403,85 +809,150 @@ function scoreExact(
     score += scoreAliasMetadata(alias, titleCompact, sectionCompact, matchedTerms);
   }
 
-  for (const lawRef of options?.lawRefs ?? []) {
+  for (const lawRef of lawRefs) {
     score += scoreLawReference(chunk, lawRef, titleCompact, sectionCompact, matchedTerms);
   }
 
-  if (intent === 'legal-exact' && ['law', 'ordinance', 'rule', 'notice'].includes(chunk.sourceType)) {
-    score += 8;
-    matchedTerms.add('legal-source');
+  if (intentSourceSignal?.sourceTypes.has(chunk.sourceType)) {
+    score += intentSourceSignal.score;
+    matchedTerms.add(intentSourceSignal.matchedTerm);
   }
 
-  if (intent === 'manual-qna' && ['manual', 'qa', 'guide', 'wiki'].includes(chunk.sourceType)) {
-    score += 8;
-    matchedTerms.add('manual-source');
-  }
-
-  if (intent === 'synthesis' && ['comparison', 'qa', 'manual', 'notice'].includes(chunk.sourceType)) {
-    score += 4;
-    matchedTerms.add('synthesis-source');
-  }
-
-  if (mode === 'evaluation' && chunk.mode === 'evaluation') {
+  if (modeEvaluation && chunk.mode === 'evaluation') {
     score += 6;
     matchedTerms.add('evaluation-mode');
   }
 
-  const queryDateMatch = query.match(/20\d{2}[.\-/]\d{1,2}(?:[.\-/]\d{1,2})?/);
   if (
-    queryDateMatch &&
+    queryDateProbe &&
     chunk.effectiveDate &&
-    queryDateMatch[0].replace(/[^\d]/g, '').slice(0, 6) === chunk.effectiveDate.replace(/-/g, '').slice(0, 6)
+    queryDateProbe === chunk.effectiveDate.replace(/-/g, '').slice(0, 6)
   ) {
     score += 10;
     matchedTerms.add('date-match');
   }
 
-  return boostCandidate(candidate, {
+  if (score <= 0) return null;
+
+  return boostCandidate(createCandidate(chunk), {
     exactScore: score,
     matchedTerms: Array.from(matchedTerms),
   });
 }
 
-function scoreLexical(index: RagCorpusIndex, query: string, mode: PromptMode, options?: SearchOptions): SearchCandidate[] {
-  const tokens = queryTokens(query);
-  if (tokens.length === 0) return [];
+function compareExactCandidateRank(left: SearchCandidate, right: SearchCandidate): number {
+  const scoreDiff = right.exactScore - left.exactScore;
+  return scoreDiff !== 0 ? scoreDiff : compareIsoDateDesc(left.effectiveDate, right.effectiveDate);
+}
 
+function insertBoundedExactCandidate(
+  candidates: SearchCandidate[],
+  candidate: SearchCandidate,
+  limit: number,
+): void {
+  if (limit <= 0) return;
+
+  const insertAt = candidates.findIndex((existing) => compareExactCandidateRank(candidate, existing) < 0);
+  if (insertAt === -1) {
+    if (candidates.length < limit) candidates.push(candidate);
+    return;
+  }
+
+  candidates.splice(insertAt, 0, candidate);
+  if (candidates.length > limit) candidates.pop();
+}
+
+interface LexicalScoringContext {
+  rawTokens: string[];
+  tokens: Array<{ raw: string; idf: number }>;
+  tokenSignature: string;
+}
+
+function buildLexicalScoringContext(index: RagCorpusIndex, tokens: string[]): LexicalScoringContext {
   const corpusSize = index.chunks.length;
-  const scored: SearchCandidate[] = [];
+  const scoringTokens = tokens.map((token) => {
+    const df = index.dfMap.get(token) ?? 0;
+    return {
+      raw: token,
+      idf: df > 0 ? Math.log((corpusSize + 1) / (df + 1)) + 1 : 0,
+    };
+  });
 
-  for (const chunk of index.chunks) {
-    if (!isChunkInScope(chunk, mode, options)) continue;
-    const candidate = createCandidate(chunk);
-    const chunkTokens = index.tokenMap.get(chunk.id) ?? [];
-    const total = chunkTokens.length || 1;
-    const tfMap = new Map<string, number>();
-    for (const token of chunkTokens) {
-      tfMap.set(token, (tfMap.get(token) ?? 0) + 1);
+  return {
+    rawTokens: tokens,
+    tokens: scoringTokens,
+    tokenSignature: scoringTokens.map((token) => `${token.raw}:${token.idf.toFixed(8)}`).join('|'),
+  };
+}
+
+function buildLexicalScoringCacheKey(
+  index: RagCorpusIndex,
+  context: LexicalScoringContext,
+  chunk: StructuredChunk,
+): string {
+  return [index.chunks.length, chunk.id, chunk.chunkHash, context.tokenSignature].join('::');
+}
+
+function computeLexicalScoringEntry(
+  index: RagCorpusIndex,
+  context: LexicalScoringContext,
+  chunk: StructuredChunk,
+): LexicalScoringCacheEntry {
+  const total = index.tokenCountMap.get(chunk.id) || 1;
+  const tfMap = index.tfMap.get(chunk.id);
+  if (!tfMap) return null;
+
+  let score = 0;
+  const matchedTerms = new Set<string>();
+  for (const token of context.tokens) {
+    const tf = (tfMap.get(token.raw) ?? 0) / total;
+    if (token.idf > 0 && tf > 0) {
+      score += tf * token.idf;
+      matchedTerms.add(token.raw);
     }
+  }
 
-    let score = 0;
-    const matchedTerms = new Set<string>();
-    for (const token of tokens) {
-      const tf = (tfMap.get(token) ?? 0) / total;
-      const df = index.dfMap.get(token) ?? 0;
-      if (df > 0 && tf > 0) {
-        score += tf * (Math.log((corpusSize + 1) / (df + 1)) + 1);
-        matchedTerms.add(token);
+  return score > 0
+    ? {
+        lexicalScore: score,
+        matchedTerms: Array.from(matchedTerms),
       }
+    : null;
+}
+
+function scoreLexical(
+  index: RagCorpusIndex,
+  context: LexicalScoringContext,
+  mode: PromptMode,
+  options?: SearchOptions,
+  limit = FUSED_TOP_K,
+  lexicalChunkPool?: StructuredChunk[],
+): SearchCandidate[] {
+  if (context.rawTokens.length === 0) return [];
+
+  const scored: SearchCandidate[] = [];
+  const lexicalScoringCache = options?.lexicalScoringCache;
+
+  for (const chunk of lexicalChunkPool ?? lexicalCandidateChunks(index, context.rawTokens, mode, options)) {
+    const cacheKey = lexicalScoringCache ? buildLexicalScoringCacheKey(index, context, chunk) : '';
+    let scoringEntry = lexicalScoringCache?.get(cacheKey);
+    if (scoringEntry === undefined) {
+      scoringEntry = computeLexicalScoringEntry(index, context, chunk);
+      lexicalScoringCache?.set(cacheKey, scoringEntry);
     }
 
-    if (score > 0) {
+    if (scoringEntry) {
+      const candidate = createCandidate(chunk);
       scored.push(
         boostCandidate(candidate, {
-          lexicalScore: score,
-          matchedTerms: Array.from(matchedTerms),
+          lexicalScore: scoringEntry.lexicalScore,
+          matchedTerms: scoringEntry.matchedTerms,
         }),
       );
     }
   }
 
-  return scored.sort((left, right) => right.lexicalScore - left.lexicalScore);
+  return scored.sort((left, right) => right.lexicalScore - left.lexicalScore).slice(0, limit);
 }
 
 function scoreVector(
@@ -493,7 +964,7 @@ function scoreVector(
   if (!queryEmbedding) return [];
 
   const scored: SearchCandidate[] = [];
-  for (const chunk of index.chunks) {
+  for (const chunk of scopedChunks(index, mode, options)) {
     if (!isChunkInScope(chunk, mode, options)) continue;
     if (!chunk.embedding || chunk.embedding.length === 0) continue;
     const candidate = createCandidate(chunk);
@@ -567,6 +1038,43 @@ function scoreEvaluationAuthority(candidate: SearchCandidate): number {
   return score;
 }
 
+function mergePrecomputedCandidates(
+  localCandidates: SearchCandidate[],
+  precomputedCandidates: SearchCandidate[] | undefined,
+  limit: number,
+  scoreKey: 'lexicalScore' | 'vectorScore',
+): SearchCandidate[] {
+  if (!precomputedCandidates || precomputedCandidates.length === 0) return localCandidates;
+
+  const merged = new Map<string, SearchCandidate>();
+  for (const candidate of [...precomputedCandidates, ...localCandidates]) {
+    const existing = merged.get(candidate.id);
+    if (!existing) {
+      merged.set(candidate.id, candidate);
+      continue;
+    }
+
+    merged.set(candidate.id, {
+      ...existing,
+      exactScore: Math.max(existing.exactScore, candidate.exactScore),
+      lexicalScore: Math.max(existing.lexicalScore, candidate.lexicalScore),
+      vectorScore: Math.max(existing.vectorScore, candidate.vectorScore),
+      fusedScore: Math.max(existing.fusedScore, candidate.fusedScore),
+      rerankScore: Math.max(existing.rerankScore, candidate.rerankScore),
+      headingScore: Math.max(existing.headingScore ?? 0, candidate.headingScore ?? 0),
+      ontologyScore: Math.max(existing.ontologyScore, candidate.ontologyScore),
+      matchedTerms: Array.from(new Set([...(existing.matchedTerms ?? []), ...(candidate.matchedTerms ?? [])])),
+    });
+  }
+
+  return Array.from(merged.values())
+    .sort((left, right) => {
+      const scoreDiff = right[scoreKey] - left[scoreKey];
+      return scoreDiff !== 0 ? scoreDiff : right.exactScore - left.exactScore;
+    })
+    .slice(0, limit);
+}
+
 function isThinEvaluationIndicatorChunk(candidate: SearchCandidate): boolean {
   if (candidate.sourceType !== 'evaluation' || candidate.sourceRole !== 'primary_evaluation') return false;
 
@@ -577,8 +1085,31 @@ function isThinEvaluationIndicatorChunk(candidate: SearchCandidate): boolean {
   return meaningfulText.length < 24;
 }
 
-function scoreHeadingAlignment(candidate: SearchCandidate, query: string): { score: number; matchedTerms: string[] } {
-  const focusTerms = deriveFocusTerms(query).filter((term) => !GENERIC_QUERY_TERMS.has(term));
+interface RerankQueryContext {
+  query: string;
+  focusTerms: string[];
+  nonGenericFocusTerms: string[];
+  checklistQuery: boolean;
+  documentLookupQuery: boolean;
+  evaluationComparisonQuery: boolean;
+  workflowDocumentQuery: boolean;
+}
+
+function buildRerankQueryContext(query: string): RerankQueryContext {
+  const focusTerms = deriveFocusTerms(query);
+  return {
+    query,
+    focusTerms,
+    nonGenericFocusTerms: focusTerms.filter((term) => !GENERIC_QUERY_TERMS.has(term)),
+    checklistQuery: /(체크리스트|지침|교육|안내|확인|기한|이내|업무|절차|방법)/u.test(query),
+    documentLookupQuery: /(문서|매뉴얼|사례집|가이드|바로알기|어디서|찾아줘|찾아|봐야|확인)/u.test(query),
+    evaluationComparisonQuery: /(개정|전후|비교표)/u.test(query),
+    workflowDocumentQuery: /(업무|처리|흐름|바로알기|확인)/u.test(query),
+  };
+}
+
+function scoreHeadingAlignment(candidate: SearchCandidate, context: RerankQueryContext): { score: number; matchedTerms: string[] } {
+  const focusTerms = context.nonGenericFocusTerms;
   if (focusTerms.length === 0) return { score: 0, matchedTerms: [] };
 
   const headingText = [
@@ -604,7 +1135,7 @@ function scoreHeadingAlignment(candidate: SearchCandidate, query: string): { sco
     }
   }
 
-  if (candidate.containsCheckList && /(체크리스트|지침|교육|안내|확인|기한|이내|업무|절차|방법)/u.test(query)) {
+  if (candidate.containsCheckList && context.checklistQuery) {
     score += 10;
     matchedTerms.push('list-group');
   }
@@ -612,9 +1143,45 @@ function scoreHeadingAlignment(candidate: SearchCandidate, query: string): { sco
   return { score: Math.min(score, 48), matchedTerms };
 }
 
+function scoreDocumentLookupSourcePriority(candidate: SearchCandidate, context: RerankQueryContext, mode: PromptMode): number {
+  if (candidate.sourceRole !== 'support_reference') return 0;
+  if (!['manual', 'guide', 'qa', 'comparison'].includes(candidate.sourceType)) return 0;
+  if (!context.documentLookupQuery) return 0;
+  if (mode === 'evaluation') {
+    if (candidate.sourceType !== 'comparison') return 0;
+    if (!context.evaluationComparisonQuery) return 0;
+  }
+
+  const hasDocumentSignal =
+    candidate.matchedTerms.includes('document-title') ||
+    candidate.matchedTerms.includes('manual-source') ||
+    candidate.matchedTerms.includes('synthesis-source') ||
+    candidate.matchedTerms.includes('list-group') ||
+    ((candidate.sourceType === 'guide' || candidate.sourceType === 'manual') &&
+      context.workflowDocumentQuery &&
+      /(업무|처리|흐름|바로알기|매뉴얼)/u.test(`${candidate.docTitle} ${candidate.parentSectionTitle}`));
+  if (!hasDocumentSignal) return 0;
+
+  const focusMatches = getCandidateFocusMatches(candidate, context.focusTerms);
+  if (focusMatches.length < 2) return 0;
+
+  let score = 48 + Math.min(36, focusMatches.length * 6);
+  if (candidate.matchedTerms.includes('document-title')) score += 28;
+  if (candidate.sourceType === 'guide' || candidate.sourceType === 'manual') score += 24;
+  if (
+    (candidate.sourceType === 'guide' || candidate.sourceType === 'manual') &&
+    context.workflowDocumentQuery &&
+    /(업무|처리|흐름|바로알기|매뉴얼)/u.test(`${candidate.docTitle} ${candidate.parentSectionTitle}`)
+  ) {
+    score += 64;
+  }
+  if (candidate.sourceType === 'qa' || candidate.sourceType === 'comparison') score += 12;
+  return score;
+}
+
 function rerankCandidate(
   candidate: SearchCandidate,
-  query: string,
+  context: RerankQueryContext,
   intent: QueryIntent,
   mode: PromptMode,
   options?: SearchOptions,
@@ -623,8 +1190,9 @@ function rerankCandidate(
   const chunkScoreBoost = options?.chunkScoreBoosts?.get(candidate.id) ?? 0;
   const semanticScore = scoreSemanticAlignment(candidate, options?.semanticFrame);
   const priorityClass = options?.retrievalPriorityClass ?? (mode === 'evaluation' ? 'evaluation_readiness' : undefined);
-  const headingAlignment = scoreHeadingAlignment(candidate, query);
+  const headingAlignment = scoreHeadingAlignment(candidate, context);
   const headingScore = priorityClass === 'legal_judgment' ? Math.min(headingAlignment.score, 8) : headingAlignment.score;
+  const documentLookupSourceScore = scoreDocumentLookupSourcePriority(candidate, context, mode);
   let matchedTerms = candidate.matchedTerms;
   let score = candidate.fusedScore * 100;
   score += candidate.exactScore * 1.8;
@@ -634,8 +1202,12 @@ function rerankCandidate(
   score += chunkScoreBoost;
   score += semanticScore;
   score += headingScore;
+  score += documentLookupSourceScore;
   if (headingAlignment.matchedTerms.length > 0) {
     matchedTerms = Array.from(new Set([...matchedTerms, ...headingAlignment.matchedTerms, 'heading-match']));
+  }
+  if (documentLookupSourceScore > 0) {
+    matchedTerms = Array.from(new Set([...matchedTerms, 'document-lookup-source']));
   }
 
   if (intent === 'legal-exact' && candidate.articleNo) score += 10;
@@ -727,6 +1299,43 @@ function rerankCandidate(
     headingScore,
     ontologyScore: ontologyScore + semanticScore,
   };
+}
+
+function applyEvaluationAuthorityDriftGuard(params: {
+  candidates: SearchCandidate[];
+  exactCandidates: SearchCandidate[];
+  mode: PromptMode;
+  options?: SearchOptions;
+}): SearchCandidate[] {
+  const enabled =
+    params.options?.evaluationAuthorityDriftGuard ||
+    (process.env.RAG_ENABLE_EVALUATION_AUTHORITY_DRIFT_GUARD || 'false').toLowerCase() === 'true';
+  if (!enabled) return params.candidates;
+  const [topCandidate] = params.candidates;
+  const [exactTop] = params.exactCandidates;
+  if (!topCandidate || !exactTop || topCandidate.documentId === exactTop.documentId) return params.candidates;
+  if (
+    exactTop.mode !== 'evaluation' &&
+    exactTop.sourceRole !== 'primary_evaluation' &&
+    params.mode !== 'evaluation'
+  ) {
+    return params.candidates;
+  }
+  const targetIndex = params.candidates.findIndex((candidate) => candidate.documentId === exactTop.documentId);
+  if (targetIndex < 0) return params.candidates;
+
+  const target = params.candidates[targetIndex];
+  const requiredBoost = topCandidate.rerankScore - target.rerankScore + 1;
+  const boost = Math.min(96, Math.max(18, requiredBoost));
+  const guardedTarget: SearchCandidate = {
+    ...target,
+    rerankScore: target.rerankScore + boost,
+    matchedTerms: Array.from(new Set([...target.matchedTerms, 'evaluation-authority-drift-guard'])),
+  };
+
+  return params.candidates
+    .map((candidate, index) => (index === targetIndex ? guardedTarget : candidate))
+    .sort((left, right) => right.rerankScore - left.rerankScore);
 }
 
 function scoreSemanticAlignment(candidate: SearchCandidate, semanticFrame: SemanticFrame | undefined): number {
@@ -905,6 +1514,7 @@ function enforceEntityCoverage(selected: SearchCandidate[], candidates: SearchCa
 function buildEntityAnchoredCandidates(params: {
   index: RagCorpusIndex;
   query: string;
+  rerankContext: RerankQueryContext;
   mode: PromptMode;
   intent: QueryIntent;
   options?: SearchOptions;
@@ -913,14 +1523,30 @@ function buildEntityAnchoredCandidates(params: {
   if (profile.entityAnchors.length === 0) return [];
 
   const bestByIndicator = new Map<string, SearchCandidate>();
+  const candidateIds = new Set<string>();
+  for (const anchor of profile.entityAnchors) {
+    for (const chunkId of params.index.entityAnchorPostingMap.get(anchor.id) ?? []) {
+      candidateIds.add(chunkId);
+    }
+  }
 
-  for (const chunk of params.index.chunks) {
+  const candidateChunks = Array.from(candidateIds)
+    .map((chunkId) => params.index.chunkById.get(chunkId))
+    .filter((chunk): chunk is StructuredChunk => Boolean(chunk) && isChunkInScope(chunk, params.mode, params.options))
+    .sort(
+      (left, right) =>
+        (params.index.chunkOrdinalMap.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+        (params.index.chunkOrdinalMap.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+
+  for (const chunk of candidateChunks) {
     if (!isChunkInScope(chunk, params.mode, params.options)) continue;
 
     let strongestAnchorId: string | undefined;
     let strongestScore = 0;
+    const anchorScores = params.index.entityAnchorScoresByChunkId.get(chunk.id);
     for (const anchor of profile.entityAnchors) {
-      const score = scoreEntityAnchorText(`${chunk.title}\n${chunk.parentSectionTitle}\n${chunk.searchText}\n${chunk.text}`, anchor.id);
+      const score = anchorScores?.get(anchor.id) ?? 0;
       if (score > strongestScore) {
         strongestScore = score;
         strongestAnchorId = anchor.id;
@@ -943,7 +1569,7 @@ function buildEntityAnchoredCandidates(params: {
         lexicalScore: strongestScore / 10,
         matchedTerms: ['entity-anchor', `entity-anchor:${strongestAnchorId}`],
       },
-      params.query,
+      params.rerankContext,
       params.intent,
       params.mode,
       params.options,
@@ -1128,7 +1754,46 @@ function buildStageTrace(params: {
   fusedCandidates: SearchCandidate[];
   evidence: SearchCandidate[];
   groundingGatePassed: boolean;
+  documentFastPathDocumentIds?: Set<string> | null;
+  lexicalPoolShared?: boolean;
+  lexicalPoolMerged?: boolean;
+  lexicalPoolSize?: number;
+  lexicalPoolSource?: string;
+  lexicalScoringSource?: string;
+  exactScoringSource?: string;
+  exactRankingSource?: string;
+  rerankContextSource?: string;
+  entityAnchorSource?: string;
+  entityAnchorCandidatePoolSize?: number;
+  evaluationAuthorityDriftGuard?: boolean;
+  lexicalScoringCacheStats?: {
+    hits: number;
+    misses: number;
+    size: number;
+  };
 }): RetrievalStageTrace[] {
+  const lexicalNotes = params.lexicalCandidates.length > 0
+    ? [`top=${params.lexicalCandidates[0].docTitle}`]
+    : ['no-lexical-match'];
+  if (params.lexicalPoolShared) {
+    lexicalNotes.push(params.lexicalPoolMerged ? 'lexical-pool=merged' : 'lexical-pool=shared');
+    lexicalNotes.push(`lexical-pool-size=${params.lexicalPoolSize ?? 0}`);
+    if (params.lexicalPoolSource) {
+      lexicalNotes.push(`lexical-pool-source=${params.lexicalPoolSource}`);
+    }
+  }
+  if (params.documentFastPathDocumentIds && params.documentFastPathDocumentIds.size > 0) {
+    lexicalNotes.push(`document-fast-path=${params.documentFastPathDocumentIds.size}`);
+  }
+  if (params.lexicalScoringSource) {
+    lexicalNotes.push(`lexical-scoring=${params.lexicalScoringSource}`);
+  }
+  if (params.lexicalScoringCacheStats) {
+    lexicalNotes.push(
+      `lexical-score-cache=hits:${params.lexicalScoringCacheStats.hits},misses:${params.lexicalScoringCacheStats.misses},size:${params.lexicalScoringCacheStats.size}`,
+    );
+  }
+
   return [
     {
       stage: 'query_normalization',
@@ -1140,7 +1805,7 @@ function buildStageTrace(params: {
       stage: 'lexical_candidates',
       inputCount: 1,
       outputCount: params.lexicalCandidates.length,
-      notes: params.lexicalCandidates.length > 0 ? [`top=${params.lexicalCandidates[0].docTitle}`] : ['no-lexical-match'],
+      notes: lexicalNotes,
     },
     {
       stage: 'vector_candidates',
@@ -1152,7 +1817,23 @@ function buildStageTrace(params: {
       stage: 'fusion',
       inputCount: params.exactCandidates.length + params.lexicalCandidates.length + params.vectorCandidates.length,
       outputCount: params.fusedCandidates.length,
-      notes: [`exact=${params.exactCandidates.length}`, `lexical=${params.lexicalCandidates.length}`, `vector=${params.vectorCandidates.length}`],
+      notes: [
+        `exact=${params.exactCandidates.length}`,
+        `lexical=${params.lexicalCandidates.length}`,
+        `vector=${params.vectorCandidates.length}`,
+        ...(params.exactCandidates.length > 0 ? [`exact-top=${params.exactCandidates[0].docTitle}`] : []),
+        ...(params.fusedCandidates.length > 0 ? [`fusion-top=${params.fusedCandidates[0].docTitle}`] : []),
+        ...(params.exactScoringSource
+          ? params.exactScoringSource.split(',').filter(Boolean).map((source) => `exact-scoring=${source}`)
+          : []),
+        ...(params.exactRankingSource ? [`exact-ranking=${params.exactRankingSource}`] : []),
+        ...(params.rerankContextSource ? [`rerank-context=${params.rerankContextSource}`] : []),
+        ...(params.entityAnchorSource ? [`entity-anchor-source=${params.entityAnchorSource}`] : []),
+        ...(params.entityAnchorCandidatePoolSize !== undefined
+          ? [`entity-anchor-pool-size=${params.entityAnchorCandidatePoolSize}`]
+          : []),
+        ...(params.evaluationAuthorityDriftGuard ? ['evaluation-authority-drift-guard=enabled'] : []),
+      ],
     },
     {
       stage: 'document_diversification',
@@ -1180,26 +1861,105 @@ export function searchCorpus(params: {
   queryAliases?: string[];
   options?: SearchOptions;
 }): SearchRun {
+  const totalStartedAt = Date.now();
   const { index, query, mode, queryEmbedding = null, queryAliases = [], options } = params;
+  const documentFastPathDocumentIds = resolveDocumentFastPathDocumentIds(index, query, mode, options);
+  const searchOptions = documentFastPathDocumentIds
+    ? {
+        ...options,
+        allowedDocumentIds: documentFastPathDocumentIds,
+      }
+    : options;
   const expansionProfile = buildQueryExpansionProfile(query);
   const intent = detectIntent(mode, query);
-  const exactCandidates = index.chunks
-    .filter((chunk) => isChunkInScope(chunk, mode, options))
-    .map((chunk) => scoreExact(chunk, query, intent, mode, queryAliases, options))
-    .filter((candidate) => candidate.exactScore > 0)
-    .sort((left, right) => {
-      const scoreDiff = right.exactScore - left.exactScore;
-      return scoreDiff !== 0 ? scoreDiff : compareIsoDateDesc(left.effectiveDate, right.effectiveDate);
-    })
-    .slice(0, expansionProfile.fusedTopK * 4);
+  const lexicalTokens = queryTokens(query);
+  const lexicalTokenSet = new Set(lexicalTokens);
+  const lexicalScoringContext = buildLexicalScoringContext(index, lexicalTokens);
+  const lexicalPoolStartedAt = Date.now();
+  const lexicalChunkPool =
+    searchOptions?.precomputedLexicalCandidateChunks ||
+    searchOptions?.allowedDocumentIds ||
+    Number.isFinite(searchOptions?.maxLexicalCandidateChunks ?? Number.POSITIVE_INFINITY)
+      ? resolveLexicalCandidateChunks(index, lexicalTokens, lexicalTokenSet, mode, searchOptions)
+      : undefined;
+  const lexicalPoolMs = Date.now() - lexicalPoolStartedAt;
+  const lexicalPoolSource =
+    lexicalChunkPool && searchOptions?.precomputedLexicalCandidateChunks
+      ? searchOptions.mergePrecomputedLexicalCandidateChunks
+        ? 'merged'
+        : 'precomputed'
+      : lexicalChunkPool && searchOptions?.allowedDocumentIds
+        ? 'posting-scope'
+        : lexicalChunkPool
+          ? 'posting-global'
+          : undefined;
+  const exactScoringContext = buildExactScoringContext(query, queryAliases, intent, mode, searchOptions?.lawRefs);
+  const exactStartedAt = Date.now();
+  const exactCandidateLimit = expansionProfile.fusedTopK * 4;
+  const exactCandidates: SearchCandidate[] = [];
+  const exactInputChunks = exactCandidateChunks(index, query, lexicalTokens, mode, searchOptions, lexicalChunkPool);
+  let exactScoredChunks = 0;
+  for (const chunk of exactInputChunks) {
+    if (!isChunkInScope(chunk, mode, searchOptions)) continue;
+    exactScoredChunks += 1;
+    const candidate = scoreExact(
+      chunk,
+      exactScoringContext,
+      index.exactMetadataByChunkId.get(chunk.id) ?? {
+        titleCompact: compactForMetadata(chunk.docTitle),
+        fileNameCompact: compactForMetadata(chunk.fileName),
+        sectionCompact: compactForMetadata(chunk.sectionPath.join(' ')),
+      },
+    );
+    if (candidate) insertBoundedExactCandidate(exactCandidates, candidate, exactCandidateLimit);
+  }
   const diversifiedExactCandidates = diversifyCandidatePool(exactCandidates, expansionProfile.fusedTopK);
+  const exactMs = Date.now() - exactStartedAt;
 
-  const lexicalCandidates = scoreLexical(index, query, mode, options).slice(0, expansionProfile.fusedTopK);
-  const vectorCandidates = options?.precomputedVectorCandidates ?? scoreVector(index, queryEmbedding, mode, options);
-  const rerankedCandidates = reciprocalRankFuse([diversifiedExactCandidates, lexicalCandidates, vectorCandidates])
-    .map((candidate) => rerankCandidate(candidate, query, intent, mode, options))
+  const lexicalStartedAt = Date.now();
+  const lexicalScoringCacheBefore = searchOptions?.lexicalScoringCache?.getStats();
+  const lexicalInputChunks =
+    lexicalTokens.length > 0 ? (lexicalChunkPool ?? lexicalCandidateChunks(index, lexicalTokens, mode, searchOptions)) : [];
+  const lexicalCandidates = mergePrecomputedCandidates(
+    scoreLexical(index, lexicalScoringContext, mode, searchOptions, expansionProfile.fusedTopK, lexicalInputChunks),
+    options?.precomputedLexicalCandidates,
+    expansionProfile.fusedTopK,
+    'lexicalScore',
+  );
+  const lexicalScoringCacheAfter = searchOptions?.lexicalScoringCache?.getStats();
+  const lexicalScoringCacheStats =
+    lexicalScoringCacheBefore && lexicalScoringCacheAfter
+      ? {
+          hits: lexicalScoringCacheAfter.hits - lexicalScoringCacheBefore.hits,
+          misses: lexicalScoringCacheAfter.misses - lexicalScoringCacheBefore.misses,
+          size: lexicalScoringCacheAfter.size,
+        }
+      : undefined;
+  const lexicalMs = Date.now() - lexicalStartedAt;
+  const vectorStartedAt = Date.now();
+  const vectorCandidates = options?.precomputedVectorCandidates ?? scoreVector(index, queryEmbedding, mode, searchOptions);
+  const vectorMs = Date.now() - vectorStartedAt;
+  const rerankContext = buildRerankQueryContext(query);
+  const fusionStartedAt = Date.now();
+  const fusionRrfStartedAt = Date.now();
+  const initialFusedCandidates = reciprocalRankFuse([diversifiedExactCandidates, lexicalCandidates, vectorCandidates]);
+  const fusionRrfMs = Date.now() - fusionRrfStartedAt;
+  const fusionRerankStartedAt = Date.now();
+  const rerankedCandidates = initialFusedCandidates
+    .map((candidate) => rerankCandidate(candidate, rerankContext, intent, mode, searchOptions))
     .sort((left, right) => right.rerankScore - left.rerankScore);
-  const entityAnchoredCandidates = buildEntityAnchoredCandidates({ index, query, mode, intent, options });
+  const fusionRerankMs = Date.now() - fusionRerankStartedAt;
+  const fusionEntityAnchorStartedAt = Date.now();
+  const entityAnchoredCandidates = buildEntityAnchoredCandidates({
+    index,
+    query,
+    rerankContext,
+    mode,
+    intent,
+    options: searchOptions,
+  });
+  const fusionEntityAnchorMs = Date.now() - fusionEntityAnchorStartedAt;
+  const fusionMergeStartedAt = Date.now();
   const mergedRerankedCandidates = reciprocalRankFuse([rerankedCandidates, entityAnchoredCandidates])
     .map((candidate) => {
       const injected = entityAnchoredCandidates.find((item) => item.id === candidate.id);
@@ -1207,17 +1967,53 @@ export function searchCorpus(params: {
     })
     .sort((left, right) => right.rerankScore - left.rerankScore)
     .slice(0, expansionProfile.fusedTopK * 2);
+  const fusionMergeMs = Date.now() - fusionMergeStartedAt;
+  const authorityGuardedCandidates = applyEvaluationAuthorityDriftGuard({
+    candidates: mergedRerankedCandidates,
+    exactCandidates: diversifiedExactCandidates,
+    mode,
+    options: searchOptions,
+  });
+  const fusionDiversifyStartedAt = Date.now();
   const fusedCandidates = diversifyVisibleCandidates(
-    mergedRerankedCandidates,
+    authorityGuardedCandidates,
     expansionProfile.fusedTopK,
     expansionProfile.maxVisibleCandidatesPerDocument,
   );
   debugRecallStage('fusion', query, fusedCandidates);
+  const fusionDiversifyMs = Date.now() - fusionDiversifyStartedAt;
+  const fusionMs = Date.now() - fusionStartedAt;
 
+  const evidenceStartedAt = Date.now();
   const evidence = selectEvidence(fusedCandidates, query, options);
   debugRecallStage('evidence', query, evidence);
   const { focusTerms, mismatchSignals } = detectTopicMismatch(query, fusedCandidates);
   const confidence = inferConfidence(intent, evidence, mismatchSignals);
+  const evidenceMs = Date.now() - evidenceStartedAt;
+  const corpusPhaseTimings: SearchCorpusPhaseTimings = {
+    lexicalPoolMs,
+    exactMs,
+    lexicalMs,
+    vectorMs,
+    fusionMs,
+    fusionDetails: {
+      rrfMs: fusionRrfMs,
+      rerankMs: fusionRerankMs,
+      entityAnchorMs: fusionEntityAnchorMs,
+      mergeMs: fusionMergeMs,
+      diversifyMs: fusionDiversifyMs,
+    },
+    candidateCounts: {
+      lexicalPoolChunks: lexicalChunkPool?.length ?? 0,
+      exactInputChunks: exactInputChunks.length,
+      exactScoredChunks,
+      exactCandidates: diversifiedExactCandidates.length,
+      lexicalInputChunks: lexicalInputChunks.length,
+      lexicalCandidates: lexicalCandidates.length,
+    },
+    evidenceMs,
+    totalMs: Date.now() - totalStartedAt,
+  };
 
   return {
     query,
@@ -1231,6 +2027,7 @@ export function searchCorpus(params: {
     evidence,
     focusTerms,
     mismatchSignals,
+    corpusPhaseTimings,
     enumerationIntent: expansionProfile.enumeration,
     matchedEntityAnchors: expansionProfile.entityAnchors.map((item) => item.id),
     stageTrace: buildStageTrace({
@@ -1241,6 +2038,19 @@ export function searchCorpus(params: {
       fusedCandidates,
       evidence,
       groundingGatePassed: confidence !== 'low',
+      documentFastPathDocumentIds,
+      lexicalPoolShared: Boolean(lexicalChunkPool),
+      lexicalPoolMerged: Boolean(searchOptions?.mergePrecomputedLexicalCandidateChunks),
+      lexicalPoolSize: lexicalChunkPool?.length,
+      lexicalPoolSource,
+      lexicalScoringSource: lexicalTokens.length > 0 ? 'idf-precomputed' : undefined,
+      exactScoringSource: 'indexed-metadata,lazy-candidate,compact-query-terms,query-signals',
+      exactRankingSource: 'bounded-topk',
+      rerankContextSource: 'shared',
+      entityAnchorSource: expansionProfile.entityAnchors.length > 0 ? 'index' : undefined,
+      entityAnchorCandidatePoolSize: entityAnchoredCandidates.length,
+      evaluationAuthorityDriftGuard: Boolean(searchOptions?.evaluationAuthorityDriftGuard),
+      lexicalScoringCacheStats,
     }),
   };
 }

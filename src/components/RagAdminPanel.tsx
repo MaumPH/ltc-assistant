@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, Database, FlaskConical, RefreshCcw, Settings2 } from 'lucide-react';
+import { Activity, Database, FlaskConical, RefreshCcw, SearchCheck, Settings2 } from 'lucide-react';
 import { getApiUrl } from '../lib/apiUrl';
+import {
+  buildOperationalRetrievalLogSummary,
+  getOperationalReviewSignalLabel,
+  getOperationalReviewSignalTone,
+} from '../lib/ragOperationalLogView';
 import type {
   AdminHealthResponse,
   AdminProfilesResponse,
@@ -12,6 +17,8 @@ import type {
   PromptMode,
   RetrievalFeatureFlags,
 } from '../lib/ragTypes';
+import type { OperationalRetrievalLogResponse, OperationalReviewSignalType } from '../lib/ragOperationalLog';
+import type { OperationalRetrievalLogReport } from '../lib/ragOperationalLogReport';
 
 interface RagAdminPanelProps {
   authToken: string;
@@ -281,6 +288,8 @@ export default function RagAdminPanel({ authToken, onAuthExpired }: RagAdminPane
   const [profiles, setProfiles] = useState<AdminProfilesResponse | null>(null);
   const [trials, setTrials] = useState<EvalTrialReport[]>([]);
   const [ontologyReview, setOntologyReview] = useState<OntologyReviewResponse | null>(null);
+  const [retrievalLog, setRetrievalLog] = useState<OperationalRetrievalLogResponse | null>(null);
+  const [retrievalReport, setRetrievalReport] = useState<OperationalRetrievalLogReport | null>(null);
   const [inspectQuery, setInspectQuery] = useState('');
   const [inspectMode, setInspectMode] = useState<PromptMode>('integrated');
   const [inspectProfileId, setInspectProfileId] = useState<string>('');
@@ -323,6 +332,12 @@ export default function RagAdminPanel({ authToken, onAuthExpired }: RagAdminPane
     () => pendingOntologyConcepts.filter((concept) => concept.recommendedStatus === 'rejected'),
     [pendingOntologyConcepts],
   );
+  const retrievalLogEntries = retrievalLog?.entries ?? [];
+  const retrievalLogSummary = useMemo(
+    () => buildOperationalRetrievalLogSummary(retrievalLogEntries),
+    [retrievalLogEntries],
+  );
+  const retrievalReviewGroups = retrievalReport?.reviewGroups ?? [];
 
   const requestJson = async <T,>(input: string, init?: RequestInit): Promise<T> => readJson<T>(input, authToken, init);
 
@@ -338,16 +353,21 @@ export default function RagAdminPanel({ authToken, onAuthExpired }: RagAdminPane
     setIsRefreshing(true);
     setError(null);
     try {
-      const [nextHealth, nextProfiles, nextTrials, nextOntologyReview] = await Promise.all([
-        requestJson<AdminHealthResponse>('/api/admin/rag/health'),
-        requestJson<AdminProfilesResponse>('/api/admin/rag/profiles'),
-        requestJson<EvalTrialReport[]>('/api/admin/rag/evals'),
-        requestJson<OntologyReviewResponse>('/api/admin/rag/ontology'),
-      ]);
+      const [nextHealth, nextProfiles, nextTrials, nextOntologyReview, nextRetrievalLog, nextRetrievalReport] =
+        await Promise.all([
+          requestJson<AdminHealthResponse>('/api/admin/rag/health'),
+          requestJson<AdminProfilesResponse>('/api/admin/rag/profiles'),
+          requestJson<EvalTrialReport[]>('/api/admin/rag/evals'),
+          requestJson<OntologyReviewResponse>('/api/admin/rag/ontology'),
+          requestJson<OperationalRetrievalLogResponse>('/api/admin/rag/retrieval-log'),
+          requestJson<OperationalRetrievalLogReport>('/api/admin/rag/retrieval-log/report?limit=8'),
+        ]);
       setHealth(nextHealth);
       setProfiles(nextProfiles);
       setTrials(nextTrials);
       setOntologyReview(nextOntologyReview);
+      setRetrievalLog(nextRetrievalLog);
+      setRetrievalReport(nextRetrievalReport);
       setInspectProfileId((current) => current || nextProfiles.activeProfileId);
     } catch (loadError) {
       setError(describeError(loadError, 'RAG 관리자 데이터를 불러오지 못했습니다.'));
@@ -750,6 +770,169 @@ export default function RagAdminPanel({ authToken, onAuthExpired }: RagAdminPane
           </div>
         </section>
       </div>
+
+      <section className="mt-4 rounded-[24px] border border-slate-200 bg-slate-50/70 p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <SearchCheck className="h-4 w-4 text-blue-600" />
+              최근 검색 운영 로그
+            </div>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              질문 원문은 저장하지 않고 hash, 마스킹된 미리보기, 순위와 근거 선택 신호만 표시합니다.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs text-slate-600">
+            <span className="rounded-full bg-white px-3 py-1">전체 {retrievalLogSummary.totalEntries}</span>
+            <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">
+              검토 후보 {retrievalLogSummary.reviewCandidateCount}
+            </span>
+            {retrievalLogSummary.latestObservedAt && (
+              <span className="rounded-full bg-white px-3 py-1">
+                최신 {new Date(retrievalLogSummary.latestObservedAt).toLocaleString('ko-KR')}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {Object.keys(retrievalLogSummary.signalCounts).length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {Object.entries(retrievalLogSummary.signalCounts).map(([type, count]) => {
+              const signalType = type as OperationalReviewSignalType;
+              return (
+                <span
+                  key={type}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium ${getOperationalReviewSignalTone(signalType)}`}
+                >
+                  {getOperationalReviewSignalLabel(signalType)} {count}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
+        {retrievalReviewGroups.length > 0 && (
+          <div className="mt-4 rounded-2xl border border-blue-100 bg-white px-4 py-3">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">검토 리포트</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  normalized query hash 기준으로 review signal이 있는 항목만 묶었습니다.
+                </p>
+              </div>
+              <span className="text-xs text-slate-500">groups {retrievalReviewGroups.length}</span>
+            </div>
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              {retrievalReviewGroups.slice(0, 4).map((group) => (
+                <div key={group.normalizedQueryHash} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">{group.queryPreview || '(empty query)'}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {group.occurrences}회 / 최신 {new Date(group.latestObservedAt).toLocaleString('ko-KR')}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-white px-2 py-1 text-xs text-slate-500">
+                      avg {group.averageLatency.retrievalMs}ms
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span
+                      className={`rounded-full px-2 py-1 text-xs font-medium ${
+                        group.decision.action === 'review_ranking'
+                          ? 'bg-amber-50 text-amber-700'
+                          : 'bg-white text-slate-500'
+                      }`}
+                    >
+                      {group.decision.action === 'review_ranking' ? 'ranking review' : 'monitor'}
+                    </span>
+                    <span className="rounded-full bg-white px-2 py-1 text-xs text-slate-500">
+                      threshold {group.decision.observedOccurrences}/{group.decision.minOccurrences}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {Object.entries(group.signalCounts).map(([type, count]) => {
+                      const signalType = type as OperationalReviewSignalType;
+                      return (
+                        <span
+                          key={`${group.normalizedQueryHash}-${type}`}
+                          className={`rounded-full border px-2 py-1 text-xs font-medium ${getOperationalReviewSignalTone(signalType)}`}
+                        >
+                          {getOperationalReviewSignalLabel(signalType)} {count}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  {group.topDocuments[0] && (
+                    <p className="mt-3 truncate text-xs text-slate-500">
+                      top {group.topDocuments[0].docTitle} ({group.topDocuments[0].occurrences})
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 space-y-3">
+          {retrievalLogEntries.length > 0 ? (
+            retrievalLogEntries.slice(0, 6).map((entry) => {
+              const topDocument = entry.topDocuments[0];
+              return (
+                <div key={entry.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                  <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-900">{entry.queryPreview || '(empty query)'}</p>
+                      {entry.normalizedQueryPreview !== entry.queryPreview && (
+                        <p className="mt-1 text-xs text-slate-500">정규화: {entry.normalizedQueryPreview}</p>
+                      )}
+                      <p className="mt-2 text-sm text-slate-600">
+                        {entry.mode} / {entry.profileId} / {translateRetrievalMode(entry.selectedRetrievalMode)} /{' '}
+                        {translateConfidence(entry.confidence)}
+                      </p>
+                      {topDocument && (
+                        <p className="mt-1 text-sm text-slate-600">
+                          1위 {topDocument.docTitle}
+                          {topDocument.selectedAsEvidence ? ' (evidence)' : ''}
+                        </p>
+                      )}
+                      {entry.evidenceDocumentPaths.length > 0 && (
+                        <p className="mt-1 break-all text-xs text-slate-500">
+                          evidence {entry.evidenceDocumentPaths.slice(0, 2).join(', ')}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 flex-col gap-2 text-xs text-slate-500 lg:items-end">
+                      <span>{new Date(entry.observedAt).toLocaleString('ko-KR')}</span>
+                      <span>
+                        retrieval {entry.latency.retrievalMs}ms / total {entry.latency.totalMs}ms
+                      </span>
+                      <span>unsupported claims {entry.unsupportedClaims}</span>
+                    </div>
+                  </div>
+                  {entry.reviewSignals.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {entry.reviewSignals.map((signal) => (
+                        <span
+                          key={`${entry.id}-${signal.type}`}
+                          title={signal.detail}
+                          className={`rounded-full border px-3 py-1 text-xs font-medium ${getOperationalReviewSignalTone(signal.type)}`}
+                        >
+                          {getOperationalReviewSignalLabel(signal.type)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-500">
+              아직 기록된 검색 운영 로그가 없습니다.
+            </div>
+          )}
+        </div>
+      </section>
 
       <section className="mt-4 rounded-[24px] border border-slate-200 bg-slate-50/70 p-4">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">

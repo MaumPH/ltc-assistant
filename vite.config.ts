@@ -3,6 +3,12 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig } from 'vite';
 
+function resolveHmrConfig(): boolean | { port?: number } {
+  if (process.env.DISABLE_HMR === 'true') return false;
+  const hmrPort = Number.parseInt(process.env.VITE_HMR_PORT ?? '', 10);
+  return Number.isFinite(hmrPort) && hmrPort > 0 ? { port: hmrPort } : true;
+}
+
 // GitHub Pages 배포 시 저장소 이름을 VITE_BASE_PATH 환경변수로 주입
 // 예: VITE_BASE_PATH=/ltc-assistant/
 // 로컬 개발 및 루트 배포 시에는 '/' 사용
@@ -15,6 +21,6 @@ export default defineConfig({
     },
   },
   server: {
-    hmr: process.env.DISABLE_HMR !== 'true',
+    hmr: resolveHmrConfig(),
   },
 });

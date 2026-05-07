@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { synthesizeExpertAnswer } from '../src/lib/expertAnswering';
+import { buildExpertKnowledgeContext, synthesizeExpertAnswer } from '../src/lib/expertAnswering';
 import type { AnswerPlan, StructuredChunk } from '../src/lib/ragTypes';
 
 function makeChunk(id: string, patch: Partial<StructuredChunk> = {}): StructuredChunk {
@@ -118,4 +118,131 @@ test('synthesizeExpertAnswer normalizes non-string model date fields', async () 
   assert.equal(answer.summary, 'Summary from nested text.');
   assert.equal(answer.directAnswer, 'Direct, answer');
   assert.equal(answer.conclusion, '123');
+});
+
+test('buildExpertKnowledgeContext separates context-only neighbor chunks from citation evidence', () => {
+  const evidence = makeChunk('evidence-1', {
+    text: '직접 인용 가능한 evidence입니다.',
+  });
+  const neighbor = makeChunk('neighbor-1', {
+    documentId: evidence.documentId,
+    parentSectionId: evidence.parentSectionId,
+    windowIndex: 1,
+    text: '답변 맥락을 보강하는 인접 chunk입니다.',
+  });
+
+  const context = buildExpertKnowledgeContext({
+    evidence: [evidence],
+    contextOnlyChunks: [neighbor],
+    workflowBriefs: [],
+  });
+
+  assert.match(context, /EvidenceId: evidence-1/);
+  assert.match(context, /Context-only neighboring windows/);
+  assert.match(context, /ContextOnlyId: neighbor-1/);
+  assert.match(context, /답변 맥락을 보강하는 인접 chunk입니다/);
+  assert.doesNotMatch(context, /EvidenceId: neighbor-1/);
+});
+
+test('synthesizeExpertAnswer rejects context-only ids returned as citations', async () => {
+  const ai = {
+    models: {
+      generateContent: async () => ({
+        text: JSON.stringify({
+          answerType: 'definition',
+          headline: 'Context-only citation attempt',
+          summary: 'Summary.',
+          directAnswer: 'Direct answer.',
+          confidence: 'medium',
+          evidenceState: 'confirmed',
+          keyIssueDate: '',
+          referenceDate: '',
+          conclusion: 'Conclusion.',
+          groundedBasis: {
+            legal: [],
+            evaluation: [],
+            practical: [
+              {
+                label: 'Neighbor only',
+                quote: 'Context-only quote',
+                explanation: 'Should be removed.',
+                citationIds: ['neighbor-1'],
+              },
+            ],
+          },
+          practicalInterpretation: [
+            {
+              label: 'Neighbor action',
+              detail: 'Should not cite neighbor.',
+              citationIds: ['neighbor-1'],
+            },
+          ],
+          additionalChecks: [],
+          appliedScope: 'All',
+          scope: 'Test',
+          basis: {
+            legal: [],
+            evaluation: [],
+            practical: [{ label: 'Neighbor only', summary: 'Should be removed.', citationIds: ['neighbor-1'] }],
+          },
+          blocks: [
+            {
+              type: 'bullets',
+              title: 'Block',
+              items: [{ label: 'Neighbor only', detail: 'Should not cite neighbor.', citationIds: ['neighbor-1'] }],
+            },
+          ],
+          citations: [
+            {
+              evidenceId: 'neighbor-1',
+              label: 'Context-only neighbor',
+              docTitle: 'Neighbor doc',
+              sectionPath: ['Neighbor'],
+            },
+          ],
+          followUps: [],
+        }),
+      }),
+    },
+  };
+  const evidence = makeChunk('evidence-1');
+  const neighbor = makeChunk('neighbor-1', {
+    documentId: evidence.documentId,
+    parentSectionId: evidence.parentSectionId,
+    text: 'Context-only neighbor text.',
+  });
+
+  const answer = await synthesizeExpertAnswer({
+    ai: ai as never,
+    model: 'gemini-3-flash-preview',
+    mode: 'integrated',
+    variant: 'v2',
+    sources: { baseline: '', base: '', overlays: { integrated: '', evaluation: '' } },
+    question: 'What is the rule?',
+    brain: {
+      questionArchetypes: [],
+      workflowEvents: [],
+      actors: [],
+      artifacts: [],
+      timeWindows: [],
+      tasks: [],
+      terms: [],
+    },
+    plan,
+    evidence: [evidence],
+    knowledgeContext: buildExpertKnowledgeContext({
+      evidence: [evidence],
+      contextOnlyChunks: [neighbor],
+      workflowBriefs: [],
+    }),
+    retrievalMode: 'local',
+    priorityClass: 'comparison_definition',
+    evidenceState: 'confirmed',
+    confidence: 'medium',
+  });
+
+  assert.deepEqual(answer.citations.map((citation) => citation.evidenceId), ['evidence-1']);
+  assert.equal(answer.groundedBasis.practical[0]?.citationIds.includes('neighbor-1'), false);
+  assert.equal(answer.practicalInterpretation[0]?.citationIds.includes('neighbor-1'), false);
+  assert.equal(answer.blocks[0]?.items[0]?.citationIds.includes('neighbor-1'), false);
 });

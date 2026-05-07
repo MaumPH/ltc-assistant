@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type {
   LawAliasResolution,
+  ConfidenceLevel,
   NaturalLanguageQueryProfile,
   NaturalLanguageQueryType,
   OntologyConceptStatus,
@@ -37,6 +38,21 @@ export function buildProcedureAspectQueries(query: string): string[] {
       ...compoundTerms.map((term) => `${term} ${normalized}`),
     ]),
   ).filter((item) => item !== normalized);
+}
+
+export function shouldExpandProcedureAspectQueries(params: {
+  query: string;
+  confidence: ConfidenceLevel;
+  evidenceCount: number;
+  uniqueEvidenceDocumentCount: number;
+  enumerationIntent?: boolean;
+}): boolean {
+  const normalized = safeTrim(params.query);
+  if (!isProcedureLikeQuery(normalized)) return false;
+  if (params.enumerationIntent) return true;
+  if (params.confidence === 'low') return true;
+  if (params.evidenceCount < 3) return true;
+  return params.uniqueEvidenceDocumentCount === 0;
 }
 
 interface LawAliasEntry {

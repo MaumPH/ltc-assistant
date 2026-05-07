@@ -376,6 +376,7 @@ export interface StructuredSection {
   depth: number;
   path: string[];
   articleNo?: string;
+  boundaryReason?: string;
   content: string;
   lineStart: number;
   lineEnd: number;
@@ -444,6 +445,35 @@ export interface RetrievalStageTrace {
   notes?: string[];
 }
 
+export interface SearchCorpusPhaseTimings {
+  lexicalPoolMs: number;
+  exactMs: number;
+  lexicalMs: number;
+  vectorMs: number;
+  fusionMs: number;
+  fusionDetails?: SearchCorpusFusionTimings;
+  candidateCounts?: SearchCorpusCandidateCounts;
+  evidenceMs: number;
+  totalMs: number;
+}
+
+export interface SearchCorpusCandidateCounts {
+  lexicalPoolChunks: number;
+  exactInputChunks: number;
+  exactScoredChunks: number;
+  exactCandidates: number;
+  lexicalInputChunks: number;
+  lexicalCandidates: number;
+}
+
+export interface SearchCorpusFusionTimings {
+  rrfMs: number;
+  rerankMs: number;
+  entityAnchorMs: number;
+  mergeMs: number;
+  diversifyMs: number;
+}
+
 export interface SearchRun {
   query: string;
   mode: PromptMode;
@@ -458,6 +488,7 @@ export interface SearchRun {
   mismatchSignals?: string[];
   groundingGatePassed?: boolean;
   stageTrace?: RetrievalStageTrace[];
+  corpusPhaseTimings?: SearchCorpusPhaseTimings;
   enumerationIntent?: boolean;
   matchedEntityAnchors?: string[];
 }

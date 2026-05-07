@@ -1,6 +1,6 @@
 import { buildCitationLabel, buildPreciseCitationLabel, extractArticleNo, normalizeWhitespace, sha1, toDocumentMetadata } from './ragMetadata';
 import { hasQualifierSignal } from './qualifierPatterns';
-import type { CompiledPage, KnowledgeFile, StructuredChunk, StructuredSection } from './ragTypes';
+import type { CompiledPage, DocumentMetadata, KnowledgeFile, StructuredChunk, StructuredSection } from './ragTypes';
 
 const MAX_CHUNK_CHARS = 1200;
 const MAX_PROTECTED_CHUNK_CHARS = 2400;
@@ -11,7 +11,28 @@ type SectionBoundary = {
   depth: number;
   articleNo?: string;
   isMarkdownHeading: boolean;
+  reason: ChunkBoundaryReason;
 };
+
+export type ChunkPolicyKind = 'law' | 'evaluation' | 'qa' | 'comparison' | 'manual' | 'general';
+
+type ChunkBoundaryReason =
+  | 'document-root'
+  | 'markdown-heading'
+  | 'law-heading'
+  | 'law-appendix'
+  | 'qa-boundary'
+  | 'evaluation-subheading'
+  | 'numbered-subheading';
+
+export interface ChunkPolicy {
+  kind: ChunkPolicyKind;
+  protectQaPairs: boolean;
+  protectEvaluationBlocks: boolean;
+  protectTablesAndLists: boolean;
+  maxChunkChars: number;
+  maxProtectedChunkChars: number;
+}
 
 type SpanBlock = {
   text: string;
@@ -42,6 +63,76 @@ const LIST_ITEM_RE = /^\s*(?:[-*•‣▪▫]|\d{1,2}[.)]|[①-⑳]|[가-힣][.)
 const TABLE_ROW_RE = /^\s*\|.+\|\s*$/u;
 const CHECKLIST_CUE_RE = /(체크리스트|지침|확인|예방|교육|안내|필수|점검|서류|기록|업무|절차|방법|기한|이내|수급자|보호자)/u;
 
+export function resolveChunkPolicy(metadata: DocumentMetadata): ChunkPolicy {
+  const titleProbe = `${metadata.title} ${metadata.fileName} ${metadata.path}`;
+  const legalTitle = /(법률?|시행령|시행규칙|고시|별표|별지)/u.test(titleProbe);
+  const evaluationTitle = /(평가매뉴얼|평가기준|평가방법)/u.test(titleProbe);
+
+  if (['law', 'ordinance', 'rule', 'notice'].includes(metadata.sourceType) || legalTitle) {
+    return {
+      kind: 'law',
+      protectQaPairs: false,
+      protectEvaluationBlocks: false,
+      protectTablesAndLists: true,
+      maxChunkChars: MAX_CHUNK_CHARS,
+      maxProtectedChunkChars: MAX_PROTECTED_CHUNK_CHARS,
+    };
+  }
+
+  if (metadata.sourceType === 'evaluation' || metadata.documentGroup === 'evaluation' || evaluationTitle) {
+    return {
+      kind: 'evaluation',
+      protectQaPairs: false,
+      protectEvaluationBlocks: true,
+      protectTablesAndLists: true,
+      maxChunkChars: MAX_CHUNK_CHARS,
+      maxProtectedChunkChars: MAX_PROTECTED_CHUNK_CHARS,
+    };
+  }
+
+  if (metadata.sourceType === 'qa') {
+    return {
+      kind: 'qa',
+      protectQaPairs: true,
+      protectEvaluationBlocks: false,
+      protectTablesAndLists: true,
+      maxChunkChars: MAX_CHUNK_CHARS,
+      maxProtectedChunkChars: MAX_PROTECTED_CHUNK_CHARS,
+    };
+  }
+
+  if (metadata.sourceType === 'comparison') {
+    return {
+      kind: 'comparison',
+      protectQaPairs: false,
+      protectEvaluationBlocks: false,
+      protectTablesAndLists: true,
+      maxChunkChars: MAX_CHUNK_CHARS,
+      maxProtectedChunkChars: MAX_PROTECTED_CHUNK_CHARS,
+    };
+  }
+
+  if (metadata.sourceType === 'manual' || metadata.sourceType === 'guide') {
+    return {
+      kind: 'manual',
+      protectQaPairs: false,
+      protectEvaluationBlocks: false,
+      protectTablesAndLists: true,
+      maxChunkChars: MAX_CHUNK_CHARS,
+      maxProtectedChunkChars: MAX_PROTECTED_CHUNK_CHARS,
+    };
+  }
+
+  return {
+    kind: 'general',
+    protectQaPairs: false,
+    protectEvaluationBlocks: false,
+    protectTablesAndLists: true,
+    maxChunkChars: MAX_CHUNK_CHARS,
+    maxProtectedChunkChars: MAX_PROTECTED_CHUNK_CHARS,
+  };
+}
+
 function detectBoundary(line: string): SectionBoundary | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
@@ -53,6 +144,7 @@ function detectBoundary(line: string): SectionBoundary | null {
       depth: markdownHeading[1].length,
       articleNo: extractArticleNo(markdownHeading[2]),
       isMarkdownHeading: true,
+      reason: 'markdown-heading',
     };
   }
 
@@ -62,6 +154,7 @@ function detectBoundary(line: string): SectionBoundary | null {
       depth: 3,
       articleNo: extractArticleNo(trimmed),
       isMarkdownHeading: false,
+      reason: 'law-heading',
     };
   }
 
@@ -71,6 +164,7 @@ function detectBoundary(line: string): SectionBoundary | null {
       depth: 2,
       articleNo: extractArticleNo(trimmed),
       isMarkdownHeading: false,
+      reason: 'law-appendix',
     };
   }
 
@@ -80,15 +174,27 @@ function detectBoundary(line: string): SectionBoundary | null {
       depth: 4,
       articleNo: extractArticleNo(trimmed),
       isMarkdownHeading: false,
+      reason: 'qa-boundary',
     };
   }
 
-  if (EVALUATION_SUBHEADING_RE.test(trimmed) || NUMBERED_SUBHEADING_RE.test(trimmed)) {
+  if (EVALUATION_SUBHEADING_RE.test(trimmed)) {
     return {
       title: trimmed,
       depth: 4,
       articleNo: extractArticleNo(trimmed),
       isMarkdownHeading: false,
+      reason: 'evaluation-subheading',
+    };
+  }
+
+  if (NUMBERED_SUBHEADING_RE.test(trimmed)) {
+    return {
+      title: trimmed,
+      depth: 4,
+      articleNo: extractArticleNo(trimmed),
+      isMarkdownHeading: false,
+      reason: 'numbered-subheading',
     };
   }
 
@@ -101,6 +207,7 @@ function pushSection(
   activeTitle: string,
   activePath: string[],
   activeArticleNo: string | undefined,
+  boundaryReason: ChunkBoundaryReason,
   lines: string[],
   startLine: number,
   endLine: number,
@@ -115,14 +222,28 @@ function pushSection(
     depth: activePath.length,
     path: activePath,
     articleNo: activeArticleNo,
+    boundaryReason,
     content,
     lineStart: startLine,
     lineEnd: endLine,
   });
 }
 
+function isQaQuestionTitle(title: string): boolean {
+  return /^(질문\(q\)|질문\s*\d+|문\s*\d+[.)]?|q\s*[.)]?\s*\d*|q\s*&\s*a|q&a)/iu.test(title.trim());
+}
+
+function isQaAnswerTitle(title: string): boolean {
+  return /^(답변\(a\)|답변\s*\d+|a\s*[.)]?\s*\d*)/iu.test(title.trim());
+}
+
+function shouldAttachQaAnswerToQuestion(activeTitle: string, boundary: SectionBoundary): boolean {
+  return boundary.reason === 'qa-boundary' && isQaQuestionTitle(activeTitle) && isQaAnswerTitle(boundary.title);
+}
+
 export function buildStructuredSections(file: KnowledgeFile): StructuredSection[] {
   const metadata = toDocumentMetadata(file);
+  const policy = resolveChunkPolicy(metadata);
   const lines = file.content.replace(/\r\n/g, '\n').split('\n');
   const sections: StructuredSection[] = [];
   const markdownTrail: Array<{ depth: number; title: string }> = [];
@@ -130,6 +251,7 @@ export function buildStructuredSections(file: KnowledgeFile): StructuredSection[
   let activeTitle = metadata.title;
   let activePath = [metadata.title];
   let activeArticleNo = metadata.articleHint;
+  let activeBoundaryReason: ChunkBoundaryReason = 'document-root';
   let activeStartLine = 1;
   let buffer: string[] = [];
 
@@ -148,6 +270,11 @@ export function buildStructuredSections(file: KnowledgeFile): StructuredSection[
       continue;
     }
 
+    if (policy.protectQaPairs && shouldAttachQaAnswerToQuestion(activeTitle, boundary)) {
+      buffer.push(line);
+      continue;
+    }
+
     if (buffer.length > 0) {
       pushSection(
         sections,
@@ -155,6 +282,7 @@ export function buildStructuredSections(file: KnowledgeFile): StructuredSection[
         activeTitle,
         activePath,
         activeArticleNo,
+        activeBoundaryReason,
         buffer,
         activeStartLine,
         index,
@@ -173,6 +301,7 @@ export function buildStructuredSections(file: KnowledgeFile): StructuredSection[
 
     activeTitle = boundary.title;
     activeArticleNo = boundary.articleNo ?? extractArticleNo(boundary.title) ?? metadata.articleHint;
+    activeBoundaryReason = boundary.reason;
     activeStartLine = index + 1;
     buffer = [line];
   }
@@ -184,6 +313,7 @@ export function buildStructuredSections(file: KnowledgeFile): StructuredSection[
       activeTitle,
       activePath,
       activeArticleNo,
+      activeBoundaryReason,
       buffer,
       activeStartLine,
       lines.length,
@@ -197,6 +327,7 @@ export function buildStructuredSections(file: KnowledgeFile): StructuredSection[
       metadata.title,
       [metadata.title],
       metadata.articleHint,
+      'document-root',
       lines,
       1,
       lines.length,
@@ -443,6 +574,7 @@ export function buildStructuredChunks(files: KnowledgeFile[]): StructuredChunk[]
 
   for (const file of files) {
     const metadata = toDocumentMetadata(file);
+    const policy = resolveChunkPolicy(metadata);
     const sections = buildStructuredSections(file);
     let chunkIndex = 0;
 
@@ -458,7 +590,16 @@ export function buildStructuredChunks(files: KnowledgeFile[]): StructuredChunk[]
         });
 
         const chunkHash = sha1(`${metadata.documentId}:${section.id}:${windowIndex}:${embeddingInput}`);
-        const matchedLabels = [metadata.title, metadata.sourceType, metadata.documentGroup, ...section.path]
+        const matchedLabels = [
+          metadata.title,
+          metadata.sourceType,
+          metadata.documentGroup,
+          `chunk-policy:${policy.kind}`,
+          `chunk-boundary:${section.boundaryReason ?? 'document-root'}`,
+          window.listGroupId ? 'chunk-protected:group' : '',
+          window.containsCheckList ? 'chunk-protected:checklist' : '',
+          ...section.path,
+        ]
           .filter(Boolean)
           .map((value) => String(value));
 

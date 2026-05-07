@@ -9,6 +9,7 @@ import {
   type SearchOptions,
 } from './ragEngine';
 import { buildKnowledgeManifest, compareIndexStatus } from './ragIndex';
+import { buildPostgresLexicalCandidateQuery } from './ragDbLexical';
 import { extractLinkedDocumentTitles, inferSourceRole, sha1 } from './ragMetadata';
 import { loadKnowledgeCorporaFromDisk } from './nodeKnowledge';
 import { buildCompiledPages, buildStructuredChunks } from './ragStructured';
@@ -269,6 +270,7 @@ export function manifestEntriesToKnowledgeStats(entries: IndexManifestEntry[]): 
 }
 
 const POSTGRES_VECTOR_TOP_K = 48;
+const POSTGRES_LEXICAL_TOP_K = 48;
 const EMBEDDING_CACHE_FILE = 'embeddings.json';
 
 function mergeCorpora(...corpora: KnowledgeFile[][]): KnowledgeFile[] {
@@ -308,6 +310,7 @@ export function buildIndexMetadataRow(manifestEntries: IndexManifestEntry[], sto
 
 const POSTGRES_SCHEMA_STATEMENTS = [
   'create extension if not exists vector',
+  'create extension if not exists pg_trgm',
   `
     create table if not exists documents (
       id text primary key,
@@ -408,6 +411,9 @@ const POSTGRES_SCHEMA_STATEMENTS = [
   'alter table chunks add column if not exists contains_checklist boolean not null default false',
   'alter table chunks add column if not exists embedding_input text',
   'create index if not exists chunks_effective_date_idx on chunks(effective_date desc)',
+  'create index if not exists chunks_search_text_trgm_idx on chunks using gin (search_text gin_trgm_ops)',
+  'create index if not exists chunks_doc_title_trgm_idx on chunks using gin (doc_title gin_trgm_ops)',
+  'create index if not exists chunks_title_trgm_idx on chunks using gin (title gin_trgm_ops)',
   'create index if not exists chunks_embedding_ivfflat_idx on chunks using ivfflat (embedding vector_cosine_ops) with (lists = 100)',
   `
     create table if not exists compiled_pages (
@@ -594,7 +600,21 @@ export class MemoryRagStore implements RagStore {
     queryAliases: string[] = [],
     options?: SearchOptions,
   ): Promise<SearchRun> {
-    return searchCorpus({ index: this.index, query, mode, queryEmbedding, queryAliases, options });
+    const totalStartedAt = Date.now();
+    const corpusStartedAt = Date.now();
+    const result = searchCorpus({ index: this.index, query, mode, queryEmbedding, queryAliases, options });
+    const corpusMs = Date.now() - corpusStartedAt;
+    options?.searchDiagnostics?.record({
+      stage: options.searchDiagnosticStage ?? 'search-store',
+      dbLexicalMs: 0,
+      vectorMs: 0,
+      corpusMs,
+      totalMs: Date.now() - totalStartedAt,
+      dbLexicalCandidates: options.precomputedLexicalCandidates?.length ?? 0,
+      vectorCandidates: options.precomputedVectorCandidates?.length ?? 0,
+      corpusPhaseTimings: result.corpusPhaseTimings,
+    });
+    return result;
   }
 
   getCompiledPages(mode: PromptMode, documentIds: string[]): CompiledPage[] {
@@ -702,6 +722,55 @@ export class PostgresRagStore implements RagStore {
         .filter((candidate): candidate is SearchCandidate => candidate !== null);
     } catch (error) {
       console.warn(`[pgvector] similarity query failed: ${describeError(error)}`);
+      return null;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async queryPostgresLexicalCandidates(
+    query: string,
+    mode: PromptMode,
+    options?: SearchOptions,
+  ): Promise<SearchCandidate[] | null> {
+    if (!query.trim()) return [];
+    if (options?.allowedDocumentIds && options.allowedDocumentIds.size === 0) return [];
+
+    const lexicalQuery = buildPostgresLexicalCandidateQuery({
+      query,
+      mode,
+      allowedDocumentIds: options?.allowedDocumentIds ? Array.from(options.allowedDocumentIds) : undefined,
+      excludedEvidenceRoles: options?.excludedEvidenceRoles ? Array.from(options.excludedEvidenceRoles) : undefined,
+      limit: POSTGRES_LEXICAL_TOP_K,
+    });
+
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query<{ id: string; lexical_score: number | string; matched_terms: string[] | string | null }>(
+        lexicalQuery.sql,
+        lexicalQuery.values,
+      );
+
+      return result.rows
+        .map((row) => {
+          const chunk = this.chunkById.get(row.id);
+          if (!chunk) return null;
+          const matchedTerms = parseStringArray(row.matched_terms);
+          return {
+            ...chunk,
+            exactScore: 0,
+            lexicalScore: Math.max(0, Number(row.lexical_score) || 0),
+            vectorScore: 0,
+            fusedScore: 0,
+            rerankScore: 0,
+            headingScore: 0,
+            ontologyScore: 0,
+            matchedTerms: Array.from(new Set(['db-lexical', ...matchedTerms])),
+          } satisfies SearchCandidate;
+        })
+        .filter((candidate): candidate is SearchCandidate => candidate !== null);
+    } catch (error) {
+      console.warn(`[postgres-lexical] candidate query failed: ${describeError(error)}`);
       return null;
     } finally {
       client.release();
@@ -946,20 +1015,40 @@ export class PostgresRagStore implements RagStore {
     queryAliases: string[] = [],
     options?: SearchOptions,
   ): Promise<SearchRun> {
+    const totalStartedAt = Date.now();
+    const lexicalStartedAt = Date.now();
+    const precomputedLexicalCandidates = await this.queryPostgresLexicalCandidates(query, mode, options);
+    const dbLexicalMs = Date.now() - lexicalStartedAt;
+    const vectorStartedAt = Date.now();
     const precomputedVectorCandidates = await this.queryPgvectorCandidates(queryEmbedding, mode, options);
-    return searchCorpus({
+    const vectorMs = Date.now() - vectorStartedAt;
+    const corpusStartedAt = Date.now();
+    const result = searchCorpus({
       index: this.index,
       query,
       mode,
       queryEmbedding,
       queryAliases,
-      options: precomputedVectorCandidates
+      options: precomputedLexicalCandidates || precomputedVectorCandidates
         ? {
             ...options,
-            precomputedVectorCandidates,
+            precomputedLexicalCandidates: precomputedLexicalCandidates ?? options?.precomputedLexicalCandidates,
+            precomputedVectorCandidates: precomputedVectorCandidates ?? options?.precomputedVectorCandidates,
           }
         : options,
     });
+    const corpusMs = Date.now() - corpusStartedAt;
+    options?.searchDiagnostics?.record({
+      stage: options.searchDiagnosticStage ?? 'search-store',
+      dbLexicalMs,
+      vectorMs,
+      corpusMs,
+      totalMs: Date.now() - totalStartedAt,
+      dbLexicalCandidates: precomputedLexicalCandidates?.length ?? options?.precomputedLexicalCandidates?.length ?? 0,
+      vectorCandidates: precomputedVectorCandidates?.length ?? options?.precomputedVectorCandidates?.length ?? 0,
+      corpusPhaseTimings: result.corpusPhaseTimings,
+    });
+    return result;
   }
 
   getCompiledPages(mode: PromptMode, documentIds: string[]): CompiledPage[] {
