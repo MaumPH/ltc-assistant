@@ -19,6 +19,7 @@ import { ApiError } from './src/lib/errors';
 import { CHAT_MODELS } from './src/lib/chatModels';
 import { buildKnowledgeCategoryCounts } from './src/lib/knowledgeCategories';
 import { NodeRagService } from './src/lib/nodeRagService';
+import { sanitizeUserFacingCandidateDiagnostics, sanitizeUserFacingStageTrace } from './src/lib/ragPublicDiagnostics';
 import { parseServiceScopes } from './src/lib/serviceScopes';
 import type { ChatMessage, PromptMode, ServiceScopeId } from './src/lib/ragTypes';
 import type { PromptVariant } from './src/lib/promptAssembly';
@@ -51,6 +52,11 @@ const chatLimiter = pLimit(CHAT_CONCURRENCY);
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parsePositiveQueryInteger(value: unknown, fallback: number): number {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  return parsePositiveInteger(typeof candidate === 'string' ? candidate : undefined, fallback);
 }
 
 function parseCommaSeparatedEnv(value: string | undefined): string[] {
@@ -198,6 +204,17 @@ function createKeyRateLimiter(max: number) {
   });
 }
 
+function setAdminNoStoreHeaders(res: express.Response): void {
+  res.setHeader('Cache-Control', 'no-store');
+}
+
+function applyAdminNoStoreHeaders(app: express.Express): void {
+  app.use('/api/admin', (_req, res, next) => {
+    setAdminNoStoreHeaders(res);
+    next();
+  });
+}
+
 function requireAdminAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
   if (!isAdminPasswordConfigured()) {
     return res.status(503).json({
@@ -334,6 +351,7 @@ async function startServer() {
   applySecurityHeaders(app);
   applyCors(app);
   app.use(express.json({ limit: '1mb' }));
+  applyAdminNoStoreHeaders(app);
 
   app.post('/api/admin/session', adminLoginRateLimit, (req, res) => {
     if (!isAdminPasswordConfigured()) {
@@ -540,6 +558,35 @@ async function startServer() {
     }
   });
 
+  app.get('/api/admin/rag/retrieval-log', requireAdminAuth, async (_req, res) => {
+    try {
+      await ragService.initialize();
+      res.json(ragService.getAdminRetrievalLog());
+    } catch (error) {
+      logServerError('admin rag retrieval log failed', error);
+      res.status(500).json({
+        error: 'Failed to load RAG retrieval log',
+        details: getSafeErrorMessage(error),
+      });
+    }
+  });
+
+  app.get('/api/admin/rag/retrieval-log/report', requireAdminAuth, async (req, res) => {
+    try {
+      await ragService.initialize();
+      res.json(
+        ragService.getAdminRetrievalLogReport({
+          limit: parsePositiveQueryInteger(req.query.limit, 20),
+        }),
+      );
+    } catch (error) {
+      logServerError('admin rag retrieval log report failed', error);
+      res.status(500).json({
+        error: 'RAG retrieval log report를 불러오지 못했습니다.',
+      });
+    }
+  });
+
   app.post('/api/admin/rag/inspect', requireAdminAuth, async (req, res) => {
     await handleRetrievalInspect(req, res);
   });
@@ -727,6 +774,8 @@ async function startServer() {
           retrievalProfileId,
         }),
       );
+      const stageTrace = sanitizeUserFacingStageTrace(response.retrieval.stageTrace);
+      const candidateDiagnostics = sanitizeUserFacingCandidateDiagnostics(response.retrieval.candidateDiagnostics);
 
       res.json({
           model: requestedModel,
@@ -754,8 +803,8 @@ async function startServer() {
             mismatchSignals: response.retrieval.mismatchSignals,
             groundingGatePassed: response.retrieval.groundingGatePassed,
             matchedDocumentPaths: response.retrieval.matchedDocumentPaths,
-            candidateDiagnostics: response.retrieval.candidateDiagnostics,
-            stageTrace: response.retrieval.stageTrace,
+            candidateDiagnostics,
+            stageTrace,
             neighborWindows: response.retrieval.neighborWindows,
             rejectionReasons: response.retrieval.rejectionReasons,
             routingDocuments: response.retrieval.routingDocuments,
