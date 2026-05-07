@@ -95,6 +95,35 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function normalizeMessageText(value: unknown): string {
+  if (typeof value === 'string') return value.replace(/\s+/g, ' ').trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value).replace(/\s+/g, ' ').trim();
+  if (Array.isArray(value)) return value.map(normalizeMessageText).filter(Boolean).join(' ');
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    for (const key of ['text', 'value', 'content', 'message']) {
+      const normalized = normalizeMessageText(record[key]);
+      if (normalized) return normalized;
+    }
+  }
+  return '';
+}
+
+function normalizeChatMessages(value: unknown): ChatMessage[] | null {
+  if (!Array.isArray(value)) return null;
+  const messages: ChatMessage[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    const role = record.role === 'model' ? 'model' : record.role === 'user' ? 'user' : null;
+    if (!role) continue;
+    const text = normalizeMessageText(record.text);
+    if (!text) continue;
+    messages.push({ role, text });
+  }
+  return messages;
+}
+
 function normalizePromptMode(value: unknown): PromptMode {
   return value === 'evaluation' || value === 'integrated' ? value : 'integrated';
 }
@@ -750,14 +779,14 @@ async function startServer() {
         serviceScopes?: ServiceScopeId[];
         retrievalProfileId?: unknown;
       };
-      const messages = body.messages;
+      const messages = normalizeChatMessages(body.messages);
       const mode = normalizePromptMode(body.mode);
       const promptVariant = normalizePromptVariant(body.promptVariant);
       const apiKey = normalizeOptionalString(body.apiKey);
       const retrievalProfileId = normalizeOptionalString(body.retrievalProfileId);
       requestedModel = normalizeRequestedChatModel(body.model);
 
-      if (!Array.isArray(messages) || messages.length === 0) {
+      if (!messages || messages.length === 0) {
         return res.status(400).json({ error: 'messages must be a non-empty array' });
       }
 
@@ -765,7 +794,7 @@ async function startServer() {
 
       const response = await runLimitedChat(() =>
         ragService.generateChatResponse({
-          messages: messages as ChatMessage[],
+          messages,
           mode,
           model: requestedModel,
           promptVariant,

@@ -4105,7 +4105,9 @@ export class NodeRagService {
 
       const ai = new GoogleGenAI({ apiKey: effectiveApiKey });
       const retrievalEmbeddingAi = this.embeddingAi ?? ai;
-      await this.store.ensureEmbeddings(retrievalEmbeddingAi);
+      if (this.embeddingAi) {
+        await this.store.ensureEmbeddings(this.embeddingAi);
+      }
 
       const recentMessages = request.messages.slice(-4);
       const latestUserMessage = safeTrim([...recentMessages].reverse().find((message) => message.role === 'user')?.text);
