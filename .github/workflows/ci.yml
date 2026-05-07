@@ -30,3 +30,6 @@ jobs:
 
       - name: Build app
         run: npm run build
+
+      - name: Check RAG benchmark baseline
+        run: npm run rag:baseline

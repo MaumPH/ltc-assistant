@@ -240,5 +240,50 @@
     "maxUnsupportedClaims": 0,
     "forbiddenValidationCodes": ["unsupported-claim"],
     "notes": "주야간보호 기피식품 질문이 2026 평가매뉴얼의 욕구사정/대체식품 근거로 직접 연결되는지 확인"
+  },
+  {
+    "id": "integrated-complaint-casebook",
+    "mode": "integrated",
+    "question": "2026년 노인장기요양보험 민원상담 사례집 문서를 찾아줘",
+    "expectedDoc": "2026년_노인장기요양보험_민원상담_사례집",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "notes": "민원상담 사례집처럼 긴 제목의 QA 문서가 골든 기준에 포함되는지 확인"
+  },
+  {
+    "id": "integrated-fraud-claim-casebook",
+    "mode": "integrated",
+    "question": "장기요양기관 부당청구 사례집은 어떤 문서를 봐야 해?",
+    "expectedDoc": "장기요양기관_부당청구_사례집",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "notes": "부당청구 사례집 문서명 탐색과 구어체 질의가 같은 문서로 수렴하는지 확인"
+  },
+  {
+    "id": "integrated-claim-work-guide",
+    "mode": "integrated",
+    "question": "급여비용 청구 업무 처리 흐름은 어디서 확인해?",
+    "expectedDoc": "급여비용_청구_업무_바로알기",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "notes": "청구·심사업무 처리 흐름 질문이 청구 업무 가이드로 연결되는지 확인"
+  },
+  {
+    "id": "integrated-caregiver-continuing-education",
+    "mode": "integrated",
+    "question": "2026년 요양보호사 보수교육 운영지침을 찾아줘",
+    "expectedDoc": "요양보호사_보수교육_운영지침",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "notes": "보수교육 운영지침 문서가 별도 다빈도 Q&A와 혼동되지 않는지 확인"
+  },
+  {
+    "id": "integrated-integrated-homecare-manual",
+    "mode": "integrated",
+    "question": "통합재가서비스 운영기준과 비용 산정은 어떤 매뉴얼을 봐야 하나요?",
+    "expectedDoc": "통합재가서비스_운영_매뉴얼",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "notes": "통합재가서비스 운영기준/비용 산정 질문이 운영 매뉴얼로 연결되는지 확인"
   }
 ]

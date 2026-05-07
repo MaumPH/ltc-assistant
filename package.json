@@ -16,6 +16,12 @@
     "rag:doctor": "tsx scripts/rag-doctor.ts",
     "rag:compiled": "tsx scripts/rag-compiled-pages.ts",
     "rag:bench": "tsx scripts/rag-benchmark.ts",
+    "rag:baseline": "tsx scripts/rag-baseline-check.ts",
+    "rag:cache-benchmark": "tsx scripts/rag-cache-benchmark.ts",
+    "rag:benchmark-diagnostics": "tsx scripts/rag-benchmark-diagnostics.ts",
+    "rag:quality-report": "tsx scripts/rag-quality-report.ts",
+    "rag:embedding-verify": "tsx scripts/rag-embedding-verify.ts",
+    "rag:alias-candidates": "tsx scripts/rag-alias-candidates.ts",
     "rag:eval": "tsx scripts/rag-eval-trial.ts",
     "rag:test": "tsx scripts/rag-regression-test.ts",
     "ontology:generate": "tsx scripts/ontology-generate.ts"

@@ -11,7 +11,8 @@ dist/
 dist-ssr/
 build/
 prompt_harness/results/
-benchmarks/results/
+benchmarks/results/*
+!benchmarks/results/rag-benchmark-2026-05-06T14-46-10-399Z.json
 .rag-cache/
 
 # 에디터/OS 파일
@@ -21,3 +22,5 @@ Thumbs.db
 .vscode/
 .idea/
 .claude/
+.omc/
+.playwright-mcp/

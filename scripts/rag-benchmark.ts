@@ -2,10 +2,16 @@ import fs from 'fs';
 import path from 'path';
 import * as dotenv from 'dotenv';
 import { NodeRagService, loadBenchmarkCases } from '../src/lib/nodeRagService';
+import {
+  buildBenchmarkOutcomeSummary,
+  buildBenchmarkOutputTargets,
+  buildBenchmarkPerformanceSummary,
+} from '../src/lib/ragBenchmarkReport';
 
 dotenv.config();
 
 async function main() {
+  const benchmarkStartedAt = Date.now();
   const projectRoot = process.cwd();
   const cases = loadBenchmarkCases(projectRoot);
   if (cases.length === 0) {
@@ -214,6 +220,7 @@ async function main() {
       top3Hit,
       top5Hit,
       abstained,
+      acceptableAbstain: testCase.acceptableAbstain,
       confidence: inspection.search.confidence,
       expectedEvidenceHit,
       forbiddenEvidencePass,
@@ -237,6 +244,16 @@ async function main() {
       },
       validationCodes,
       claimCoverage: inspection.claimCoverage,
+      latency: inspection.latency,
+      stageTrace: inspection.stageTrace,
+      plannerTrace: inspection.plannerTrace,
+      neighborWindows: inspection.neighborWindows.map((window) => ({
+        id: window.id,
+        relation: window.relation,
+        selectedAsEvidence: window.selectedAsEvidence,
+        parentSectionId: window.parentSectionId,
+        windowIndex: window.windowIndex,
+      })),
       evidenceDocs,
       evidencePaths,
       top3: top3.map((candidate) => ({
@@ -252,11 +269,25 @@ async function main() {
     });
   }
 
-  const outputDir = path.join(projectRoot, 'benchmarks', 'results');
-  fs.mkdirSync(outputDir, { recursive: true });
+  const generatedAt = new Date().toISOString();
+  const outcomeSummary = buildBenchmarkOutcomeSummary(results);
+  const performance = buildBenchmarkPerformanceSummary({
+    totalDurationMs: Date.now() - benchmarkStartedAt,
+    results,
+  });
   const payload = {
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     totalCases: cases.length,
+    top3Hits,
+    top5Hits,
+    expectedEvidenceHits,
+    forbiddenEvidencePasses,
+    requiredCitationHits,
+    failedCaseIds: outcomeSummary.failedCaseIds,
+    failedRecallCaseIds: outcomeSummary.failedRecallCaseIds,
+    failedEvidenceCaseIds: outcomeSummary.failedEvidenceCaseIds,
+    acceptedAbstainCaseIds: outcomeSummary.acceptedAbstainCaseIds,
+    performance,
     top3Recall: cases.length > 0 ? Number((top3Hits / cases.length).toFixed(4)) : 0,
     top5Recall: cases.length > 0 ? Number((top5Hits / cases.length).toFixed(4)) : 0,
     expectedEvidencePassRate: cases.length > 0 ? Number((expectedEvidenceHits / cases.length).toFixed(4)) : 0,
@@ -279,9 +310,20 @@ async function main() {
     results,
   };
 
-  const outputPath = path.join(outputDir, `rag-benchmark-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
-  fs.writeFileSync(outputPath, JSON.stringify(payload, null, 2), 'utf8');
-  console.log(`Saved benchmark results to ${outputPath}`);
+  const outputTargets = buildBenchmarkOutputTargets({
+    projectRoot,
+    generatedAt,
+    requestedOutputPath: process.env.RAG_BENCH_OUTPUT,
+  });
+  const payloadJson = JSON.stringify(payload, null, 2);
+  fs.mkdirSync(path.dirname(outputTargets.primaryPath), { recursive: true });
+  fs.writeFileSync(outputTargets.primaryPath, payloadJson, 'utf8');
+  if (outputTargets.archivePath !== outputTargets.primaryPath) {
+    fs.mkdirSync(path.dirname(outputTargets.archivePath), { recursive: true });
+    fs.writeFileSync(outputTargets.archivePath, payloadJson, 'utf8');
+  }
+  console.log(`Saved benchmark results to ${outputTargets.primaryPath}`);
+  console.log(`Archived benchmark results to ${outputTargets.archivePath}`);
   console.log(`Top-3 doc recall: ${(payload.top3Recall * 100).toFixed(1)}%`);
   console.log(`Top-5 doc recall: ${(payload.top5Recall * 100).toFixed(1)}%`);
   console.log(`Expected evidence pass: ${(payload.expectedEvidencePassRate * 100).toFixed(1)}%`);
