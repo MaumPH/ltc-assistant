@@ -285,5 +285,77 @@
     "expectedSection": "",
     "acceptableAbstain": false,
     "notes": "통합재가서비스 운영기준/비용 산정 질문이 운영 매뉴얼로 연결되는지 확인"
+  },
+  {
+    "id": "evaluation-completeness-recipient-rights-checklist",
+    "mode": "evaluation",
+    "question": "신규 수급자에게 안내해야 하는 8가지 지침이 뭐고 언제까지 설명해야 해?",
+    "expectedDoc": "02-05-노인인권보호",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "expectedEvidenceDocs": ["02-05-노인인권보호"],
+    "requiredAnswerTerms": ["욕창예방", "낙상예방", "탈수예방", "배변도움", "관절구축예방", "치매예방", "감염예방", "노인인권보호", "14일 이내", "토요일", "공휴일"],
+    "forbiddenValidationCodes": ["missing-evaluation-required-item", "missing-evaluation-conditional-item", "missing-evaluation-deadline"],
+    "notes": "8대 지침 전용 기능이 아니라 범용 evaluation completeness layer가 checklist와 신규수급자 기한 누락을 막는지 검증"
+  },
+  {
+    "id": "evaluation-completeness-new-recipient-deadline",
+    "mode": "evaluation",
+    "question": "8대 지침 교육 신규 입소자는 며칠 안에 해야 돼?",
+    "expectedDoc": "02-05-노인인권보호",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "expectedEvidenceDocs": ["02-05-노인인권보호"],
+    "requiredAnswerTerms": ["급여제공 시작일", "14일 이내", "토요일", "공휴일 포함"],
+    "forbiddenValidationCodes": ["missing-evaluation-deadline", "missing-evaluation-conditional-item"],
+    "notes": "범용 conditional required item 검증: 신규/입소자 질문이면 deadline 조건이 답변에 필요"
+  },
+  {
+    "id": "evaluation-completeness-recipient-rights-frequency",
+    "mode": "evaluation",
+    "question": "수급자 보호자에게 노인인권보호 지침은 얼마나 자주 설명해야 하나요?",
+    "expectedDoc": "02-05-노인인권보호",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "expectedEvidenceDocs": ["02-05-노인인권보호"],
+    "requiredAnswerTerms": ["연 1회 이상", "모든 수급자", "보호자", "8가지 지침"],
+    "forbiddenValidationCodes": ["missing-evaluation-required-item"],
+    "notes": "범용 required item 검증: target/frequency와 checklist 요약 누락 방지"
+  },
+  {
+    "id": "evaluation-completeness-record-noncompliance",
+    "mode": "evaluation",
+    "question": "8대 지침 설명 기록이 평가 당일 없으면 인정되나요?",
+    "expectedDoc": "02-05-노인인권보호",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "expectedEvidenceDocs": ["02-05-노인인권보호"],
+    "requiredAnswerTerms": ["평가 당일", "기록", "불인정"],
+    "forbiddenValidationCodes": ["missing-evaluation-noncompliance-condition", "missing-evaluation-conditional-item"],
+    "notes": "범용 noncompliance condition 검증: 평가 당일 기록 미확인 시 불인정 조건 누락 방지"
+  },
+  {
+    "id": "evaluation-completeness-staff-education-record-fields",
+    "mode": "evaluation",
+    "question": "직원교육 기록 필수사항은 무엇을 확인해야 하나요?",
+    "expectedDoc": "01-06-직원교육",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "expectedEvidenceDocs": ["01-06-직원교육"],
+    "requiredAnswerTerms": ["교육일자", "교육방법", "강사명", "참석자명", "서명"],
+    "forbiddenValidationCodes": ["missing-evaluation-required-item"],
+    "notes": "범용 completeness layer가 특정 8대 지침이 아닌 교육 기록 필수 필드 누락도 잡는지 검증"
+  },
+  {
+    "id": "evaluation-completeness-new-staff-education-deadline",
+    "mode": "evaluation",
+    "question": "신규직원 급여제공지침 교육은 며칠 이내에 해야 하나요?",
+    "expectedDoc": "01-06-직원교육",
+    "expectedSection": "",
+    "acceptableAbstain": false,
+    "expectedEvidenceDocs": ["2026년 주야간보호 평가매뉴얼"],
+    "requiredAnswerTerms": ["신규직원", "급여제공 시작일", "7일 이내"],
+    "forbiddenValidationCodes": ["missing-evaluation-deadline", "missing-evaluation-conditional-item"],
+    "notes": "범용 conditional deadline 검증: 신규직원 교육 기한 누락 방지"
   }
 ]

@@ -1,13 +1,11 @@
+import './register-env';
 import fs from 'fs';
 import path from 'path';
-import * as dotenv from 'dotenv';
 import {
   PHASE2_FINAL_BENCHMARK_BASELINE,
   validateRagBenchmarkBaseline,
   type RagBenchmarkBaselinePayload,
 } from '../src/lib/ragBenchmarkBaseline';
-
-dotenv.config();
 
 function readJson<T>(filePath: string): T {
   if (!fs.existsSync(filePath)) {

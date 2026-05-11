@@ -1,14 +1,12 @@
+import './register-env';
 import fs from 'fs';
 import path from 'path';
-import * as dotenv from 'dotenv';
 import {
   buildRagQualityReport,
   formatRagQualityReportMarkdown,
   type RagBenchmarkSummaryInput,
 } from '../src/lib/ragQualityReport';
 import type { IndexManifestEntry, KnowledgeDoctorIssue } from '../src/lib/ragTypes';
-
-dotenv.config();
 
 interface RagIndexCachePayload {
   manifestEntries?: IndexManifestEntry[];

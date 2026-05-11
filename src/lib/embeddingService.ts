@@ -58,6 +58,14 @@ export function shouldSkipEmbeddingWork(context: string): boolean {
   return false;
 }
 
+export function isChunkEmbeddingGenerationDisabled(): boolean {
+  return /^(1|true|yes|on)$/i.test(process.env.RAG_DISABLE_CHUNK_EMBEDDING_GENERATION?.trim() ?? '');
+}
+
+export function isQueryEmbeddingGenerationDisabled(): boolean {
+  return /^(1|true|yes|on)$/i.test(process.env.RAG_DISABLE_QUERY_EMBEDDING_GENERATION?.trim() ?? '');
+}
+
 export function markEmbeddingQuotaExceeded(error: unknown, context: string): void {
   embeddingQuotaBlockedUntil = Date.now() + EMBEDDING_QUOTA_COOLDOWN_MS;
   embeddingQuotaBlockLogShown = false;
@@ -72,6 +80,7 @@ export function getNextEmbeddingRetryAt(): string | undefined {
 
 export async function embedQuery(ai: GoogleGenAI, query: string): Promise<number[] | null> {
   if (!query.trim()) return null;
+  if (isQueryEmbeddingGenerationDisabled()) return null;
   if (shouldSkipEmbeddingWork('query embedding')) return null;
   try {
     const response = await ai.models.embedContent({
@@ -96,6 +105,7 @@ export async function embedQuery(ai: GoogleGenAI, query: string): Promise<number
 export async function embedChunks(ai: GoogleGenAI, chunks: StructuredChunk[]): Promise<number> {
   const missing = chunks.filter((chunk) => !chunk.embedding || chunk.embedding.length === 0);
   if (missing.length === 0) return 0;
+  if (isChunkEmbeddingGenerationDisabled()) return 0;
   if (shouldSkipEmbeddingWork('chunk embeddings')) return 0;
 
   const target = missing.slice(0, EMBEDDING_MAX_CHUNKS_PER_PASS);

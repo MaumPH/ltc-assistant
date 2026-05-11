@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const nodeRagServiceSource = readFileSync(new URL('../src/lib/nodeRagService.ts', import.meta.url), 'utf8');
+const ragEngineSource = readFileSync(new URL('../src/lib/ragEngine.ts', import.meta.url), 'utf8');
+const ragTypesSource = readFileSync(new URL('../src/lib/ragTypes.ts', import.meta.url), 'utf8');
 
 test('executeSearch trace splits routing and integrated postprocess phases', () => {
   const requiredPhaseLabels = [
@@ -56,6 +58,18 @@ test('evaluation base lexical pool merge is the default reuse strategy', () => {
   assert.match(nodeRagServiceSource, /strategy=\$\{shouldAttemptBaseLexicalPoolReuse \? lexicalPoolReuseStrategy : 'disabled'\}/);
 });
 
+test('executeSearch reuses a cached corpus snapshot for stable document sets', () => {
+  assert.match(nodeRagServiceSource, /interface SearchCorpusSnapshot/);
+  assert.match(nodeRagServiceSource, /private getSearchCorpusSnapshot\(\): SearchCorpusSnapshot/);
+  assert.match(
+    nodeRagServiceSource,
+    /const \{\s*chunks: allChunks,\s*representatives,\s*evaluationDocumentIds,\s*routeOnlyDocumentIds,\s*integratedSupportDocumentIds,\s*recipientOnboardingDocumentBoosts,\s*\} = this\.getSearchCorpusSnapshot\(\);/,
+  );
+  assert.match(nodeRagServiceSource, /recipientOnboardingDocumentBoosts: buildRecipientOnboardingDocumentBoosts\(chunks\)/);
+  assert.match(nodeRagServiceSource, /this\.searchCorpusSnapshot = null/);
+  assert.match(nodeRagServiceSource, /this\.workflowBriefs = this\.buildWorkflowBriefIndex\(\);\s*this\.getSearchCorpusSnapshot\(\);/);
+});
+
 test('stage exact candidate caps keep integrated and evaluation-base scoring lean', () => {
   const integratedCaps = [
     ['INTEGRATED_INITIAL_MAX_EXACT_CHUNKS', 'RAG_INTEGRATED_INITIAL_MAX_EXACT_CHUNKS'],
@@ -85,4 +99,13 @@ test('stage exact candidate caps keep integrated and evaluation-base scoring lea
     /EVALUATION_BASE_MAX_EXACT_CHUNKS\s*=\s*parsePositiveInteger\(\s*process\.env\.RAG_EVALUATION_BASE_MAX_EXACT_CHUNKS,\s*2_800,\s*\)/,
   );
   assert.match(nodeRagServiceSource, /maxExactCandidateChunks:\s*EVALUATION_BASE_MAX_EXACT_CHUNKS/);
+});
+
+test('retrieval plan shares exact scoring cache across sub-searches', () => {
+  assert.match(nodeRagServiceSource, /createExactScoringCache/);
+  assert.match(nodeRagServiceSource, /const exactScoringCache = createExactScoringCache\(\)/);
+  assert.match(nodeRagServiceSource, /exactScoringCache,/);
+  assert.match(nodeRagServiceSource, /phaseExactCacheHits/);
+  assert.match(ragEngineSource, /cacheSignature/);
+  assert.match(ragTypesSource, /exactScoringCache\?:/);
 });

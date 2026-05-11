@@ -1,11 +1,9 @@
+import './register-env';
 import fs from 'fs';
 import path from 'path';
-import * as dotenv from 'dotenv';
 import { buildKnowledgeDoctorIssues, buildKnowledgeManifest } from '../src/lib/ragIndex';
 import { loadKnowledgeCorporaFromDisk } from '../src/lib/nodeKnowledge';
 import { buildStructuredChunks } from '../src/lib/ragStructured';
-
-dotenv.config();
 
 async function main() {
   const projectRoot = process.cwd();

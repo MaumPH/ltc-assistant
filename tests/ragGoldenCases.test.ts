@@ -24,3 +24,19 @@ test('golden case ids are unique', () => {
   const ids = cases.map((testCase) => testCase.id);
   assert.equal(new Set(ids).size, ids.length);
 });
+
+test('golden cases include generic evaluation completeness fixtures', () => {
+  const cases = loadBenchmarkCases(projectRoot);
+  const caseIds = new Set(cases.map((testCase) => testCase.id));
+
+  for (const expectedId of [
+    'evaluation-completeness-recipient-rights-checklist',
+    'evaluation-completeness-new-recipient-deadline',
+    'evaluation-completeness-recipient-rights-frequency',
+    'evaluation-completeness-record-noncompliance',
+    'evaluation-completeness-staff-education-record-fields',
+    'evaluation-completeness-new-staff-education-deadline',
+  ]) {
+    assert.equal(caseIds.has(expectedId), true, `${expectedId} should be included in golden cases`);
+  }
+});

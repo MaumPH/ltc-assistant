@@ -102,6 +102,7 @@ export interface SearchOptions {
   maxExactCandidateChunks?: number;
   evaluationAuthorityDriftGuard?: boolean;
   lexicalScoringCache?: LexicalScoringCache;
+  exactScoringCache?: ExactScoringCache;
   searchDiagnosticStage?: string;
   searchDiagnostics?: SearchDiagnosticsCollector;
 }
@@ -133,6 +134,37 @@ export function createLexicalScoringCache(): LexicalScoringCache {
   };
 }
 
+type ExactScoringCacheEntry = SearchCandidate | null;
+
+export interface ExactScoringCache {
+  get(key: string): ExactScoringCacheEntry | undefined;
+  set(key: string, value: ExactScoringCacheEntry): void;
+  getStats(): { hits: number; misses: number; size: number };
+}
+
+export function createExactScoringCache(): ExactScoringCache {
+  const cache = new Map<string, ExactScoringCacheEntry>();
+  let hits = 0;
+  let misses = 0;
+
+  return {
+    get(key) {
+      if (cache.has(key)) {
+        hits += 1;
+        return cache.get(key);
+      }
+      misses += 1;
+      return undefined;
+    },
+    set(key, value) {
+      cache.set(key, value);
+    },
+    getStats() {
+      return { hits, misses, size: cache.size };
+    },
+  };
+}
+
 const VECTOR_TOP_K = 48;
 const FUSED_TOP_K = 24;
 const EVIDENCE_TOP_K = 18;
@@ -140,7 +172,7 @@ const CHECKLIST_EVIDENCE_TOP_K = 22;
 const MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT = 2;
 const CHECKLIST_MAX_EVIDENCE_CLUSTERS_PER_DOCUMENT = 3;
 const MAX_WINDOWS_PER_CLUSTER = 2;
-const MAX_VISIBLE_CANDIDATES_PER_DOCUMENT = 3;
+const MAX_VISIBLE_CANDIDATES_PER_DOCUMENT = 2;
 const CHECKLIST_MAX_VISIBLE_CANDIDATES_PER_DOCUMENT = 4;
 const MAX_VISIBLE_CANDIDATES_PER_PARENT_SECTION = 1;
 const RRF_K = 50;
@@ -684,6 +716,7 @@ function scoreLawReference(
 }
 
 interface ExactScoringContext {
+  cacheSignature: string;
   compactQuery: string;
   documentQueryProbe: string;
   queryArticle?: string;
@@ -732,21 +765,63 @@ function buildExactScoringContext(
   lawRefs: ParsedLawReference[] = [],
 ): ExactScoringContext {
   const compactQuery = compactForMetadata(query);
+  const documentQueryProbe = stripDocumentQueryNoise(compactQuery);
+  const queryArticle = extractArticleNo(query);
   const queryDateMatch = query.match(/20\d{2}[.\-/]\d{1,2}(?:[.\-/]\d{1,2})?/);
-  return {
+  const queryDateProbe = queryDateMatch?.[0].replace(/[^\d]/g, '').slice(0, 6);
+  const exactQueryTokens = queryTokens(query).map((token) => ({ raw: token, compact: compactForMetadata(token) }));
+  const exactQueryAliases = queryAliases.map((alias) => ({ raw: alias, compact: compactForMetadata(alias) }));
+  const exactLawRefs = lawRefs.map((lawRef) => ({
+    ...lawRef,
+    canonicalLawCompact: compact(lawRef.canonicalLawName),
+  }));
+  const intentSourceSignal = buildExactIntentSourceSignal(intent);
+  const cacheSignature = [
     compactQuery,
-    documentQueryProbe: stripDocumentQueryNoise(compactQuery),
-    queryArticle: extractArticleNo(query),
-    queryTokens: queryTokens(query).map((token) => ({ raw: token, compact: compactForMetadata(token) })),
-    queryDateProbe: queryDateMatch?.[0].replace(/[^\d]/g, '').slice(0, 6),
-    queryAliases: queryAliases.map((alias) => ({ raw: alias, compact: compactForMetadata(alias) })),
-    lawRefs: lawRefs.map((lawRef) => ({
-      ...lawRef,
-      canonicalLawCompact: compact(lawRef.canonicalLawName),
-    })),
-    intentSourceSignal: buildExactIntentSourceSignal(intent),
+    documentQueryProbe,
+    queryArticle ?? '',
+    queryDateProbe ?? '',
+    mode === 'evaluation' ? 'evaluation' : 'integrated',
+    intentSourceSignal
+      ? `${Array.from(intentSourceSignal.sourceTypes).sort().join(',')}:${intentSourceSignal.score}:${intentSourceSignal.matchedTerm}`
+      : '',
+    exactQueryTokens.map((token) => `${token.raw}:${token.compact}`).join('|'),
+    exactQueryAliases.map((alias) => `${alias.raw}:${alias.compact}`).join('|'),
+    exactLawRefs
+      .map((lawRef) =>
+        [
+          lawRef.raw,
+          lawRef.canonicalLawCompact,
+          lawRef.article ?? '',
+          lawRef.jo ?? '',
+          lawRef.clause ?? '',
+          lawRef.item ?? '',
+          lawRef.subItem ?? '',
+        ].join(':'),
+      )
+      .join('|'),
+  ].join('::');
+
+  return {
+    cacheSignature,
+    compactQuery,
+    documentQueryProbe,
+    queryArticle,
+    queryTokens: exactQueryTokens,
+    queryDateProbe,
+    queryAliases: exactQueryAliases,
+    lawRefs: exactLawRefs,
+    intentSourceSignal,
     modeEvaluation: mode === 'evaluation',
   };
+}
+
+function buildExactScoringCacheKey(
+  index: RagCorpusIndex,
+  context: ExactScoringContext,
+  chunk: StructuredChunk,
+): string {
+  return [index.chunks.length, chunk.id, chunk.chunkHash, context.cacheSignature].join('::');
 }
 
 function scoreExact(
@@ -1771,6 +1846,11 @@ function buildStageTrace(params: {
     misses: number;
     size: number;
   };
+  exactScoringCacheStats?: {
+    hits: number;
+    misses: number;
+    size: number;
+  };
 }): RetrievalStageTrace[] {
   const lexicalNotes = params.lexicalCandidates.length > 0
     ? [`top=${params.lexicalCandidates[0].docTitle}`]
@@ -1825,6 +1905,11 @@ function buildStageTrace(params: {
         ...(params.fusedCandidates.length > 0 ? [`fusion-top=${params.fusedCandidates[0].docTitle}`] : []),
         ...(params.exactScoringSource
           ? params.exactScoringSource.split(',').filter(Boolean).map((source) => `exact-scoring=${source}`)
+          : []),
+        ...(params.exactScoringCacheStats
+          ? [
+              `exact-score-cache=hits:${params.exactScoringCacheStats.hits},misses:${params.exactScoringCacheStats.misses},size:${params.exactScoringCacheStats.size}`,
+            ]
           : []),
         ...(params.exactRankingSource ? [`exact-ranking=${params.exactRankingSource}`] : []),
         ...(params.rerankContextSource ? [`rerank-context=${params.rerankContextSource}`] : []),
@@ -1897,22 +1982,42 @@ export function searchCorpus(params: {
   const exactStartedAt = Date.now();
   const exactCandidateLimit = expansionProfile.fusedTopK * 4;
   const exactCandidates: SearchCandidate[] = [];
+  const exactScoringCacheBefore = searchOptions?.exactScoringCache?.getStats();
   const exactInputChunks = exactCandidateChunks(index, query, lexicalTokens, mode, searchOptions, lexicalChunkPool);
   let exactScoredChunks = 0;
   for (const chunk of exactInputChunks) {
     if (!isChunkInScope(chunk, mode, searchOptions)) continue;
     exactScoredChunks += 1;
-    const candidate = scoreExact(
-      chunk,
-      exactScoringContext,
-      index.exactMetadataByChunkId.get(chunk.id) ?? {
-        titleCompact: compactForMetadata(chunk.docTitle),
-        fileNameCompact: compactForMetadata(chunk.fileName),
-        sectionCompact: compactForMetadata(chunk.sectionPath.join(' ')),
-      },
-    );
+    const exactScoringCacheKey = searchOptions?.exactScoringCache
+      ? buildExactScoringCacheKey(index, exactScoringContext, chunk)
+      : null;
+    const cachedCandidate = exactScoringCacheKey ? searchOptions?.exactScoringCache?.get(exactScoringCacheKey) : undefined;
+    const candidate =
+      cachedCandidate !== undefined
+        ? cachedCandidate
+        : scoreExact(
+            chunk,
+            exactScoringContext,
+            index.exactMetadataByChunkId.get(chunk.id) ?? {
+              titleCompact: compactForMetadata(chunk.docTitle),
+              fileNameCompact: compactForMetadata(chunk.fileName),
+              sectionCompact: compactForMetadata(chunk.sectionPath.join(' ')),
+            },
+          );
+    if (exactScoringCacheKey && cachedCandidate === undefined) {
+      searchOptions?.exactScoringCache?.set(exactScoringCacheKey, candidate);
+    }
     if (candidate) insertBoundedExactCandidate(exactCandidates, candidate, exactCandidateLimit);
   }
+  const exactScoringCacheAfter = searchOptions?.exactScoringCache?.getStats();
+  const exactScoringCacheStats =
+    exactScoringCacheBefore && exactScoringCacheAfter
+      ? {
+          hits: exactScoringCacheAfter.hits - exactScoringCacheBefore.hits,
+          misses: exactScoringCacheAfter.misses - exactScoringCacheBefore.misses,
+          size: exactScoringCacheAfter.size,
+        }
+      : undefined;
   const diversifiedExactCandidates = diversifyCandidatePool(exactCandidates, expansionProfile.fusedTopK);
   const exactMs = Date.now() - exactStartedAt;
 
@@ -1993,6 +2098,7 @@ export function searchCorpus(params: {
   const corpusPhaseTimings: SearchCorpusPhaseTimings = {
     lexicalPoolMs,
     exactMs,
+    exactScoringCache: exactScoringCacheStats,
     lexicalMs,
     vectorMs,
     fusionMs,
@@ -2051,6 +2157,7 @@ export function searchCorpus(params: {
       entityAnchorCandidatePoolSize: entityAnchoredCandidates.length,
       evaluationAuthorityDriftGuard: Boolean(searchOptions?.evaluationAuthorityDriftGuard),
       lexicalScoringCacheStats,
+      exactScoringCacheStats,
     }),
   };
 }

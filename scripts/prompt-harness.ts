@@ -1,10 +1,8 @@
+import './register-env';
 import fs from 'fs';
 import path from 'path';
-import * as dotenv from 'dotenv';
 import { NodeRagService } from '../src/lib/nodeRagService';
 import type { BasisBucketKey, ExpertAnswerEnvelope, PromptMode, RetrievalMode } from '../src/lib/ragTypes';
-
-dotenv.config();
 
 interface HarnessCase {
   id: string;

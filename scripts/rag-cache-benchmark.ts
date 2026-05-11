@@ -1,6 +1,6 @@
+import './register-env';
 import fs from 'fs';
 import path from 'path';
-import * as dotenv from 'dotenv';
 import { NodeRagService, loadBenchmarkCases } from '../src/lib/nodeRagService';
 import {
   buildRagCacheBenchmarkReport,
@@ -8,8 +8,6 @@ import {
   type RagCacheBenchmarkRunInput,
 } from '../src/lib/ragCacheBenchmarkReport';
 import type { BenchmarkCase } from '../src/lib/ragTypes';
-
-dotenv.config();
 
 interface BenchmarkSnapshot {
   performance?: {

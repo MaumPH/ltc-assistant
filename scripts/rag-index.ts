@@ -1,6 +1,6 @@
+import './register-env';
 import fs from 'fs';
 import path from 'path';
-import * as dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { loadDomainBrain } from '../src/lib/brain';
 import { buildKnowledgeDoctorIssues } from '../src/lib/ragIndex';
@@ -25,8 +25,6 @@ import {
   upsertRowsToPostgres,
 } from '../src/lib/nodeRagService';
 import { resolveEmbeddingApiKey } from '../src/lib/ragRuntime';
-
-dotenv.config();
 
 const EMBEDDING_CACHE_PATH = path.join(process.cwd(), '.rag-cache', 'embeddings.json');
 const EMBEDDING_INDEX_MAX_PASSES = parsePositiveInteger(process.env.RAG_EMBEDDING_INDEX_MAX_PASSES, 25);

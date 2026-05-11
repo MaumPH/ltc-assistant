@@ -1,13 +1,11 @@
+import './register-env';
 import fs from 'fs';
 import path from 'path';
-import * as dotenv from 'dotenv';
 import {
   buildRagBenchmarkDiagnosticsReport,
   formatRagBenchmarkDiagnosticsMarkdown,
   type BenchmarkDiagnosticsInput,
 } from '../src/lib/ragBenchmarkDiagnostics';
-
-dotenv.config();
 
 function readJson<T>(filePath: string): T {
   if (!fs.existsSync(filePath)) {

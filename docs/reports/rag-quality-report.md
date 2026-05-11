@@ -1,13 +1,13 @@
 # RAG Quality Report
 
-Generated at: 2026-05-06T14:46:23.940Z
+Generated at: 2026-05-11T05:20:51.380Z
 
 ## Summary
 
 - Documents: 144
 - Chunks: 13799
-- Embeddings: 0
-- Embedding coverage: 0.0%
+- Embeddings: 150
+- Embedding coverage: 1.1%
 - Integrated documents: 89
 - Evaluation documents: 55
 - Doctor issues: 91
@@ -20,12 +20,6 @@ Generated at: 2026-05-06T14:46:23.940Z
 
 ### Zero embedding documents
 
-- /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md — type qa, role support_reference, chunks 32, embeddings 0, issues oversized-section
-- /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md — type other, role general, chunks 43, embeddings 0, issues none
-- /knowledge/(3-2)_2026년_1분기_다빈도_부당청구_사례(주야간보호).md — type other, role general, chunks 25, embeddings 0, issues none
-- /knowledge/(3-3)_2026년_1분기_다빈도_부당청구_사례(시설급여).md — type other, role general, chunks 18, embeddings 0, issues none
-- /knowledge/(붙임)_2023년_장기요양기관_재가급여_평가매뉴얼_다빈도_Q&A_사례집(2차).md — type qa, role support_reference, chunks 27, embeddings 0, issues duplicate-content, oversized-section
-- /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md — type qa, role support_reference, chunks 36, embeddings 0, issues oversized-section
 - /knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md — type notice, role support_reference, chunks 13, embeddings 0, issues oversized-section
 - /knowledge/(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종.md — type manual, role support_reference, chunks 117, embeddings 0, issues nul-stripped
 - /knowledge/(붙임)_통합재가서비스_운영_매뉴얼.md — type manual, role support_reference, chunks 313, embeddings 0, issues oversized-section
@@ -167,7 +161,7 @@ Generated at: 2026-05-06T14:46:23.940Z
 
 ### Partial embedding documents
 
-- 없음
+- /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md — type qa, role support_reference, chunks 36, embeddings 5, issues oversized-section
 
 ## Chunk Diagnostics
 
@@ -180,8 +174,8 @@ Generated at: 2026-05-06T14:46:23.940Z
 - manual: documents 7, chunks 2478, avg chunks 354.0, embeddings 0, embedding coverage 0.0%, issues 10
 - notice: documents 9, chunks 594, avg chunks 66.0, embeddings 0, embedding coverage 0.0%, issues 7
 - ordinance: documents 5, chunks 675, avg chunks 135.0, embeddings 0, embedding coverage 0.0%, issues 0
-- other: documents 14, chunks 1421, avg chunks 101.5, embeddings 0, embedding coverage 0.0%, issues 12
-- qa: documents 26, chunks 1854, avg chunks 71.3, embeddings 0, embedding coverage 0.0%, issues 41
+- other: documents 14, chunks 1421, avg chunks 101.5, embeddings 86, embedding coverage 6.1%, issues 12
+- qa: documents 26, chunks 1854, avg chunks 71.3, embeddings 64, embedding coverage 3.5%, issues 41
 - rule: documents 31, chunks 1157, avg chunks 37.3, embeddings 0, embedding coverage 0.0%, issues 8
 - wiki: documents 3, chunks 16, avg chunks 5.3, embeddings 0, embedding coverage 0.0%, issues 2
 
@@ -277,9 +271,9 @@ Note: Embedding counts are read from the local manifest; server-side DB embeddin
 
 ## Benchmark
 
-- Total cases: 27
-- Top-3 hit rate: 96.3% (26/27)
-- Top-5 hit rate: 96.3% (26/27)
+- Total cases: 33
+- Top-3 hit rate: 97.0% (32/33)
+- Top-5 hit rate: 97.0% (32/33)
 - Expected evidence hit rate: 100.0%
 - Forbidden evidence pass rate: 100.0%
 - Required citation hit rate: 100.0%
@@ -290,66 +284,61 @@ Note: Embedding counts are read from the local manifest; server-side DB embeddin
 
 ### Benchmark Performance
 
-- Total duration: 20083ms
-- Case latency: avg 185.2ms, p50 84ms, p95 623ms, max 1524ms
-- Retrieval latency: avg 94.1ms, p50 69ms, p95 176ms, max 200ms
-- Total stage latency: avg 185.2ms, p50 84ms, p95 623ms, max 1524ms
-- Search memo: hits 0, misses 53, cases with hits 0/27, hit rate 0.0%
-- Lexical score cache: hits 28872, misses 58670, cases with hits 11/27, hit rate 33.0%
-- Lexical pool reuse: cases 9, avg coverage 99.1%, min coverage 95.8%, full/partial 7/2, guard accepted=9
-- Neighbor window expansion: cases 27, candidate windows 143, avg candidates 5.3, current/previous/next 388/58/85
-- Small-to-big context: cases 27, included/candidate 60/63, skipped 3 (chunks 1, chars 2), chars 32571, inclusion rate 95.2%
-- Integrated reranked path: cases 2, sub-search avg 23ms, p95 28ms, max 28ms, phase total avg 22ms, exact input/output avg 1600/12, lexical input/output avg 2000/24, rerank/entity/diversify avg 1.5/0/0ms, slow cases integrated-benefit-cost-notice, integrated-evaluation-doc-not-penalized
-- Semantic validation latency: cases 27, avg 6.9ms, p95 11ms, max 13ms, avg retrieval share 9.3%, slow cases integrated-eligibility-law, integrated-claim-work-guide, integrated-long-service-colloquial, integrated-no-grounded-answer, integrated-long-service-faq
-- Evaluation authority trace: cases 9, lexical/exact/fusion top matches 3/5/6, visible Top-5 matches 9, drift 3, missed Top-5 0
+- Total duration: 140261ms
+- Case latency: avg 756.5ms, p50 410ms, p95 2068ms, max 2360ms
+- Retrieval latency: avg 633.9ms, p50 452ms, p95 1672ms, max 2184ms
+- Query embedding latency: avg 0.8ms, p50 0ms, p95 1ms, max 20ms
+- Retrieval setup latency: avg 138ms, p50 1ms, p95 658ms, max 1237ms
+- Total stage latency: avg 756.5ms, p50 410ms, p95 2068ms, max 2360ms
+- Search memo: hits 0, misses 67, cases with hits 0/33, hit rate 0.0%
+- Lexical score cache: hits 38799, misses 74952, cases with hits 15/33, hit rate 34.1%
+- Lexical pool reuse: cases 15, avg coverage 99.4%, min coverage 95.8%, full/partial 13/2, guard accepted=15
+- Neighbor window expansion: cases 33, candidate windows 175, avg candidates 5.3, current/previous/next 412/74/101
+- Small-to-big context: cases 33, included/candidate 72/75, skipped 3 (chunks 1, chars 2), chars 43203, inclusion rate 96.0%
+- Semantic validation latency: cases 33, avg 30.1ms, p95 63ms, max 69ms, avg retrieval share 8.0%, slow cases integrated-eligibility-law, integrated-workforce-standard, integrated-claim-work-guide, evaluation-completeness-recipient-rights-frequency, integrated-long-service-colloquial
+- Evaluation authority trace: cases 15, lexical/exact/fusion top matches 7/8/8, visible Top-5 matches 15, drift 6, missed Top-5 0
 
 ### Sub-search latency targets
 
-- evaluation-routing: cases 9, avg 44ms, p95 67ms, max 67ms, slow cases evaluation-notice-period, evaluation-day-night-care-disliked-foods, evaluation-rights-required-colloquial, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence
-- evaluation-base: cases 9, avg 39.6ms, p95 57ms, max 57ms, slow cases evaluation-notice-period, evaluation-day-night-care-disliked-foods, evaluation-rights-required-colloquial, evaluation-function-training, evaluation-employee-rights-education
-- integrated-initial: cases 18, avg 31ms, p95 56ms, max 56ms, slow cases integrated-eligibility-law, integrated-workforce-standard, integrated-benefit-cost-notice, integrated-long-service-faq, integrated-integrated-homecare-manual
-- integrated-reranked: cases 2, avg 23ms, p95 28ms, max 28ms, slow cases integrated-benefit-cost-notice, integrated-evaluation-doc-not-penalized
-- evaluation-direct-support: cases 7, avg 17.6ms, p95 27ms, max 27ms, slow cases evaluation-day-night-care-disliked-foods, evaluation-function-training, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence, evaluation-qa-casebook
-- evaluation-promoted-primary: cases 2, avg 13ms, p95 16ms, max 16ms, slow cases evaluation-notice-period, evaluation-change-comparison
-- evaluation-primary-manual: cases 4, avg 11.8ms, p95 18ms, max 18ms, slow cases evaluation-day-night-care-disliked-foods, evaluation-rights-required-colloquial, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence
-- integrated-promoted-primary: cases 2, avg 11ms, p95 13ms, max 13ms, slow cases integrated-benefit-cost-notice, integrated-evaluation-doc-not-penalized
+- evaluation-routing: cases 15, avg 449.5ms, p95 875ms, max 875ms, slow cases evaluation-completeness-record-noncompliance, evaluation-completeness-recipient-rights-checklist, evaluation-completeness-staff-education-record-fields, evaluation-completeness-recipient-rights-frequency, evaluation-completeness-new-recipient-deadline
+- evaluation-base: cases 15, avg 228.1ms, p95 394ms, max 394ms, slow cases evaluation-completeness-record-noncompliance, evaluation-completeness-recipient-rights-frequency, evaluation-completeness-recipient-rights-checklist, evaluation-completeness-staff-education-record-fields, evaluation-employee-rights-education
+- evaluation-direct-support: cases 9, avg 153.8ms, p95 299ms, max 299ms, slow cases evaluation-completeness-recipient-rights-checklist, evaluation-completeness-staff-education-record-fields, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence, evaluation-day-night-care-disliked-foods
+- integrated-initial: cases 18, avg 150.2ms, p95 330ms, max 330ms, slow cases integrated-eligibility-law, integrated-integrated-homecare-manual, integrated-workforce-standard, integrated-payroll-ratio-qa, integrated-law-alias-article-variant
+- evaluation-primary-manual: cases 8, avg 108.9ms, p95 143ms, max 143ms, slow cases evaluation-completeness-record-noncompliance, evaluation-completeness-recipient-rights-checklist, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence, evaluation-completeness-new-recipient-deadline
+- evaluation-promoted-primary: cases 2, avg 71.5ms, p95 97ms, max 97ms, slow cases evaluation-notice-period, evaluation-change-comparison
 
 ### Search store latency breakdown
 
-- evaluation-routing: cases 9, total avg 43.4ms, p95 67ms, db lexical avg 0ms, vector avg 0ms, corpus avg 43.4ms, db/vector candidates 0/0, slow cases evaluation-notice-period, evaluation-rights-required-colloquial, evaluation-day-night-care-disliked-foods, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence
-- evaluation-base: cases 9, total avg 38.6ms, p95 56ms, db lexical avg 0ms, vector avg 0ms, corpus avg 38.6ms, db/vector candidates 0/0, slow cases evaluation-notice-period, evaluation-day-night-care-disliked-foods, evaluation-rights-required-colloquial, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence
-- integrated-initial: cases 18, total avg 30.6ms, p95 55ms, db lexical avg 0ms, vector avg 0ms, corpus avg 30.6ms, db/vector candidates 0/0, slow cases integrated-eligibility-law, integrated-workforce-standard, integrated-benefit-cost-notice, integrated-long-service-faq, integrated-evaluation-doc-not-penalized
-- integrated-reranked: cases 2, total avg 22ms, p95 27ms, db lexical avg 0ms, vector avg 0ms, corpus avg 22ms, db/vector candidates 0/0, slow cases integrated-benefit-cost-notice, integrated-evaluation-doc-not-penalized
-- evaluation-direct-support: cases 7, total avg 16.7ms, p95 23ms, db lexical avg 0ms, vector avg 0ms, corpus avg 16.7ms, db/vector candidates 0/0, slow cases evaluation-day-night-care-disliked-foods, evaluation-function-training, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence, evaluation-qa-casebook
-- evaluation-promoted-primary: cases 2, total avg 12.5ms, p95 16ms, db lexical avg 0ms, vector avg 0ms, corpus avg 12.5ms, db/vector candidates 0/0, slow cases evaluation-notice-period, evaluation-change-comparison
-- integrated-promoted-primary: cases 2, total avg 10.5ms, p95 12ms, db lexical avg 0ms, vector avg 0ms, corpus avg 10.5ms, db/vector candidates 0/0, slow cases integrated-benefit-cost-notice, integrated-evaluation-doc-not-penalized
-- evaluation-primary-manual: cases 4, total avg 10.3ms, p95 14ms, db lexical avg 0ms, vector avg 0ms, corpus avg 10.3ms, db/vector candidates 0/0, slow cases evaluation-day-night-care-disliked-foods, evaluation-rights-required-colloquial, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence
+- evaluation-routing: cases 15, total avg 445ms, p95 869ms, db lexical avg 0ms, vector avg 0ms, corpus avg 444.9ms, db/vector candidates 0/0, slow cases evaluation-completeness-record-noncompliance, evaluation-completeness-recipient-rights-checklist, evaluation-completeness-staff-education-record-fields, evaluation-completeness-recipient-rights-frequency, evaluation-completeness-new-recipient-deadline
+- evaluation-base: cases 15, total avg 221.9ms, p95 389ms, db lexical avg 0ms, vector avg 0ms, corpus avg 221.9ms, db/vector candidates 0/0, slow cases evaluation-completeness-record-noncompliance, evaluation-completeness-recipient-rights-frequency, evaluation-completeness-recipient-rights-checklist, evaluation-completeness-staff-education-record-fields, evaluation-employee-rights-education
+- evaluation-direct-support: cases 9, total avg 150.2ms, p95 297ms, db lexical avg 0ms, vector avg 0ms, corpus avg 150.2ms, db/vector candidates 0/0, slow cases evaluation-completeness-recipient-rights-checklist, evaluation-completeness-staff-education-record-fields, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence, evaluation-day-night-care-disliked-foods
+- integrated-initial: cases 18, total avg 147ms, p95 325ms, db lexical avg 0ms, vector avg 0ms, corpus avg 147ms, db/vector candidates 0/0, slow cases integrated-eligibility-law, integrated-integrated-homecare-manual, integrated-workforce-standard, integrated-payroll-ratio-qa, integrated-law-alias-article-variant
+- evaluation-primary-manual: cases 8, total avg 104.9ms, p95 140ms, db lexical avg 0ms, vector avg 0ms, corpus avg 104.9ms, db/vector candidates 0/0, slow cases evaluation-completeness-record-noncompliance, evaluation-completeness-recipient-rights-checklist, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence, evaluation-completeness-new-recipient-deadline
+- evaluation-promoted-primary: cases 2, total avg 69ms, p95 94ms, db lexical avg 0ms, vector avg 0ms, corpus avg 69ms, db/vector candidates 0/0, slow cases evaluation-notice-period, evaluation-change-comparison
 
 ### Search corpus phase timing
 
-- evaluation-routing: cases 9, total avg 43.4ms, p95 67ms, lexical pool avg 6.2ms, exact avg 18ms, lexical avg 14.3ms, vector avg 0ms, fusion avg 3ms, evidence avg 0.8ms, exact input avg 2384, exact scored avg 2384, exact output avg 15.8, lexical input avg 2384, lexical output avg 24, fusion detail rrf avg 0.3ms, rerank avg 1ms, entity avg 1.6ms, merge avg 0.1ms, diversify avg 0ms, slow cases evaluation-notice-period, evaluation-rights-required-colloquial, evaluation-day-night-care-disliked-foods, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence
-- evaluation-base: cases 9, total avg 38.4ms, p95 56ms, lexical pool avg 6.2ms, exact avg 20.7ms, lexical avg 8.4ms, vector avg 0ms, fusion avg 2.4ms, evidence avg 0.2ms, exact input avg 2721, exact scored avg 2721, exact output avg 14.6, lexical input avg 2835.2, lexical output avg 24, fusion detail rrf avg 0ms, rerank avg 1.1ms, entity avg 1.3ms, merge avg 0ms, diversify avg 0ms, slow cases evaluation-notice-period, evaluation-day-night-care-disliked-foods, evaluation-rights-required-colloquial, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence
-- integrated-initial: cases 18, total avg 30.6ms, p95 55ms, lexical pool avg 1.6ms, exact avg 12.6ms, lexical avg 12.4ms, vector avg 0.1ms, fusion avg 2.1ms, evidence avg 0.8ms, exact input avg 1345.5, exact scored avg 1345.5, exact output avg 18.1, lexical input avg 1678.8, lexical output avg 24, fusion detail rrf avg 0.1ms, rerank avg 1.4ms, entity avg 0.4ms, merge avg 0.1ms, diversify avg 0.1ms, slow cases integrated-eligibility-law, integrated-workforce-standard, integrated-benefit-cost-notice, integrated-long-service-faq, integrated-evaluation-doc-not-penalized
-- integrated-reranked: cases 2, total avg 22ms, p95 27ms, lexical pool avg 1ms, exact avg 13.5ms, lexical avg 4.5ms, vector avg 0ms, fusion avg 1.5ms, evidence avg 0.5ms, exact input avg 1600, exact scored avg 1600, exact output avg 12, lexical input avg 2000, lexical output avg 24, fusion detail rrf avg 0ms, rerank avg 1.5ms, entity avg 0ms, merge avg 0ms, diversify avg 0ms, slow cases integrated-benefit-cost-notice, integrated-evaluation-doc-not-penalized
-- evaluation-direct-support: cases 7, total avg 16.7ms, p95 23ms, lexical pool avg 5.1ms, exact avg 5.3ms, lexical avg 4.1ms, vector avg 0ms, fusion avg 1ms, evidence avg 0.1ms, exact input avg 690, exact scored avg 690, exact output avg 8.3, lexical input avg 690, lexical output avg 24, fusion detail rrf avg 0ms, rerank avg 0.9ms, entity avg 0ms, merge avg 0ms, diversify avg 0.1ms, slow cases evaluation-day-night-care-disliked-foods, evaluation-function-training, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence, evaluation-qa-casebook
-- evaluation-promoted-primary: cases 2, total avg 12.5ms, p95 16ms, lexical pool avg 5ms, exact avg 1.5ms, lexical avg 2ms, vector avg 0ms, fusion avg 3ms, evidence avg 0.5ms, exact input avg 259, exact scored avg 259, exact output avg 6, lexical input avg 259, lexical output avg 24, fusion detail rrf avg 0ms, rerank avg 1ms, entity avg 2ms, merge avg 0ms, diversify avg 0ms, slow cases evaluation-notice-period, evaluation-change-comparison
-- integrated-promoted-primary: cases 2, total avg 10.5ms, p95 12ms, lexical pool avg 5.5ms, exact avg 1.5ms, lexical avg 2ms, vector avg 0ms, fusion avg 1ms, evidence avg 0.5ms, exact input avg 259, exact scored avg 259, exact output avg 5, lexical input avg 259, lexical output avg 24, fusion detail rrf avg 0.5ms, rerank avg 0.5ms, entity avg 0ms, merge avg 0ms, diversify avg 0ms, slow cases integrated-benefit-cost-notice, integrated-evaluation-doc-not-penalized
-- evaluation-primary-manual: cases 4, total avg 10.3ms, p95 14ms, lexical pool avg 4.8ms, exact avg 1.5ms, lexical avg 1ms, vector avg 0ms, fusion avg 1.3ms, evidence avg 1ms, exact input avg 121, exact scored avg 121, exact output avg 4, lexical input avg 121, lexical output avg 24, fusion detail rrf avg 0ms, rerank avg 1.3ms, entity avg 0ms, merge avg 0ms, diversify avg 0ms, slow cases evaluation-day-night-care-disliked-foods, evaluation-rights-required-colloquial, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence
+- evaluation-routing: cases 15, total avg 444.7ms, p95 869ms, lexical pool avg 46.2ms, exact avg 250.9ms, lexical avg 84.9ms, vector avg 0.7ms, fusion avg 46.8ms, evidence avg 6.7ms, exact input avg 2384, exact scored avg 2384, exact output avg 22.9, lexical input avg 2384, lexical output avg 30.4, fusion detail rrf avg 0.1ms, rerank avg 7.2ms, entity avg 38.4ms, merge avg 0.7ms, diversify avg 0.2ms, slow cases evaluation-completeness-record-noncompliance, evaluation-completeness-recipient-rights-checklist, evaluation-completeness-staff-education-record-fields, evaluation-completeness-recipient-rights-frequency, evaluation-completeness-new-recipient-deadline
+- evaluation-base: cases 15, total avg 221.9ms, p95 389ms, lexical pool avg 52.1ms, exact avg 74.5ms, lexical avg 42.6ms, vector avg 1.1ms, fusion avg 40.8ms, evidence avg 5.3ms, exact input avg 2586.2, exact scored avg 2586.2, exact output avg 21.9, lexical input avg 2643.7, lexical output avg 30.4, fusion detail rrf avg 0.3ms, rerank avg 5.7ms, entity avg 34.1ms, merge avg 0.2ms, diversify avg 0.4ms, slow cases evaluation-completeness-record-noncompliance, evaluation-completeness-recipient-rights-frequency, evaluation-completeness-recipient-rights-checklist, evaluation-completeness-staff-education-record-fields, evaluation-employee-rights-education
+- evaluation-direct-support: cases 9, total avg 150ms, p95 297ms, lexical pool avg 35.2ms, exact avg 77.9ms, lexical avg 20ms, vector avg 0.8ms, fusion avg 6.4ms, evidence avg 4ms, exact input avg 736.7, exact scored avg 736.7, exact output avg 9.1, lexical input avg 736.7, lexical output avg 32, fusion detail rrf avg 0.2ms, rerank avg 4.1ms, entity avg 1.7ms, merge avg 0.2ms, diversify avg 0.2ms, slow cases evaluation-completeness-recipient-rights-checklist, evaluation-completeness-staff-education-record-fields, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence, evaluation-day-night-care-disliked-foods
+- integrated-initial: cases 18, total avg 146.8ms, p95 323ms, lexical pool avg 3.9ms, exact avg 72.1ms, lexical avg 37.8ms, vector avg 2.7ms, fusion avg 21.7ms, evidence avg 4.2ms, exact input avg 1345.5, exact scored avg 1345.5, exact output avg 18.1, lexical input avg 1678.8, lexical output avg 24, fusion detail rrf avg 0.4ms, rerank avg 16.9ms, entity avg 3.6ms, merge avg 0.4ms, diversify avg 0.4ms, slow cases integrated-eligibility-law, integrated-integrated-homecare-manual, integrated-workforce-standard, integrated-payroll-ratio-qa, integrated-law-alias-article-variant
+- evaluation-primary-manual: cases 8, total avg 104.9ms, p95 140ms, lexical pool avg 43ms, exact avg 13.9ms, lexical avg 4.8ms, vector avg 0.1ms, fusion avg 23.6ms, evidence avg 12.9ms, exact input avg 121, exact scored avg 121, exact output avg 4, lexical input avg 121, lexical output avg 36, fusion detail rrf avg 0.3ms, rerank avg 14.6ms, entity avg 8ms, merge avg 0.5ms, diversify avg 0.3ms, slow cases evaluation-completeness-record-noncompliance, evaluation-completeness-recipient-rights-checklist, evaluation-employee-rights-education, evaluation-employee-rights-primary-evidence, evaluation-completeness-new-recipient-deadline
+- evaluation-promoted-primary: cases 2, total avg 69ms, p95 94ms, lexical pool avg 31.5ms, exact avg 14ms, lexical avg 5.5ms, vector avg 0.5ms, fusion avg 11ms, evidence avg 3ms, exact input avg 259, exact scored avg 259, exact output avg 6, lexical input avg 259, lexical output avg 24, fusion detail rrf avg 0ms, rerank avg 2.5ms, entity avg 8ms, merge avg 0ms, diversify avg 0ms, slow cases evaluation-notice-period, evaluation-change-comparison
 
 ### Candidate output counts
 
-- Stage answer_evidence_gate: avg output 12.2, max output 20
-- Stage document_diversification: avg output 14.4, max output 20
-- Stage fusion: avg output 24.2, max output 26
-- Stage lexical_candidates: avg output 24, max output 24
+- Stage answer_evidence_gate: avg output 11, max output 19
+- Stage document_diversification: avg output 12.5, max output 19
+- Stage fusion: avg output 27, max output 48
+- Stage lexical_candidates: avg output 26.9, max output 48
 - Stage query_normalization: avg output 1, max output 1
 - Stage section_routing: avg output 3, max output 3
-- Stage vector_candidates: avg output 0, max output 0
+- Stage vector_candidates: avg output 21.8, max output 48
 
 ### Slow benchmark cases
 
-- evaluation-day-night-care-disliked-foods: total 1524ms, retrieval 200ms, sub-search total 151ms, retrieval overhead 49ms, dominant retrievalMs 200ms, search-memo hits=0, misses=4, size=4, sub-search evaluation-base=54ms, evaluation-direct-support=27ms, evaluation-primary-manual=18ms, evaluation-routing=52ms, retrieval phases context-assembly=7ms, evidence-assembly=6ms, execute-search=176ms, post-search-gates=4ms, semantic-validation=7ms, execute-search phases evaluation-ontology-expand=5ms, evaluation-routing-resolve=1ms, evaluation-setup=1ms, evaluation-support-setup=17ms, ontology expansion evaluation-routing seeds=4, hits=5, boosts=91, trace=1, elapsed=5ms, outputs answer_evidence_gate=14, document_diversification=14, fusion=24, lexical_candidates=24, query_normalization=1, vector_candidates=0
-- evaluation-notice-period: total 623ms, retrieval 176ms, sub-search total 140ms, retrieval overhead 36ms, dominant retrievalMs 176ms, search-memo hits=0, misses=3, size=3, sub-search evaluation-base=57ms, evaluation-promoted-primary=16ms, evaluation-routing=67ms, retrieval phases context-assembly=6ms, evidence-assembly=5ms, execute-search=159ms, post-search-gates=2ms, semantic-validation=4ms, execute-search phases evaluation-base-postprocess=1ms, evaluation-final-assembly=1ms, evaluation-ontology-expand=9ms, evaluation-routing-resolve=2ms, evaluation-setup=2ms, evaluation-support-setup=3ms, ontology expansion evaluation-routing seeds=4, hits=6, boosts=91, trace=1, elapsed=9ms, outputs answer_evidence_gate=7, document_diversification=7, fusion=24, lexical_candidates=24, query_normalization=1, section_routing=3, vector_candidates=0
-- evaluation-rights-required-colloquial: total 582ms, retrieval 133ms, sub-search total 103ms, retrieval overhead 30ms, dominant retrievalMs 133ms, search-memo hits=0, misses=3, size=3, sub-search evaluation-base=42ms, evaluation-primary-manual=11ms, evaluation-routing=50ms, retrieval phases context-assembly=7ms, evidence-assembly=5ms, execute-search=116ms, post-search-gates=2ms, semantic-validation=3ms, execute-search phases evaluation-ontology-expand=8ms, evaluation-routing-resolve=2ms, evaluation-setup=1ms, evaluation-support-setup=1ms, ontology expansion evaluation-routing seeds=4, hits=12, boosts=111, trace=1, elapsed=8ms, outputs answer_evidence_gate=14, document_diversification=14, fusion=24, lexical_candidates=24, query_normalization=1, vector_candidates=0
-- evaluation-employee-rights-education: total 164ms, retrieval 148ms, sub-search total 103ms, retrieval overhead 45ms, dominant retrievalMs 148ms, search-memo hits=0, misses=4, size=4, sub-search evaluation-base=35ms, evaluation-direct-support=19ms, evaluation-primary-manual=9ms, evaluation-routing=40ms, retrieval phases context-assembly=6ms, evidence-assembly=5ms, execute-search=129ms, post-search-gates=2ms, semantic-validation=6ms, execute-search phases evaluation-base-postprocess=1ms, evaluation-ontology-expand=11ms, evaluation-routing-resolve=2ms, evaluation-section-routing=1ms, evaluation-setup=1ms, evaluation-support-setup=9ms, ontology expansion evaluation-routing seeds=4, hits=12, boosts=111, trace=1, elapsed=11ms, outputs answer_evidence_gate=11, document_diversification=11, fusion=25, lexical_candidates=24, query_normalization=1, vector_candidates=0
-- evaluation-function-training: total 155ms, retrieval 139ms, sub-search total 97ms, retrieval overhead 42ms, dominant retrievalMs 139ms, search-memo hits=0, misses=3, size=3, sub-search evaluation-base=37ms, evaluation-direct-support=20ms, evaluation-routing=40ms, retrieval phases context-assembly=7ms, evidence-assembly=7ms, execute-search=118ms, post-search-gates=2ms, semantic-validation=5ms, execute-search phases evaluation-ontology-expand=6ms, evaluation-routing-resolve=2ms, evaluation-setup=1ms, evaluation-support-setup=11ms, ontology expansion evaluation-routing seeds=4, hits=3, boosts=93, trace=1, elapsed=6ms, outputs answer_evidence_gate=17, document_diversification=17, fusion=24, lexical_candidates=24, query_normalization=1, vector_candidates=0
+- evaluation-completeness-recipient-rights-checklist: total 2360ms, retrieval 2184ms, sub-search total 1636ms, retrieval overhead 548ms, dominant retrievalMs 2184ms, search-memo hits=0, misses=4, size=4, sub-search evaluation-base=347ms, evaluation-direct-support=299ms, evaluation-primary-manual=126ms, evaluation-routing=864ms, retrieval phases context-assembly=22ms, evidence-assembly=132ms, execute-search=1875ms, post-search-gates=124ms, semantic-validation=30ms, execute-search phases evaluation-final-assembly=7ms, evaluation-ontology-expand=48ms, evaluation-routing-resolve=5ms, evaluation-section-routing=1ms, evaluation-support-setup=161ms, ontology expansion evaluation-routing seeds=4, hits=7, boosts=111, trace=1, elapsed=48ms, outputs answer_evidence_gate=6, document_diversification=6, fusion=48, lexical_candidates=48, query_normalization=1, vector_candidates=0
+- evaluation-completeness-record-noncompliance: total 2068ms, retrieval 1597ms, sub-search total 1412ms, retrieval overhead 185ms, dominant retrievalMs 1597ms, search-memo hits=0, misses=3, size=3, sub-search evaluation-base=394ms, evaluation-primary-manual=143ms, evaluation-routing=875ms, retrieval phases context-assembly=31ms, evidence-assembly=28ms, execute-search=1491ms, post-search-gates=23ms, semantic-validation=24ms, execute-search phases evaluation-base-postprocess=2ms, evaluation-ontology-expand=65ms, evaluation-routing-resolve=6ms, evaluation-section-routing=1ms, evaluation-support-setup=1ms, ontology expansion evaluation-routing seeds=4, hits=11, boosts=111, trace=1, elapsed=65ms, outputs answer_evidence_gate=6, document_diversification=6, fusion=24, lexical_candidates=24, query_normalization=1, vector_candidates=0
+- evaluation-day-night-care-disliked-foods: total 2054ms, retrieval 790ms, sub-search total 604ms, retrieval overhead 186ms, dominant retrievalSetupMs 1237ms, search-memo hits=0, misses=4, size=4, sub-search evaluation-base=141ms, evaluation-direct-support=119ms, evaluation-primary-manual=78ms, evaluation-routing=266ms, retrieval phases context-assembly=25ms, evidence-assembly=29ms, execute-search=700ms, post-search-gates=12ms, semantic-validation=24ms, execute-search phases evaluation-base-postprocess=1ms, evaluation-final-assembly=1ms, evaluation-ontology-expand=14ms, evaluation-routing-resolve=5ms, evaluation-support-setup=73ms, ontology expansion evaluation-routing seeds=4, hits=5, boosts=91, trace=1, elapsed=14ms, outputs answer_evidence_gate=18, document_diversification=18, fusion=24, lexical_candidates=24, query_normalization=1, vector_candidates=0
+- evaluation-completeness-staff-education-record-fields: total 1945ms, retrieval 1672ms, sub-search total 1336ms, retrieval overhead 336ms, dominant retrievalMs 1672ms, search-memo hits=0, misses=3, size=3, sub-search evaluation-base=307ms, evaluation-direct-support=256ms, evaluation-routing=773ms, retrieval phases context-assembly=38ms, evidence-assembly=32ms, execute-search=1570ms, post-search-gates=11ms, semantic-validation=20ms, execute-search phases evaluation-base-postprocess=1ms, evaluation-final-assembly=1ms, evaluation-ontology-expand=73ms, evaluation-routing-resolve=5ms, evaluation-section-routing=1ms, evaluation-support-setup=151ms, ontology expansion evaluation-routing seeds=4, hits=12, boosts=102, trace=1, elapsed=73ms, outputs answer_evidence_gate=19, document_diversification=19, fusion=24, lexical_candidates=24, query_normalization=1, vector_candidates=0
+- evaluation-notice-period: total 1559ms, retrieval 859ms, sub-search total 716ms, retrieval overhead 143ms, dominant retrievalMs 859ms, search-memo hits=0, misses=3, size=3, sub-search evaluation-base=220ms, evaluation-promoted-primary=97ms, evaluation-routing=399ms, retrieval phases context-assembly=28ms, evidence-assembly=25ms, execute-search=769ms, post-search-gates=9ms, semantic-validation=27ms, execute-search phases evaluation-base-postprocess=1ms, evaluation-base-setup=2ms, evaluation-final-assembly=4ms, evaluation-ontology-expand=35ms, evaluation-routing-resolve=6ms, evaluation-section-routing=1ms, ontology expansion evaluation-routing seeds=4, hits=6, boosts=91, trace=1, elapsed=35ms, outputs answer_evidence_gate=7, document_diversification=7, fusion=24, lexical_candidates=24, query_normalization=1, section_routing=3, vector_candidates=0

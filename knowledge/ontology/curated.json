@@ -168,6 +168,77 @@
       ],
       "status_reason": "seed",
       "source": "curated-seed"
+    },
+    {
+      "label": "노인인권보호 평가지표",
+      "entity_type": "evaluation_indicator",
+      "status": "promoted",
+      "confidence": 1,
+      "aliases": ["02-05-노인인권보호", "19. 노인인권보호", "수급자 인권보호", "노인인권보호 지표"],
+      "slot_hints": ["evaluation_indicator"],
+      "relations": [
+        {
+          "relation": "has-requirement",
+          "target_label": "수급자 8가지 지침 설명",
+          "target_entity_type": "evaluation_requirement",
+          "weight": 1.2,
+          "reason": "노인인권보호 평가지표의 구조화된 설명 요건"
+        },
+        {
+          "relation": "grounded-in-section",
+          "target_label": "02-05-노인인권보호 평가기준",
+          "target_entity_type": "document_section",
+          "weight": 1.2,
+          "reason": "평가기준 section에 설명 주기와 신규수급자 기한이 있음"
+        },
+        {
+          "relation": "grounded-in-section",
+          "target_label": "02-05-노인인권보호 확인방법",
+          "target_entity_type": "document_section",
+          "weight": 1.2,
+          "reason": "확인방법 section에 지침 checklist와 기록 확인 조건이 있음"
+        }
+      ],
+      "evidence": [
+        {
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "평가기준/확인방법"
+        }
+      ],
+      "status_reason": "evaluation-requirement-fixture",
+      "source": "curated-seed"
+    },
+    {
+      "label": "수급자 8가지 지침 설명",
+      "entity_type": "evaluation_requirement",
+      "status": "promoted",
+      "confidence": 1,
+      "aliases": ["8대 지침", "8가지 지침", "수급자 지침", "보호자 지침", "신규수급자 지침 안내", "신규 입소자 지침 안내", "노인인권보호 지침"],
+      "slot_hints": ["evaluation_requirement", "checklist_item", "deadline", "frequency"],
+      "relations": [
+        { "relation": "has-target", "target_label": "모든 수급자(보호자)", "target_entity_type": "target_subject", "weight": 1.1, "reason": "설명 대상" },
+        { "relation": "has-frequency", "target_label": "연 1회 이상", "target_entity_type": "frequency", "weight": 1.1, "reason": "정기 설명 주기" },
+        { "relation": "has-target", "target_label": "신규수급자", "target_entity_type": "target_subject", "weight": 1.1, "reason": "신규 대상 조건" },
+        { "relation": "has-deadline", "target_label": "급여제공 시작일부터 토요일·공휴일 포함 14일 이내", "target_entity_type": "deadline", "weight": 1.2, "reason": "신규수급자 설명 기한" },
+        { "relation": "verified-by", "target_label": "평가 당일 설명 기록 확인", "target_entity_type": "verification_method", "weight": 1.1, "reason": "평가 확인방법" },
+        { "relation": "noncompliant-if", "target_label": "평가 당일 기록 미확인", "target_entity_type": "noncompliance_condition", "weight": 1.1, "reason": "불인정 조건" },
+        { "relation": "has-checklist-item", "target_label": "욕창예방", "target_entity_type": "checklist_item", "weight": 1, "reason": "8가지 지침 항목" },
+        { "relation": "has-checklist-item", "target_label": "낙상예방", "target_entity_type": "checklist_item", "weight": 1, "reason": "8가지 지침 항목" },
+        { "relation": "has-checklist-item", "target_label": "탈수예방", "target_entity_type": "checklist_item", "weight": 1, "reason": "8가지 지침 항목" },
+        { "relation": "has-checklist-item", "target_label": "배변도움", "target_entity_type": "checklist_item", "weight": 1, "reason": "8가지 지침 항목" },
+        { "relation": "has-checklist-item", "target_label": "관절구축예방", "target_entity_type": "checklist_item", "weight": 1, "reason": "8가지 지침 항목" },
+        { "relation": "has-checklist-item", "target_label": "치매예방", "target_entity_type": "checklist_item", "weight": 1, "reason": "8가지 지침 항목" },
+        { "relation": "has-checklist-item", "target_label": "감염예방", "target_entity_type": "checklist_item", "weight": 1, "reason": "8가지 지침 항목" },
+        { "relation": "has-checklist-item", "target_label": "노인인권보호", "target_entity_type": "checklist_item", "weight": 1, "reason": "8가지 지침 항목" }
+      ],
+      "evidence": [
+        {
+          "path": "/knowledge/evaluation/02-05-노인인권보호.md",
+          "label": "확인방법"
+        }
+      ],
+      "status_reason": "evaluation-requirement-fixture",
+      "source": "curated-seed"
     }
   ]
 }

@@ -197,7 +197,7 @@ const QUERY_TERM_EXPANSIONS: Array<{ triggers: string[]; expansions: string[] }>
   { triggers: ['인력현황', '직원현황', '인력배치'], expansions: ['인력기준', '인력배치기준', '직원배치기준', '인력신고 현황'] },
 ];
 
-const RELATION_TO_QUERY_TERMS: Record<OntologyRelationType, string[]> = {
+const RELATION_TO_QUERY_TERMS: Partial<Record<OntologyRelationType, string[]>> = {
   'alias-of': ['동의어', '같은 용어'],
   requires: ['필요 서류', '요건', '필수'],
   'eligible-for': ['대상', '가능 여부', '적용 조건'],
