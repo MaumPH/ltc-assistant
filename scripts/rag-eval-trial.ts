@@ -1,7 +1,5 @@
-import * as dotenv from 'dotenv';
+import './register-env';
 import { NodeRagService } from '../src/lib/nodeRagService';
-
-dotenv.config();
 
 async function main() {
   const service = new NodeRagService(process.cwd());

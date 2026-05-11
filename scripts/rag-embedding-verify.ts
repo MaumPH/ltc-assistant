@@ -1,6 +1,6 @@
+import './register-env';
 import fs from 'fs';
 import path from 'path';
-import * as dotenv from 'dotenv';
 import {
   buildRagEmbeddingVerifyReport,
   formatRagEmbeddingVerifyMarkdown,
@@ -8,8 +8,6 @@ import {
 } from '../src/lib/ragEmbeddingVerify';
 import { resolveEmbeddingApiKey } from '../src/lib/ragRuntime';
 import type { IndexManifestEntry } from '../src/lib/ragTypes';
-
-dotenv.config();
 
 interface RagIndexCachePayload {
   manifestEntries?: IndexManifestEntry[];

@@ -1,3 +1,4 @@
+import './register-env';
 import assert from 'node:assert/strict';
 import { buildEvidenceBalance, describeHybridReadiness, inferAgentDecision } from '../src/lib/ragDiagnostics';
 import { compareIndexStatus } from '../src/lib/ragIndex';
@@ -10,7 +11,12 @@ import { buildClaimPlan, evaluateRetrievalValidation } from '../src/lib/ragSeman
 import { buildStructuredSections } from '../src/lib/ragStructured';
 import { buildPlannerSystemInstruction } from '../src/lib/promptAssembly';
 import { buildServiceScopeDocumentBoosts, parseServiceScopes } from '../src/lib/serviceScopes';
-import { createExpertAbstainAnswer } from '../src/lib/expertAnswering';
+import { createExpertAbstainAnswer, tryBuildDeterministicEvaluationRequirementAnswer } from '../src/lib/expertAnswering';
+import {
+  buildEvaluationRequirementCompletenessInstructions,
+  findMatchingEvaluationRequirements,
+  validateEvaluationRequirementCompleteness,
+} from '../src/lib/evaluationRequirementCompleteness';
 import type { StructuredChunk } from '../src/lib/ragTypes';
 
 function makeChunk(id: string, patch: Partial<StructuredChunk>): StructuredChunk {
@@ -784,6 +790,121 @@ function testNonStringKeyIssueDateFallsBackToEvidenceDate() {
   assert.equal(answer.referenceDate, '2026-02-01');
 }
 
+function testEvaluationRequirementCompletenessLayer() {
+  const question = '신규 수급자에게 안내해야 하는 8가지 지침이 뭐고 언제까지 설명해야 해?';
+  const evidence = [
+    makeChunk('recipient-rights-guideline', {
+      documentId: 'doc-recipient-rights',
+      docTitle: '02-05-노인인권보호',
+      title: '확인방법',
+      parentSectionTitle: '확인방법',
+      mode: 'evaluation',
+      sourceType: 'evaluation',
+      sourceRole: 'primary_evaluation',
+      text:
+        '8가지 지침은 욕창예방, 낙상예방, 탈수예방, 배변도움, 관절구축예방, 치매예방, 감염예방, 노인인권보호이다. 신규수급자는 급여제공 시작일부터 토요일·공휴일 포함 14일 이내 확인한다. 평가 당일 기록 미확인 시 불인정(N)이다.',
+    }),
+  ];
+  const matches = findMatchingEvaluationRequirements(question);
+  const instructions = buildEvaluationRequirementCompletenessInstructions({
+    question,
+    matchedRequirements: matches,
+    evidence,
+  }).join('\n');
+  const issues = validateEvaluationRequirementCompleteness({
+    question,
+    answerText: '욕창예방과 낙상예방만 설명한다.',
+    matchedRequirements: matches,
+    evidence,
+  });
+  const answer = tryBuildDeterministicEvaluationRequirementAnswer({
+    question,
+    evidence,
+    confidence: 'high',
+  });
+  const answerText = [
+    answer?.summary,
+    answer?.directAnswer,
+    ...(answer?.blocks ?? []).flatMap((block) => block.items.flatMap((item) => [item.label, item.detail])),
+  ].join(' ');
+
+  assert.equal(matches[0]?.rule.id, 'evaluation-completeness-recipient-rights-checklist');
+  assert.match(instructions, /Evaluation requirement completeness/);
+  assert.equal(issues.some((issue) => issue.code === 'missing-evaluation-required-item'), true);
+  assert.equal(issues.some((issue) => issue.code === 'missing-evaluation-deadline'), true);
+  assert.equal(issues.some((issue) => issue.code.includes('recipient-rights') || issue.code.includes('eight')), false);
+  assert.match(answerText, /욕창예방/);
+  assert.match(answerText, /노인인권보호/);
+  assert.match(answerText, /14일 이내/);
+
+  const staffEducationQuestion = '신규직원 급여제공지침 교육은 며칠 이내에 해야 하고 기록 필수사항은 무엇인가요?';
+  const staffEducationEvidence = [
+    makeChunk('staff-education', {
+      documentId: 'doc-staff-education',
+      docTitle: '01-06-직원교육',
+      title: '확인방법',
+      parentSectionTitle: '확인방법',
+      mode: 'evaluation',
+      sourceType: 'evaluation',
+      sourceRole: 'primary_evaluation',
+      text:
+        '모든 직원에게 연 1회 이상 운영규정 교육과 급여제공지침 교육을 실시한다. 필수사항은 교육일자, 교육방법, 강사명, 참석자명(서명)이다. 신규직원은 급여제공 시작일로부터 7일 이내로 교육받았는지 확인한다.',
+    }),
+  ];
+  const staffMatches = findMatchingEvaluationRequirements(staffEducationQuestion);
+  const staffIssues = validateEvaluationRequirementCompleteness({
+    question: staffEducationQuestion,
+    answerText: '신규직원은 급여제공 시작일로부터 7일 이내 교육받아야 한다.',
+    matchedRequirements: staffMatches,
+    evidence: staffEducationEvidence,
+  });
+  const staffAnswer = tryBuildDeterministicEvaluationRequirementAnswer({
+    question: staffEducationQuestion,
+    evidence: staffEducationEvidence,
+    confidence: 'high',
+  });
+  const staffAnswerText = [
+    staffAnswer?.summary,
+    staffAnswer?.directAnswer,
+    ...(staffAnswer?.blocks ?? []).flatMap((block) => block.items.flatMap((item) => [item.label, item.detail])),
+  ].join(' ');
+
+  assert.equal(staffMatches[0]?.rule.id, 'evaluation-completeness-staff-education-record-fields');
+  assert.equal(staffIssues.some((issue) => issue.code === 'missing-evaluation-required-item'), true);
+  assert.equal(staffIssues.some((issue) => issue.code.includes('recipient-rights') || issue.code.includes('eight')), false);
+  assert.match(staffAnswerText, /교육일자/);
+  assert.match(staffAnswerText, /교육방법/);
+  assert.match(staffAnswerText, /강사명/);
+  assert.match(staffAnswerText, /참석자명\(서명\)/);
+  assert.match(staffAnswerText, /7일 이내/);
+
+  const staffRightsQuestion = '직원인권침해교육은 어떻게 해야해';
+  const staffRightsEvidence = [
+    makeChunk('staff-rights', {
+      documentId: 'doc-staff-rights',
+      docTitle: '01-07-직원인권보호',
+      title: '확인방법',
+      parentSectionTitle: '확인방법',
+      mode: 'evaluation',
+      sourceType: 'evaluation',
+      sourceRole: 'primary_evaluation',
+      text:
+        '모든 수급자(보호자)에게 연 1회 이상 폭언·폭행·성희롱 예방 및 직원과 수급자의 상호존중을 포함하는 내용을 안내한다. 확인사항은 안내일자, 안내방법, 안내내용, 수급자명, 보호자명(관계)이다. 평가 당일 기록이 확인되지 않는 경우 불인정(N)이다.',
+    }),
+  ];
+  const staffRightsMatches = findMatchingEvaluationRequirements(staffRightsQuestion);
+  const staffRightsInstructions = buildEvaluationRequirementCompletenessInstructions({
+    question: staffRightsQuestion,
+    matchedRequirements: staffRightsMatches,
+    evidence: staffRightsEvidence,
+  }).join('\n');
+
+  assert.equal(staffRightsMatches[0]?.rule.id, 'evaluation-completeness-staff-rights-protection-guidance');
+  assert.match(staffRightsInstructions, /폭언·폭행·성희롱 예방/);
+  assert.match(staffRightsInstructions, /직원과 수급자의 상호존중/);
+  assert.match(staffRightsInstructions, /안내일자/);
+}
+
 testHybridReadinessReason();
 testEvidenceBalanceAndAgentDecision();
 testShortKoreanQueryFallback();
@@ -808,6 +929,7 @@ testCostReferenceLookupBuildsSupportedClaimWithoutScopeFalsePositive();
 testEvaluationWorkflowClaimGetsDirectSupportFromPrimaryManual();
 testNonLegalScopeMismatchStillFlagsMixedScope();
 testRetrievalPriorityClassInference();
+testEvaluationRequirementCompletenessLayer();
 testRecipientOnboardingQueryBuildsWorkflowFacetPlan();
 testLegalPriorityBoostsNoticeOverEvaluationManual();
 testEvaluationPriorityBoostsPrimaryManualOverGuide();

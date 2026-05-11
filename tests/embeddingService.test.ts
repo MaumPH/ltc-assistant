@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { EMBEDDING_DIMENSIONS, embedChunks } from '../src/lib/embeddingService';
+import { EMBEDDING_DIMENSIONS, embedChunks, embedQuery } from '../src/lib/embeddingService';
+import { embedIndexRows } from '../src/lib/nodeRagService';
 import type { StructuredChunk } from '../src/lib/ragTypes';
 
 function chunk(id: string): StructuredChunk {
@@ -56,4 +57,94 @@ test('embedChunks counts only non-empty embedding responses as successful', asyn
   assert.equal(chunks[1].embedding?.length, EMBEDDING_DIMENSIONS);
   assert.equal(chunks[1].embedding?.[0], 1);
   assert.equal(chunks[1].embedding?.[1], 0);
+});
+
+test('embedChunks can be disabled for read-only script runs', async () => {
+  const previous = process.env.RAG_DISABLE_CHUNK_EMBEDDING_GENERATION;
+  process.env.RAG_DISABLE_CHUNK_EMBEDDING_GENERATION = 'true';
+  try {
+    let callCount = 0;
+    const chunks = [chunk('disabled')];
+    const ai = {
+      models: {
+        embedContent: async () => {
+          callCount += 1;
+          return { embeddings: [{ values: Array.from({ length: EMBEDDING_DIMENSIONS }, () => 1) }] };
+        },
+      },
+    } as never;
+
+    const embeddedCount = await embedChunks(ai, chunks);
+
+    assert.equal(embeddedCount, 0);
+    assert.equal(callCount, 0);
+    assert.equal(chunks[0].embedding, undefined);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.RAG_DISABLE_CHUNK_EMBEDDING_GENERATION;
+    } else {
+      process.env.RAG_DISABLE_CHUNK_EMBEDDING_GENERATION = previous;
+    }
+  }
+});
+
+test('embedIndexRows can be disabled for read-only script runs', async () => {
+  const previous = process.env.RAG_DISABLE_CHUNK_EMBEDDING_GENERATION;
+  process.env.RAG_DISABLE_CHUNK_EMBEDDING_GENERATION = 'true';
+  try {
+    let callCount = 0;
+    const rows: Array<Record<string, unknown>> = [
+      {
+        id: 'index-disabled',
+        search_text: '요양보호사 index embedding input',
+      },
+    ];
+    const ai = {
+      models: {
+        embedContent: async () => {
+          callCount += 1;
+          return { embeddings: [{ values: Array.from({ length: EMBEDDING_DIMENSIONS }, (_, index) => (index === 0 ? 1 : 0)) }] };
+        },
+      },
+    } as never;
+
+    const embeddedCount = await embedIndexRows(ai, rows);
+
+    assert.equal(embeddedCount, 0);
+    assert.equal(callCount, 0);
+    assert.equal(rows[0].embedding, undefined);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.RAG_DISABLE_CHUNK_EMBEDDING_GENERATION;
+    } else {
+      process.env.RAG_DISABLE_CHUNK_EMBEDDING_GENERATION = previous;
+    }
+  }
+});
+
+test('embedQuery can be disabled for read-only benchmark runs', async () => {
+  const previous = process.env.RAG_DISABLE_QUERY_EMBEDDING_GENERATION;
+  process.env.RAG_DISABLE_QUERY_EMBEDDING_GENERATION = 'true';
+  try {
+    let callCount = 0;
+    const ai = {
+      models: {
+        embedContent: async () => {
+          callCount += 1;
+          return { embeddings: [{ values: Array.from({ length: EMBEDDING_DIMENSIONS }, () => 1) }] };
+        },
+      },
+    } as never;
+
+    const embedding = await embedQuery(ai, 'benchmark cache miss query');
+
+    assert.equal(embedding, null);
+    assert.equal(callCount, 0);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.RAG_DISABLE_QUERY_EMBEDDING_GENERATION;
+    } else {
+      process.env.RAG_DISABLE_QUERY_EMBEDDING_GENERATION = previous;
+    }
+  }
 });

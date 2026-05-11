@@ -1,9 +1,7 @@
+import './register-env';
 import fs from 'fs';
 import path from 'path';
-import * as dotenv from 'dotenv';
 import { buildCompiledRows, loadKnowledgeFilesForIndex } from '../src/lib/nodeRagService';
-
-dotenv.config();
 
 async function main() {
   const projectRoot = process.cwd();

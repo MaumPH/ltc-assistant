@@ -36,8 +36,10 @@ import type {
 export function createEmptyLatencyBreakdown(): StageLatencyBreakdown {
   return {
     queryNormalizationMs: 0,
+    queryEmbeddingMs: 0,
     cacheLookupMs: 0,
     hydeMs: 0,
+    retrievalSetupMs: 0,
     retrievalMs: 0,
     fallbackMs: 0,
     planningMs: 0,

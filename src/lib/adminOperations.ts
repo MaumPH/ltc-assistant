@@ -21,6 +21,7 @@ import {
   EMBEDDING_DIMENSIONS,
   EMBEDDING_MAX_CHUNKS_PER_PASS,
   EMBEDDING_MODEL,
+  isChunkEmbeddingGenerationDisabled,
   isQuotaExceededError,
   markEmbeddingQuotaExceeded,
   prepareEmbedding,
@@ -575,6 +576,7 @@ export async function embedIndexRows(ai: GoogleGenAI, rows: Array<Record<string,
     embedding: Array.isArray(row.embedding) ? (row.embedding as number[]) : undefined,
   }));
 
+  if (isChunkEmbeddingGenerationDisabled()) return 0;
   if (shouldSkipEmbeddingWork('index embeddings')) return 0;
 
   let embeddedCount = 0;

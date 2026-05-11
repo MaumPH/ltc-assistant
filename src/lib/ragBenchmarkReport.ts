@@ -30,8 +30,10 @@ export interface BenchmarkOutcomeSummary {
 
 export type BenchmarkLatencyKey =
   | 'queryNormalizationMs'
+  | 'queryEmbeddingMs'
   | 'cacheLookupMs'
   | 'hydeMs'
+  | 'retrievalSetupMs'
   | 'retrievalMs'
   | 'fallbackMs'
   | 'planningMs'
@@ -362,8 +364,10 @@ export interface BenchmarkPerformanceSummaryInput {
 
 const LATENCY_KEYS: BenchmarkLatencyKey[] = [
   'queryNormalizationMs',
+  'queryEmbeddingMs',
   'cacheLookupMs',
   'hydeMs',
+  'retrievalSetupMs',
   'retrievalMs',
   'fallbackMs',
   'planningMs',

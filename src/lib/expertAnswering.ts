@@ -17,6 +17,12 @@ import { detectEnumerationIntent } from './queryIntent';
 import { buildPreciseCitationLabel, formatEvidenceStateLabel } from './ragMetadata';
 import { chunksToEvidenceContext } from './ragStructured';
 import { safeTrim } from './textGuards';
+import {
+  buildEvaluationRequirementCompletenessInstructions,
+  evidenceMatchesEvaluationRequirement,
+  findMatchingEvaluationRequirements,
+  getRequiredEvaluationRequirementItems,
+} from './evaluationRequirementCompleteness';
 import type {
   AnswerPlan,
   AnswerPlanTaskCandidate,
@@ -71,6 +77,14 @@ function buildEnumerationCoverageInstructions(question: string, evidence: Struct
     'Keep the conclusion concise, but do not omit an indicator that is directly supported by the retrieved evidence.',
     ...forcedEvidenceHints,
   ];
+}
+
+function buildEvaluationRequirementInstructions(question: string, evidence: StructuredChunk[]): string[] {
+  return buildEvaluationRequirementCompletenessInstructions({
+    question,
+    matchedRequirements: findMatchingEvaluationRequirements(question),
+    evidence,
+  });
 }
 
 export interface ClarificationDecision {
@@ -748,6 +762,7 @@ export async function generateAnswerPlan(params: {
   const allowedEvidenceIds = new Set(params.evidence.map((item) => item.id));
   const allowedWorkflowEvents = new Set(params.brain.workflowEvents.map((item) => item.id));
   const enumerationCoverageInstructions = buildEnumerationCoverageInstructions(params.question, params.evidence);
+  const evaluationRequirementInstructions = buildEvaluationRequirementInstructions(params.question, params.evidence);
   const systemInstruction = buildPlannerSystemInstruction({
     mode: params.mode,
     variant: params.variant,
@@ -762,6 +777,7 @@ export async function generateAnswerPlan(params: {
       'Self-check: if blocking validation or authority mismatch makes a verdict unsafe, prefer a conservative plan over a forced verdict.',
       'Self-check: keep the highest-authority evidence in selectedEvidenceIds whenever it materially answers the question.',
       ...enumerationCoverageInstructions,
+      ...evaluationRequirementInstructions,
     ],
   });
 
@@ -1521,6 +1537,7 @@ export async function synthesizeExpertAnswer(params: {
         `DirectAnswer evidence hint ${index + 1} (${item.docTitle} / ${item.parentSectionTitle || 'section'}): ${trimQuote(item.textPreview || item.text, 200)}`,
     );
   const enumerationCoverageInstructions = buildEnumerationCoverageInstructions(params.question, params.evidence);
+  const evaluationRequirementInstructions = buildEvaluationRequirementInstructions(params.question, params.evidence);
 
   const systemInstruction = buildSynthesizerSystemInstruction({
     mode: params.mode,
@@ -1545,6 +1562,7 @@ export async function synthesizeExpertAnswer(params: {
       'In evaluation mode, prefer the primary evaluation manual over Q&A or general employee guidance when both are available.',
       'Self-check: the final citations must still include the strongest authority that directly supports the answer.',
       ...enumerationCoverageInstructions,
+      ...evaluationRequirementInstructions,
     ],
   });
 
@@ -1589,6 +1607,95 @@ export async function synthesizeExpertAnswer(params: {
     console.warn('[expertAnswering] answer synthesis fallback:', error);
     return fallback;
   }
+}
+
+export function tryBuildDeterministicEvaluationRequirementAnswer(params: {
+  question: string;
+  evidence: StructuredChunk[];
+  confidence: ConfidenceLevel;
+  keyIssueDate?: unknown;
+}): ExpertAnswerEnvelope | null {
+  const matches = findMatchingEvaluationRequirements(params.question);
+  const match = matches.find((item) => params.evidence.some((chunk) => evidenceMatchesEvaluationRequirement(chunk, item.rule)));
+  if (!match) return null;
+
+  const requirementEvidence = params.evidence.filter((chunk) => evidenceMatchesEvaluationRequirement(chunk, match.rule));
+  const primaryEvidence = requirementEvidence[0];
+  if (!primaryEvidence) return null;
+
+  const requiredItems = getRequiredEvaluationRequirementItems(params.question, match.rule);
+  if (requiredItems.length === 0) return null;
+
+  const keyIssueDate = sanitizeText(params.keyIssueDate) || undefined;
+  const citations = buildExpertCitations(requirementEvidence.slice(0, 4));
+  const citationIds = citations.map((citation) => citation.evidenceId);
+  const groundedBasis = toGroundedBasisFromEvidence(requirementEvidence.slice(0, 4));
+  const checklistItems = requiredItems.filter((item) => item.kind === 'checklist_item');
+  const conditionItems = requiredItems.filter((item) => item.kind !== 'checklist_item');
+  const checklistSummary = checklistItems.map((item) => item.label).join(', ');
+  const conditionSummary = conditionItems.map((item) => item.label).join('; ');
+  const directAnswer = [
+    `${match.rule.requirementTitle}에 대해 문서에서 구조화된 필수 항목으로 잡힌 내용은 빠짐없이 반영해야 합니다.`,
+    checklistSummary ? `체크리스트 항목은 ${checklistSummary}입니다.` : '',
+    conditionSummary ? `대상, 주기, 기한, 확인조건은 ${conditionSummary}입니다.` : '',
+  ].filter(Boolean).join(' ');
+  const blocks: ExpertAnswerBlock[] = [];
+  if (checklistItems.length > 0) {
+    blocks.push({
+      type: 'checklist',
+      title: '필수 체크리스트 항목',
+      items: checklistItems.map((item) => ({
+        label: item.label,
+        detail: item.label,
+        basis: 'evaluation',
+        citationIds,
+      })),
+    });
+  }
+  if (conditionItems.length > 0) {
+    blocks.push({
+      type: 'checklist',
+      title: '대상·주기·기한·확인조건',
+      items: conditionItems.map((item) => ({
+        label: item.label,
+        detail: item.label,
+        basis: 'evaluation',
+        citationIds,
+      })),
+    });
+  }
+
+  return {
+    answerType: 'checklist',
+    headline: match.rule.requirementTitle,
+    summary: directAnswer,
+    directAnswer,
+    confidence: params.confidence,
+    evidenceState: params.confidence === 'high' ? 'confirmed' : 'partial',
+    keyIssueDate,
+    referenceDate: deriveReferenceDate(keyIssueDate, requirementEvidence),
+    conclusion: conditionSummary || checklistSummary || match.rule.requirementTitle,
+    groundedBasis,
+    practicalInterpretation: conditionItems.map((item) => ({
+      label: item.label,
+      detail: item.kind,
+      basis: 'evaluation',
+      citationIds,
+    })),
+    additionalChecks: [
+      {
+        label: '구조화 필수항목 누락 점검',
+        detail: 'matched requirement의 requiredItems 및 질문 조건에 해당하는 conditionalItems를 모두 답변에 반영했습니다.',
+        citationIds,
+      },
+    ],
+    appliedScope: match.rule.indicatorTitle ?? match.rule.sourceDocumentTitle ?? 'evaluation requirement',
+    scope: match.rule.sourceDocumentTitle ?? match.rule.requirementTitle,
+    basis: toLegacyBasisFromGroundedBasis(groundedBasis),
+    blocks,
+    citations,
+    followUps: [],
+  };
 }
 
 export function createExpertAbstainAnswer(params: {

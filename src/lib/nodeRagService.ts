@@ -18,6 +18,7 @@ import { buildRetrievalDiagnostics, createEmptyCacheHitSummary, createEmptyLaten
 import { Pool, type PoolClient } from 'pg';
 import {
   buildRagCorpusIndex,
+  createExactScoringCache,
   createLexicalScoringCache,
   deriveFocusTerms,
   diversifyVisibleCandidates,
@@ -44,6 +45,7 @@ import {
   buildWorkflowBriefs,
   detectServiceScopeClarification,
   loadDomainBrain,
+  prewarmBrainDocumentBoostTextCache,
   selectWorkflowBriefs,
   summarizeWorkflowEvents,
   type DomainBrain,
@@ -59,6 +61,7 @@ import {
   generateAnswerPlan,
   suppressSelectedServiceScopeClarification,
   synthesizeExpertAnswer,
+  tryBuildDeterministicEvaluationRequirementAnswer,
 } from './expertAnswering';
 import {
   classifyPriorityBucket,
@@ -103,6 +106,11 @@ import {
   validateAnswerEnvelope,
 } from './ragSemanticValidation';
 import {
+  buildEvaluationRequirementBoosts,
+  evidenceMatchesEvaluationRequirement,
+  findMatchingEvaluationRequirements,
+} from './evaluationRequirementCompleteness';
+import {
   applyRetrievalFeatureOverrides,
   getRetrievalFeatureFlags,
   getRetrievalProfile,
@@ -138,6 +146,11 @@ import {
   prepareEmbedding,
   shouldSkipEmbeddingWork,
 } from './embeddingService';
+import {
+  buildQueryEmbeddingCacheKey,
+  loadQueryEmbeddingCache,
+  persistQueryEmbeddingCache,
+} from './queryEmbeddingCache';
 import {
   buildIndexMetadataRow,
   ensurePostgresSchema,
@@ -242,6 +255,7 @@ import {
   getServiceScopeSearchAliases,
   isChunkCompatibleWithServiceScopes,
   parseServiceScopes,
+  prewarmServiceScopeTextCache,
 } from './serviceScopes';
 
 interface GroundedChatRequest {
@@ -461,6 +475,7 @@ const SMALL_TO_BIG_CONTEXT_SUPPORT_CHUNK_CHARS = parsePositiveInteger(
   500,
 );
 const EMBEDDING_CACHE_FILE = 'embeddings.json';
+const QUERY_EMBEDDING_CACHE_FILE = 'query-embeddings.json';
 const NORMALIZATION_CACHE_TTL_MS = parsePositiveInteger(process.env.RAG_NORMALIZATION_CACHE_TTL_MS, 10 * 60 * 1000);
 const HYDE_CACHE_TTL_MS = parsePositiveInteger(process.env.RAG_HYDE_CACHE_TTL_MS, 30 * 60 * 1000);
 const RETRIEVAL_CACHE_TTL_MS = parsePositiveInteger(process.env.RAG_RETRIEVAL_CACHE_TTL_MS, 10 * 60 * 1000);
@@ -687,6 +702,15 @@ interface SearchExecutionResult {
   plannerTrace: Array<{ step: string; detail: string }>;
 }
 
+interface SearchCorpusSnapshot {
+  chunks: StructuredChunk[];
+  representatives: Map<string, StructuredChunk>;
+  evaluationDocumentIds: Set<string>;
+  routeOnlyDocumentIds: Set<string>;
+  integratedSupportDocumentIds: Set<string>;
+  recipientOnboardingDocumentBoosts: Map<string, number>;
+}
+
 function recordSubSearchLatency(target: Record<string, number>, stage: string, startedAt: number): void {
   target[stage] = Date.now() - startedAt;
 }
@@ -704,6 +728,13 @@ function formatCorpusPhaseTimingTrace(entry: SearchDiagnosticsEntry): string {
   return [
     `phaseLexicalPool=${timings.lexicalPoolMs}ms`,
     `phaseExact=${timings.exactMs}ms`,
+    ...(timings.exactScoringCache
+      ? [
+          `phaseExactCacheHits=${timings.exactScoringCache.hits}`,
+          `phaseExactCacheMisses=${timings.exactScoringCache.misses}`,
+          `phaseExactCacheSize=${timings.exactScoringCache.size}`,
+        ]
+      : []),
     `phaseLexical=${timings.lexicalMs}ms`,
     `phaseVector=${timings.vectorMs}ms`,
     `phaseFusion=${timings.fusionMs}ms`,
@@ -1125,11 +1156,7 @@ function isRecipientOnboardingQuery(query: string): boolean {
   return recipientContext && onboardingContext && checklistContext;
 }
 
-function buildOperationalDocumentBoosts(chunks: StructuredChunk[], query: string): Map<string, number> {
-  if (!isRecipientOnboardingQuery(query)) {
-    return new Map<string, number>();
-  }
-
+function buildRecipientOnboardingDocumentBoosts(chunks: StructuredChunk[]): Map<string, number> {
   const facets: Array<{ id: string; terms: string[]; weight: number }> = [
     {
       id: 'contract',
@@ -1826,12 +1853,17 @@ export class NodeRagService {
   private lastRetrievalByPath = new Map<string, RecentRetrievalMatch>();
   private readonly operationalRetrievalLog: OperationalRetrievalLogEntry[] = [];
   private readonly queryEmbeddingCache = new Map<string, number[] | null>();
+  private readonly queryEmbeddingDiskCachePath: string;
+  private queryEmbeddingDiskCache: Map<string, number[]> | null = null;
+  private searchCorpusSnapshot: SearchCorpusSnapshot | null = null;
+  private priorityDocumentBoostCache = new Map<RetrievalPriorityClass, Map<string, number>>();
   private embeddingRefreshTimer: NodeJS.Timeout | null = null;
   private initialized = false;
   private initializePromise: Promise<void> | null = null;
 
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
+    this.queryEmbeddingDiskCachePath = path.join(projectRoot, '.rag-cache', QUERY_EMBEDDING_CACHE_FILE);
     this.promptSources = loadPromptSourceSet(projectRoot);
     this.brain = loadDomainBrain(projectRoot);
     this.generationMode = resolveGenerationMode();
@@ -1948,6 +1980,7 @@ export class NodeRagService {
   }
 
   private async rebuildRuntimeState(): Promise<void> {
+    this.clearSearchCorpusSnapshot();
     try {
       await this.store.initialize(this.embeddingAi);
     } catch (error) {
@@ -1964,8 +1997,10 @@ export class NodeRagService {
     }
     await this.loadFallbackChunks();
     this.refreshIndexStatus();
+    this.clearSearchCorpusSnapshot();
     this.rebuildOntologyGraph();
     this.workflowBriefs = this.buildWorkflowBriefIndex();
+    this.getSearchCorpusSnapshot();
   }
 
   private async probeHttpBackend(url: string, detailPrefix: string): Promise<Partial<BackendReadinessItem>> {
@@ -2266,6 +2301,49 @@ export class NodeRagService {
     return [...this.store.getChunks(), ...this.diskOverlayChunks, ...this.fallbackChunks];
   }
 
+  private getSearchCorpusSnapshot(): SearchCorpusSnapshot {
+    if (this.searchCorpusSnapshot) return this.searchCorpusSnapshot;
+
+    const chunks = this.getAllSearchChunks();
+    prewarmServiceScopeTextCache(chunks);
+    prewarmBrainDocumentBoostTextCache(chunks);
+    const representatives = buildDocumentRepresentativeMap(chunks);
+    const evaluationDocumentIds = new Set(
+      chunks.filter((chunk) => chunk.mode === 'evaluation').map((chunk) => chunk.documentId),
+    );
+    const routeOnlyDocumentIds = new Set(
+      chunks.filter((chunk) => chunk.sourceRole === 'routing_summary').map((chunk) => chunk.documentId),
+    );
+    const integratedSupportDocumentIds = new Set(
+      chunks
+        .filter((chunk) => chunk.mode === 'integrated' && chunk.sourceRole === 'support_reference')
+        .map((chunk) => chunk.documentId),
+    );
+
+    this.searchCorpusSnapshot = {
+      chunks,
+      representatives,
+      evaluationDocumentIds,
+      routeOnlyDocumentIds,
+      integratedSupportDocumentIds,
+      recipientOnboardingDocumentBoosts: buildRecipientOnboardingDocumentBoosts(chunks),
+    };
+    return this.searchCorpusSnapshot;
+  }
+
+  private getPriorityDocumentBoosts(priorityClass: RetrievalPriorityClass): Map<string, number> {
+    const cached = this.priorityDocumentBoostCache.get(priorityClass);
+    if (cached) return cached;
+    const boosts = buildPriorityDocumentBoosts(this.getSearchCorpusSnapshot().chunks, priorityClass);
+    this.priorityDocumentBoostCache.set(priorityClass, boosts);
+    return boosts;
+  }
+
+  private clearSearchCorpusSnapshot(): void {
+    this.searchCorpusSnapshot = null;
+    this.priorityDocumentBoostCache.clear();
+  }
+
   private rebuildOntologyGraph(): void {
     this.ontologyGraph = buildOntologyGraph(
       this.brain,
@@ -2382,6 +2460,7 @@ export class NodeRagService {
       if (this.diskOverlayChunks.length > 0) {
         this.diskOverlayChunks = [];
         this.diskOverlayIndex = buildRagCorpusIndex([]);
+        this.clearSearchCorpusSnapshot();
       }
       return;
     }
@@ -2393,6 +2472,7 @@ export class NodeRagService {
 
     this.diskOverlayChunks = overlayChunks;
     this.diskOverlayIndex = buildRagCorpusIndex(overlayChunks);
+    this.clearSearchCorpusSnapshot();
   }
 
   private rememberRetrieval(retrieval: RetrievalDiagnostics, query: string): void {
@@ -2513,6 +2593,7 @@ export class NodeRagService {
       chunk = fallbackResultToChunk(fallback, mode, queryProfile.parsedLawRefs[0]?.article);
       this.fallbackChunks = [chunk, ...this.fallbackChunks.filter((item) => item.id !== chunk.id)].slice(0, 32);
       await this.persistFallbackChunk(chunk, fallback);
+      this.clearSearchCorpusSnapshot();
       this.rebuildOntologyGraph();
       sources.push({
         source: fallback.source,
@@ -2566,8 +2647,23 @@ export class NodeRagService {
       return this.queryEmbeddingCache.get(normalized) ?? null;
     }
 
+    if (!this.queryEmbeddingDiskCache) {
+      this.queryEmbeddingDiskCache = loadQueryEmbeddingCache(this.queryEmbeddingDiskCachePath);
+    }
+
+    const diskCacheKey = buildQueryEmbeddingCacheKey(normalized, EMBEDDING_MODEL, EMBEDDING_DIMENSIONS);
+    const cachedEmbedding = this.queryEmbeddingDiskCache.get(diskCacheKey);
+    if (cachedEmbedding) {
+      this.queryEmbeddingCache.set(normalized, cachedEmbedding);
+      return cachedEmbedding;
+    }
+
     const embedding = await embedQuery(embeddingAi, normalized);
     this.queryEmbeddingCache.set(normalized, embedding);
+    if (embedding && embedding.length > 0) {
+      this.queryEmbeddingDiskCache.set(diskCacheKey, embedding);
+      persistQueryEmbeddingCache(this.queryEmbeddingDiskCachePath, this.queryEmbeddingDiskCache);
+    }
 
     if (this.queryEmbeddingCache.size > 128) {
       const oldestKey = this.queryEmbeddingCache.keys().next().value;
@@ -2589,6 +2685,7 @@ export class NodeRagService {
         console.warn(`[embedding] background refresh failed: ${describeError(error)}`);
       });
     }, intervalMs);
+    this.embeddingRefreshTimer.unref?.();
   }
 
   private getRetrievalReadiness(): RetrievalReadiness {
@@ -2705,10 +2802,9 @@ export class NodeRagService {
 
     if (mode !== 'evaluation') {
       const integratedSetupStartedAt = Date.now();
-      const allChunks = this.getAllSearchChunks();
-      const representatives = buildDocumentRepresentativeMap(allChunks);
+      const { chunks: allChunks, representatives, recipientOnboardingDocumentBoosts } = this.getSearchCorpusSnapshot();
       const baseDocumentScoreBoosts = mergeDocumentScoreBoostMaps(
-        buildOperationalDocumentBoosts(allChunks, normalizedQuery),
+        isRecipientOnboardingQuery(normalizedQuery) ? recipientOnboardingDocumentBoosts : new Map<string, number>(),
         options?.additionalDocumentScoreBoosts ?? new Map<string, number>(),
       );
       recordExecuteSearchPhaseTiming('integrated-setup', integratedSetupStartedAt);
@@ -2871,22 +2967,20 @@ export class NodeRagService {
       }
 
     const evaluationSetupStartedAt = Date.now();
-    const allChunks = this.getAllSearchChunks();
-    const representatives = buildDocumentRepresentativeMap(allChunks);
+    const {
+      chunks: allChunks,
+      representatives,
+      evaluationDocumentIds,
+      routeOnlyDocumentIds,
+      integratedSupportDocumentIds,
+      recipientOnboardingDocumentBoosts,
+    } = this.getSearchCorpusSnapshot();
     const baseDocumentScoreBoosts = mergeDocumentScoreBoostMaps(
-      buildOperationalDocumentBoosts(allChunks, normalizedQuery),
+      isRecipientOnboardingQuery(normalizedQuery) ? recipientOnboardingDocumentBoosts : new Map<string, number>(),
       options?.additionalDocumentScoreBoosts ?? new Map<string, number>(),
-    );
-    const evaluationDocumentIds = new Set(
-      allChunks.filter((chunk) => chunk.mode === 'evaluation').map((chunk) => chunk.documentId),
     );
     const retrievalPriorityClass = options?.retrievalPriorityClass ?? 'operational_workflow';
     const retrievalPriorityPolicy = INTENT_PRIORITY_MATRIX[retrievalPriorityClass];
-    const routeOnlyDocumentIds = new Set(
-      allChunks
-        .filter((chunk) => chunk.sourceRole === 'routing_summary')
-        .map((chunk) => chunk.documentId),
-    );
     recordExecuteSearchPhaseTiming('evaluation-setup', evaluationSetupStartedAt);
 
     const routingSearchStartedAt = Date.now();
@@ -2938,11 +3032,6 @@ export class NodeRagService {
     recordExecuteSearchPhaseTiming('evaluation-routing-resolve', evaluationRoutingResolveStartedAt);
 
     const evaluationSupportSetupStartedAt = Date.now();
-    const integratedSupportDocumentIds = new Set(
-      allChunks
-        .filter((chunk) => chunk.mode === 'integrated' && chunk.sourceRole === 'support_reference')
-        .map((chunk) => chunk.documentId),
-    );
     const searchIntegratedSupportReferences = shouldSearchIntegratedSupportReferences({
       mode,
       normalizedQuery,
@@ -3303,7 +3392,7 @@ export class NodeRagService {
     const serviceScopeContext = buildServiceScopePromptContext(selectedServiceScopes);
     const runtimeProfile = this.getActiveProfile(profileId);
     const cacheHits = createEmptyCacheHitSummary();
-    const allSearchChunks = this.getAllSearchChunks();
+    const allSearchChunks = this.getSearchCorpusSnapshot().chunks;
     const recentMessages = Array.isArray(input) ? input.slice(-4) : [];
     const query = Array.isArray(input)
       ? safeTrim([...recentMessages].reverse().find((message) => message.role === 'user')?.text)
@@ -3406,7 +3495,7 @@ export class NodeRagService {
     const workflowFacetAliases = uniqueNonEmptyLines(
       workflowFacetClaims.flatMap((claim) => [claim.canonicalSubject, claim.object ?? '', ...claim.supportAnchors]),
     );
-    const aliases = uniqueNonEmptyLines([
+    let aliases = uniqueNonEmptyLines([
       ...normalized.aliases,
       ...serviceScopeAliases,
       ...profile.aliases,
@@ -3414,6 +3503,25 @@ export class NodeRagService {
       ...workflowFacetAliases,
       pseudoHyde,
     ]);
+    const shouldApplyEvaluationRequirementCompleteness =
+      retrievalPriorityClass !== 'document_lookup' && (mode === 'evaluation' || retrievalPriorityClass === 'evaluation_readiness' || evaluationLinked);
+    const matchedEvaluationRequirements = shouldApplyEvaluationRequirementCompleteness
+      ? findMatchingEvaluationRequirements(
+          uniqueNonEmptyLines([normalized.normalizedQuery, ...queryProfile.searchVariants]).join(' '),
+        )
+      : [];
+    if (matchedEvaluationRequirements.length > 0) {
+      aliases = uniqueNonEmptyLines([
+        ...aliases,
+        ...matchedEvaluationRequirements.flatMap((match) => [
+          match.rule.requirementTitle,
+          match.rule.sourceDocumentTitle ?? '',
+          match.rule.indicatorTitle ?? '',
+          ...(match.rule.aliases ?? []),
+          ...match.rule.requiredItems.flatMap((item) => [item.label, ...(item.aliases ?? [])]),
+        ]),
+      ]);
+    }
     const retrievalCacheKey = buildScopedCacheKey([
       this.indexStatus.manifestHash,
       runtimeProfile.id,
@@ -3421,6 +3529,7 @@ export class NodeRagService {
       selectedServiceScopes.join(','),
       normalized.normalizedQuery,
       aliases.join('\n'),
+      matchedEvaluationRequirements.map((match) => match.rule.id).join('|'),
       queryProfile.queryType,
       queryProfile.parsedLawRefs.map((item) => `${item.canonicalLawName}:${item.article ?? item.jo ?? item.raw}`).join('|'),
     ]);
@@ -3440,21 +3549,37 @@ export class NodeRagService {
       cloned.latency = {
         ...cloned.latency,
         queryNormalizationMs: cloned.latency.queryNormalizationMs + latency.queryNormalizationMs,
+        queryEmbeddingMs: cloned.latency.queryEmbeddingMs + latency.queryEmbeddingMs,
         cacheLookupMs: cloned.latency.cacheLookupMs + latency.cacheLookupMs,
         hydeMs: cloned.latency.hydeMs + latency.hydeMs,
+        retrievalSetupMs: cloned.latency.retrievalSetupMs + latency.retrievalSetupMs,
         totalMs: Date.now() - planStartedAt,
       };
       return cloned;
     }
 
     const embeddingQuery = [normalized.normalizedQuery, ...aliases].filter(Boolean).join('\n');
+    const queryEmbeddingStartedAt = Date.now();
     const queryEmbedding = await this.getQueryEmbedding(embeddingQuery, embeddingAi);
+    latency.queryEmbeddingMs = Date.now() - queryEmbeddingStartedAt;
+    const retrievalSetupStartedAt = Date.now();
+    const retrievalSetupTimings: Record<string, number> = {};
+    const recordRetrievalSetupTiming = (phase: string, startedAt: number) => {
+      retrievalSetupTimings[phase] = (retrievalSetupTimings[phase] ?? 0) + (Date.now() - startedAt);
+    };
+    const formatRetrievalSetupTimingTrace = () =>
+      Object.entries(retrievalSetupTimings)
+        .filter(([, value]) => value > 0)
+        .map(([phase, value]) => `${phase}=${value}ms`)
+        .join(', ');
     const lexicalScoringCache = createLexicalScoringCache();
+    const exactScoringCache = createExactScoringCache();
     const searchStoreDiagnostics: SearchDiagnosticsEntry[] = [];
     const searchMemo = createSearchStoreMemo((queryText, searchMode, embedding, searchAliases, searchOptions) =>
       this.searchStore(queryText, searchMode, embedding, searchAliases, {
         ...searchOptions,
         lexicalScoringCache,
+        exactScoringCache,
         evaluationAuthorityDriftGuard:
           EVALUATION_AUTHORITY_DRIFT_GUARD_ENABLED || searchOptions?.evaluationAuthorityDriftGuard,
         searchDiagnostics: {
@@ -3464,6 +3589,7 @@ export class NodeRagService {
         },
       }),
     );
+    const serviceScopeBoostStartedAt = Date.now();
     const serviceScopeChunkBoosts = runtimeProfile.retrieval.scopeBoosts
       ? buildServiceScopeChunkBoosts(
           allSearchChunks,
@@ -3477,15 +3603,47 @@ export class NodeRagService {
           ]),
         )
       : new Map<string, number>();
-    const workflowBoosts = mergeDocumentScoreBoostMaps(
-      buildPriorityDocumentBoosts(allSearchChunks, retrievalPriorityClass),
-      buildBrainDocumentBoosts(
-        this.brain,
-        allSearchChunks,
-        profile.workflowEvents,
-        normalized.normalizedQuery,
-      ),
+    recordRetrievalSetupTiming('service-scope-chunk-boosts', serviceScopeBoostStartedAt);
+    const evaluationRequirementBoostStartedAt = Date.now();
+    const {
+      documentBoosts: evaluationRequirementDocumentBoosts,
+      chunkBoosts: evaluationRequirementChunkBoosts,
+    } = buildEvaluationRequirementBoosts(
+      matchedEvaluationRequirements,
+      allSearchChunks,
     );
+    recordRetrievalSetupTiming('evaluation-requirement-boosts', evaluationRequirementBoostStartedAt);
+    const combinedChunkBoosts = mergeDocumentScoreBoostMaps(serviceScopeChunkBoosts, evaluationRequirementChunkBoosts);
+    const workflowBoostStartedAt = Date.now();
+    const brainWorkflowDocumentBoosts =
+      matchedEvaluationRequirements.length === 0
+        ? buildBrainDocumentBoosts(
+            this.brain,
+            allSearchChunks,
+            profile.workflowEvents,
+            normalized.normalizedQuery,
+          )
+        : new Map<string, number>();
+    const workflowBoosts = mergeDocumentScoreBoostMaps(
+      this.getPriorityDocumentBoosts(retrievalPriorityClass),
+      brainWorkflowDocumentBoosts,
+      evaluationRequirementDocumentBoosts,
+    );
+    recordRetrievalSetupTiming('workflow-document-boosts', workflowBoostStartedAt);
+    latency.retrievalSetupMs = Date.now() - retrievalSetupStartedAt;
+    const retrievalSetupTimingTrace = formatRetrievalSetupTimingTrace();
+    if (retrievalSetupTimingTrace) {
+      plannerTrace.push({
+        step: 'retrieval-setup-timing',
+        detail: retrievalSetupTimingTrace,
+      });
+    }
+    if (matchedEvaluationRequirements.length > 0) {
+      plannerTrace.push({
+        step: 'evaluation-requirement-match',
+        detail: matchedEvaluationRequirements.map((match) => match.rule.id).join(', '),
+      });
+    }
     const workflowAliasHints = workflowBriefs.flatMap((brief) => [brief.label, brief.summary]);
     let selectedRetrievalMode: RetrievalMode = profile.preferredRetrievalMode;
     const retrievalStartedAt = Date.now();
@@ -3515,7 +3673,7 @@ export class NodeRagService {
       {
         profile: runtimeProfile,
         additionalDocumentScoreBoosts: workflowBoosts,
-        additionalChunkScoreBoosts: serviceScopeChunkBoosts,
+        additionalChunkScoreBoosts: combinedChunkBoosts,
         extraAliases: selectedRetrievalMode === 'workflow-global' ? workflowAliasHints : [],
         queryProfile,
         retrievalPriorityClass,
@@ -3534,8 +3692,18 @@ export class NodeRagService {
       });
     }
     plannerTrace.push(...searchPlannerTrace);
+    const hasMatchedEvaluationRequirementEvidence =
+      matchedEvaluationRequirements.length > 0 &&
+      search.evidence.some((chunk) =>
+        matchedEvaluationRequirements.some((match) => evidenceMatchesEvaluationRequirement(chunk, match.rule)),
+      );
     const workflowFacetEvidenceCandidates: SearchCandidate[] = [];
-    if (workflowFacetClaims.length > 0) {
+    if (workflowFacetClaims.length > 0 && hasMatchedEvaluationRequirementEvidence) {
+      plannerTrace.push({
+        step: 'workflow-facet-skip',
+        detail: 'matched evaluation requirement evidence already selected',
+      });
+    } else if (workflowFacetClaims.length > 0) {
       const workflowFacetStartedAt = Date.now();
       const retrievalPriorityPolicy = INTENT_PRIORITY_MATRIX[retrievalPriorityClass];
       const facetCandidates: SearchCandidate[] = [];
@@ -3549,7 +3717,7 @@ export class NodeRagService {
           {
             searchDiagnosticStage: 'workflow-facet',
             documentScoreBoosts: workflowBoosts,
-            chunkScoreBoosts: serviceScopeChunkBoosts,
+            chunkScoreBoosts: combinedChunkBoosts,
             excludedEvidenceRoles: new Set<SourceRole>(['routing_summary']),
             lawRefs: queryProfile.parsedLawRefs,
             queryType: queryProfile.queryType,
@@ -3574,15 +3742,23 @@ export class NodeRagService {
       recordRetrievalPhaseTiming('workflow-facet', workflowFacetStartedAt);
     }
 
-    const procedureAspectQueries = shouldExpandProcedureAspectQueries({
-      query: normalized.normalizedQuery,
-      confidence: search.confidence,
-      evidenceCount: search.evidence.length,
-      uniqueEvidenceDocumentCount: new Set(search.evidence.map((item) => item.documentId)).size,
-      enumerationIntent: search.enumerationIntent,
-    })
+    const procedureAspectQueries =
+      !hasMatchedEvaluationRequirementEvidence &&
+      shouldExpandProcedureAspectQueries({
+        query: normalized.normalizedQuery,
+        confidence: search.confidence,
+        evidenceCount: search.evidence.length,
+        uniqueEvidenceDocumentCount: new Set(search.evidence.map((item) => item.documentId)).size,
+        enumerationIntent: search.enumerationIntent,
+      })
       ? buildProcedureAspectQueries(normalized.normalizedQuery).slice(0, 5)
       : [];
+    if (hasMatchedEvaluationRequirementEvidence) {
+      plannerTrace.push({
+        step: 'procedure-aspect-skip',
+        detail: 'matched evaluation requirement evidence already selected',
+      });
+    }
     if (procedureAspectQueries.length > 0) {
       const procedureAspectStartedAt = Date.now();
       const mergedEvidence = new Map(search.evidence.map((item) => [item.id, item]));
@@ -3599,7 +3775,7 @@ export class NodeRagService {
         const aspectSearch = await this.executeSearch(mode, aspectQuery, aspectEmbedding, aspectAliases, {
           profile: runtimeProfile,
           additionalDocumentScoreBoosts: workflowBoosts,
-          additionalChunkScoreBoosts: serviceScopeChunkBoosts,
+          additionalChunkScoreBoosts: combinedChunkBoosts,
           extraAliases: workflowAliasHints,
           queryProfile: aspectQueryProfile,
           retrievalPriorityClass,
@@ -3678,7 +3854,7 @@ export class NodeRagService {
         const refinedSearch = await this.executeSearch(mode, subquestion, refinedEmbedding, refinedAliases, {
           profile: runtimeProfile,
           additionalDocumentScoreBoosts: workflowBoosts,
-          additionalChunkScoreBoosts: serviceScopeChunkBoosts,
+          additionalChunkScoreBoosts: combinedChunkBoosts,
           extraAliases: workflowAliasHints,
           queryProfile: refinedQueryProfile,
           retrievalPriorityClass,
@@ -4304,8 +4480,50 @@ export class NodeRagService {
       };
     }
 
-      const planningStartedAt = Date.now();
-      const answerPlan = await generateAnswerPlan({
+    const deterministicAnswer = tryBuildDeterministicEvaluationRequirementAnswer({
+      question,
+      evidence: planned.evidence,
+      confidence: planned.search.confidence,
+      keyIssueDate,
+    });
+    if (deterministicAnswer) {
+      let finalAnswer = applyAnswerScope(deterministicAnswer, planned.serviceScopeLabels);
+      finalAnswer = planned.profile.guardrails.piiMasking ? applyPiiMasking(finalAnswer) : finalAnswer;
+      retrieval.agentDecision = 'answer';
+      retrieval.plannerTrace = [
+        ...retrieval.plannerTrace,
+        { step: 'deterministic-answer', detail: 'matched evaluation requirement completeness fixture' },
+        { step: 'agent-decision', detail: 'answer: deterministic evaluation requirement answer' },
+      ];
+      if (planned.profile.guardrails.citationWarning) {
+        guardrails.push(buildCitationWarning(finalAnswer, citations));
+      }
+      if (planned.profile.guardrails.hallucinationSignal) {
+        guardrails.push(buildHallucinationSignal(finalAnswer, citations));
+      }
+      retrieval.guardrails = guardrails;
+      latency.planningMs = 0;
+      latency.answerMs = 0;
+      latency.totalMs = Date.now() - startedAt;
+      retrieval.latency = latency;
+      const response: GroundedChatResponse = {
+        answer: finalAnswer,
+        text: formatAnswerAsMarkdown(finalAnswer),
+        search: {
+          ...planned.search,
+          evidence: planned.evidence,
+        },
+        citations,
+        retrieval,
+      };
+      if (planned.profile.cache.answer) {
+        this.runtimeCache.set('answer', answerCacheKey, response, ANSWER_CACHE_TTL_MS);
+      }
+      return response;
+    }
+
+    const planningStartedAt = Date.now();
+    const answerPlan = await generateAnswerPlan({
       ai,
       model: request.model,
       brain: this.brain,
@@ -4321,21 +4539,21 @@ export class NodeRagService {
       evidence: planned.evidence,
       knowledgeContext: planned.knowledgeContext,
     });
-      const claimPlan = buildClaimPlan({
+    const claimPlan = buildClaimPlan({
       question,
       semanticFrame: planned.queryProfile.semanticFrame,
       evidence: planned.evidence,
     });
-      latency.planningMs = Date.now() - planningStartedAt;
-      retrieval.plannerTrace = [
+    latency.planningMs = Date.now() - planningStartedAt;
+    retrieval.plannerTrace = [
       ...retrieval.plannerTrace,
       { step: 'planner-answer-type', detail: answerPlan.recommendedAnswerType },
       { step: 'planner-tasks', detail: answerPlan.taskCandidates.map((task) => task.title).join(', ') || 'none' },
       { step: 'planner-claims', detail: claimPlan.claims.map((claim) => `${claim.canonicalSubject}:${claim.predicate}`).join(', ') || 'none' },
     ];
 
-      const answerStartedAt = Date.now();
-      const answer = await synthesizeExpertAnswer({
+    const answerStartedAt = Date.now();
+    const answer = await synthesizeExpertAnswer({
       ai,
       model: request.model,
       mode: request.mode,
@@ -4359,23 +4577,24 @@ export class NodeRagService {
       claimPlan,
       semanticFrame: planned.queryProfile.semanticFrame,
     });
-      latency.answerMs = Date.now() - answerStartedAt;
-      const scopedAnswer = applyAnswerScope(answer, planned.serviceScopeLabels);
-      const answerEvidenceIds = new Set(scopedAnswer.citations.map((item) => item.evidenceId));
-      const resolvedCitations = citations.filter((item) => answerEvidenceIds.has(item.id));
-      const finalCitations = resolvedCitations.length > 0 ? resolvedCitations : citations.slice(0, 4);
-      const validatedAnswer = validateAnswerEnvelope({
+    latency.answerMs = Date.now() - answerStartedAt;
+    const scopedAnswer = applyAnswerScope(answer, planned.serviceScopeLabels);
+    const answerEvidenceIds = new Set(scopedAnswer.citations.map((item) => item.evidenceId));
+    const resolvedCitations = citations.filter((item) => answerEvidenceIds.has(item.id));
+    const finalCitations = resolvedCitations.length > 0 ? resolvedCitations : citations.slice(0, 4);
+    const validatedAnswer = validateAnswerEnvelope({
       answer: scopedAnswer,
+      question,
       semanticFrame: planned.queryProfile.semanticFrame,
       citations: finalCitations,
       evidence: planned.evidence,
       projectRoot: this.projectRoot,
       claimPlan,
     });
-      retrieval.validationIssues = validatedAnswer.validationIssues;
-      retrieval.claimCoverage = validatedAnswer.claimCoverage;
-      let finalAnswer = validatedAnswer.answer;
-      if (validatedAnswer.shouldAbstain) {
+    retrieval.validationIssues = validatedAnswer.validationIssues;
+    retrieval.claimCoverage = validatedAnswer.claimCoverage;
+    let finalAnswer = validatedAnswer.answer;
+    if (validatedAnswer.shouldAbstain) {
       retrieval.agentDecision = 'abstain';
       retrieval.plannerTrace = [
         ...retrieval.plannerTrace,
@@ -4392,39 +4611,39 @@ export class NodeRagService {
         planned.serviceScopeLabels,
       );
     }
-      finalAnswer = planned.profile.guardrails.piiMasking ? applyPiiMasking(finalAnswer) : finalAnswer;
-      if (planned.profile.guardrails.citationWarning) {
-        guardrails.push(buildCitationWarning(finalAnswer, finalCitations));
-      }
-      if (planned.profile.guardrails.hallucinationSignal) {
-        guardrails.push(buildHallucinationSignal(finalAnswer, finalCitations));
-      }
-      if (retrieval.agentDecision !== 'abstain') {
+    finalAnswer = planned.profile.guardrails.piiMasking ? applyPiiMasking(finalAnswer) : finalAnswer;
+    if (planned.profile.guardrails.citationWarning) {
+      guardrails.push(buildCitationWarning(finalAnswer, finalCitations));
+    }
+    if (planned.profile.guardrails.hallucinationSignal) {
+      guardrails.push(buildHallucinationSignal(finalAnswer, finalCitations));
+    }
+    if (retrieval.agentDecision !== 'abstain') {
       retrieval.agentDecision = 'answer';
       retrieval.plannerTrace = [
         ...retrieval.plannerTrace,
         { step: 'agent-decision', detail: 'answer: evidence passed grounding, clarification, and validation gates' },
       ];
     }
-      retrieval.guardrails = guardrails;
-      latency.totalMs = Date.now() - startedAt;
-      retrieval.latency = latency;
+    retrieval.guardrails = guardrails;
+    latency.totalMs = Date.now() - startedAt;
+    retrieval.latency = latency;
 
-      const response: GroundedChatResponse = {
-        answer: finalAnswer,
-        text: formatAnswerAsMarkdown(finalAnswer),
-        search: {
-          ...planned.search,
-          evidence: planned.evidence,
-        },
-        citations: finalCitations,
-        retrieval,
-      };
-      if (planned.profile.cache.answer) {
-        this.runtimeCache.set('answer', answerCacheKey, response, ANSWER_CACHE_TTL_MS);
-      }
+    const response: GroundedChatResponse = {
+      answer: finalAnswer,
+      text: formatAnswerAsMarkdown(finalAnswer),
+      search: {
+        ...planned.search,
+        evidence: planned.evidence,
+      },
+      citations: finalCitations,
+      retrieval,
+    };
+    if (planned.profile.cache.answer) {
+      this.runtimeCache.set('answer', answerCacheKey, response, ANSWER_CACHE_TTL_MS);
+    }
 
-      return response;
+    return response;
     } catch (error) {
       throw error;
     }

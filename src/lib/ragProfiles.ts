@@ -112,6 +112,43 @@ export const DEFAULT_RETRIEVAL_PROFILES: RetrievalProfile[] = [
       section: 0.75,
     },
   },
+  {
+    id: 'fast-evaluation',
+    label: 'Fast Evaluation',
+    description: 'Use lighter query processing for structured evaluation criteria, checklist, deadline, and verification questions.',
+    queryProcessing: {
+      rewrite: false,
+      clarify: false,
+      hyde: false,
+      decompose: false,
+    },
+    retrieval: {
+      sectionRouting: true,
+      reranker: true,
+      externalElasticsearch: false,
+      scopeBoosts: true,
+    },
+    guardrails: {
+      piiMasking: true,
+      promptInjection: true,
+      citationWarning: true,
+      hallucinationSignal: true,
+      abstainOnLowConfidence: true,
+    },
+    cache: {
+      normalization: true,
+      hyde: false,
+      retrieval: true,
+      answer: true,
+      fallback: true,
+    },
+    weights: {
+      lexical: 1.35,
+      vector: 0.65,
+      rerank: 0.9,
+      section: 1.2,
+    },
+  },
 ];
 
 function coerceBoolean(value: unknown, fallback: boolean): boolean {

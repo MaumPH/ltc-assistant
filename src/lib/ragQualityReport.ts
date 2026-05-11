@@ -724,6 +724,8 @@ function formatCorpusPhaseLatency(items: BenchmarkCorpusPhaseLatencySummary[] | 
 function formatBenchmarkPerformance(performance: BenchmarkPerformanceSummary | undefined): string[] {
   if (!performance) return [];
   const retrieval = performance.stageLatencyMs.retrievalMs;
+  const queryEmbedding = performance.stageLatencyMs.queryEmbeddingMs;
+  const retrievalSetup = performance.stageLatencyMs.retrievalSetupMs;
   const total = performance.stageLatencyMs.totalMs;
   const searchMemoLookups = performance.searchMemo.totalHits + performance.searchMemo.totalMisses;
   const subSearchLatencyLines = performance.subSearchLatencySummary
@@ -750,6 +752,16 @@ function formatBenchmarkPerformance(performance: BenchmarkPerformanceSummary | u
     `- Case latency: avg ${performance.caseLatencyMs.average}ms, p50 ${performance.caseLatencyMs.p50}ms, p95 ${performance.caseLatencyMs.p95}ms, max ${performance.caseLatencyMs.max}ms`,
     ...(retrieval
       ? [`- Retrieval latency: avg ${retrieval.average}ms, p50 ${retrieval.p50}ms, p95 ${retrieval.p95}ms, max ${retrieval.max}ms`]
+      : []),
+    ...(queryEmbedding
+      ? [
+          `- Query embedding latency: avg ${queryEmbedding.average}ms, p50 ${queryEmbedding.p50}ms, p95 ${queryEmbedding.p95}ms, max ${queryEmbedding.max}ms`,
+        ]
+      : []),
+    ...(retrievalSetup
+      ? [
+          `- Retrieval setup latency: avg ${retrievalSetup.average}ms, p50 ${retrievalSetup.p50}ms, p95 ${retrievalSetup.p95}ms, max ${retrievalSetup.max}ms`,
+        ]
       : []),
     ...(total
       ? [`- Total stage latency: avg ${total.average}ms, p50 ${total.p50}ms, p95 ${total.p95}ms, max ${total.max}ms`]

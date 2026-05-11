@@ -69,6 +69,8 @@ export const SERVICE_SCOPE_OPTIONS: ServiceScopeOption[] = [
 const SERVICE_SCOPE_BY_ID = new Map<ServiceScopeId, ServiceScopeOption>(
   SERVICE_SCOPE_OPTIONS.map((option) => [option.id, option]),
 );
+const CHUNK_SCOPE_METADATA_TEXT_CACHE = new WeakMap<StructuredChunk, string>();
+const CHUNK_SCOPE_BODY_TEXT_CACHE = new WeakMap<StructuredChunk, string>();
 
 type SpecificServiceScopeId = Exclude<ServiceScopeId, 'all'>;
 
@@ -89,7 +91,9 @@ function buildScopeIdentityTerms(option: ServiceScopeOption): string[] {
 }
 
 function buildChunkScopeMetadataText(chunk: StructuredChunk): string {
-  return compact(
+  const cached = CHUNK_SCOPE_METADATA_TEXT_CACHE.get(chunk);
+  if (cached !== undefined) return cached;
+  const value = compact(
     [
       chunk.docTitle,
       chunk.fileName,
@@ -101,16 +105,27 @@ function buildChunkScopeMetadataText(chunk: StructuredChunk): string {
       ...chunk.linkedDocumentTitles,
     ].join(' '),
   );
+  CHUNK_SCOPE_METADATA_TEXT_CACHE.set(chunk, value);
+  return value;
+}
+
+function buildChunkScopeBodyText(chunk: StructuredChunk): string {
+  const cached = CHUNK_SCOPE_BODY_TEXT_CACHE.get(chunk);
+  if (cached !== undefined) return cached;
+  const value = compact([chunk.searchText, chunk.text].join(' '));
+  CHUNK_SCOPE_BODY_TEXT_CACHE.set(chunk, value);
+  return value;
 }
 
 function buildChunkScopeText(chunk: StructuredChunk): string {
-  return compact(
-    [
-      buildChunkScopeMetadataText(chunk),
-      chunk.searchText,
-      chunk.text,
-    ].join(' '),
-  );
+  return [buildChunkScopeMetadataText(chunk), buildChunkScopeBodyText(chunk)].join(' ');
+}
+
+export function prewarmServiceScopeTextCache(chunks: readonly StructuredChunk[]): void {
+  for (const chunk of chunks) {
+    buildChunkScopeMetadataText(chunk);
+    buildChunkScopeBodyText(chunk);
+  }
 }
 
 function matchesScopeOption(haystack: string, option: ServiceScopeOption): boolean {
@@ -238,19 +253,8 @@ export function buildServiceScopeDocumentBoosts(
   if (scopeOptions.length === 0) return boosts;
 
   for (const chunk of chunks) {
-    const metadataText = compact(
-      [
-        chunk.docTitle,
-        chunk.fileName,
-        chunk.title,
-        chunk.parentSectionTitle,
-        chunk.documentGroup,
-        ...chunk.sectionPath,
-        ...chunk.matchedLabels,
-        ...chunk.linkedDocumentTitles,
-      ].join(' '),
-    );
-    const bodyText = compact([chunk.searchText, chunk.text].join(' '));
+    const metadataText = buildChunkScopeMetadataText(chunk);
+    const bodyText = buildChunkScopeBodyText(chunk);
     let chunkScore = 0;
 
     for (const option of scopeOptions) {
@@ -278,32 +282,32 @@ export function buildServiceScopeChunkBoosts(
 ): Map<string, number> {
   const scopeOptions = getServiceScopeOptions(scopes);
   const focusTerms = unique(queryTerms.map(compact).filter((term) => term.length >= 2));
+  const scopeTermsByOption = scopeOptions.map((option) => ({
+    scopeTerms: unique([option.label, ...option.aliases]).map(compact).filter(Boolean),
+    boostTerms: unique(option.boostTerms).map(compact).filter(Boolean),
+  }));
   const boosts = new Map<string, number>();
   if (scopeOptions.length === 0 || focusTerms.length === 0) return boosts;
 
   for (const chunk of chunks) {
-    const metadataText = compact(
-      [
-        chunk.docTitle,
-        chunk.fileName,
-        chunk.title,
-        chunk.parentSectionTitle,
-        chunk.documentGroup,
-        ...chunk.sectionPath,
-        ...chunk.matchedLabels,
-        ...chunk.linkedDocumentTitles,
-      ].join(' '),
-    );
-    const bodyText = compact([chunk.searchText, chunk.text].join(' '));
-    const focusHits = focusTerms.filter((term) => metadataText.includes(term) || bodyText.includes(term));
-    if (focusHits.length === 0) continue;
-
+    const metadataText = buildChunkScopeMetadataText(chunk);
+    let bodyText: string | null = null;
+    let focusHits = focusTerms.filter((term) => metadataText.includes(term));
     let chunkScore = 0;
-    for (const option of scopeOptions) {
-      const scopeTerms = unique([option.label, ...option.aliases]).map(compact).filter(Boolean);
-      const boostTerms = unique(option.boostTerms).map(compact).filter(Boolean);
-      const scopeMatch = scopeTerms.some((term) => metadataText.includes(term) || bodyText.includes(term));
-      const boostTermMatch = boostTerms.some((term) => metadataText.includes(term) || bodyText.includes(term));
+    for (const { scopeTerms, boostTerms } of scopeTermsByOption) {
+      const metadataScopeMatch = scopeTerms.some((term) => metadataText.includes(term));
+      const metadataBoostTermMatch = boostTerms.some((term) => metadataText.includes(term));
+      if (!metadataScopeMatch && !metadataBoostTermMatch) continue;
+
+      if (focusHits.length === 0) {
+        bodyText ??= buildChunkScopeBodyText(chunk);
+        focusHits = focusTerms.filter((term) => bodyText?.includes(term));
+      }
+      if (focusHits.length === 0) continue;
+
+      bodyText ??= buildChunkScopeBodyText(chunk);
+      const scopeMatch = metadataScopeMatch || scopeTerms.some((term) => bodyText?.includes(term));
+      const boostTermMatch = metadataBoostTermMatch || boostTerms.some((term) => bodyText?.includes(term));
       if (!scopeMatch && !boostTermMatch) continue;
 
       chunkScore += Math.min(96, focusHits.length * 22 + (scopeMatch ? 24 : 0) + (boostTermMatch ? 18 : 0));

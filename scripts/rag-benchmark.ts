@@ -1,6 +1,6 @@
+import './register-env';
 import fs from 'fs';
 import path from 'path';
-import * as dotenv from 'dotenv';
 import { NodeRagService, loadBenchmarkCases } from '../src/lib/nodeRagService';
 import {
   buildBenchmarkOutcomeSummary,
@@ -8,7 +8,8 @@ import {
   buildBenchmarkPerformanceSummary,
 } from '../src/lib/ragBenchmarkReport';
 
-dotenv.config();
+process.env.RAG_DISABLE_CHUNK_EMBEDDING_GENERATION ??= 'true';
+process.env.RAG_DISABLE_QUERY_EMBEDDING_GENERATION ??= 'true';
 
 async function main() {
   const benchmarkStartedAt = Date.now();

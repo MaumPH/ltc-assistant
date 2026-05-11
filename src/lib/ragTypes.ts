@@ -57,7 +57,17 @@ export type SemanticSlotKey =
   | 'cost_topic'
   | 'time_scope'
   | 'legal_action'
-  | 'exception_context';
+  | 'exception_context'
+  | 'evaluation_indicator'
+  | 'evaluation_requirement'
+  | 'requirement_item'
+  | 'checklist_item'
+  | 'deadline'
+  | 'frequency'
+  | 'target_subject'
+  | 'verification_method'
+  | 'evidence_record'
+  | 'noncompliance_condition';
 
 export type OntologyConceptStatus = 'candidate' | 'validated' | 'promoted' | 'rejected';
 
@@ -76,7 +86,17 @@ export type OntologyRelationType =
   | 'conflicts-with'
   | 'evidenced-by'
   | 'follows-step'
-  | 'same-as';
+  | 'same-as'
+  | 'has-requirement'
+  | 'has-required-item'
+  | 'has-checklist-item'
+  | 'has-deadline'
+  | 'has-frequency'
+  | 'has-target'
+  | 'verified-by'
+  | 'requires-record'
+  | 'noncompliant-if'
+  | 'grounded-in-section';
 
 export type RetrievalReadiness = 'lexical_only' | 'hybrid_partial' | 'hybrid_ready';
 
@@ -211,8 +231,10 @@ export interface SectionRoutingDecision {
 
 export interface StageLatencyBreakdown {
   queryNormalizationMs: number;
+  queryEmbeddingMs: number;
   cacheLookupMs: number;
   hydeMs: number;
+  retrievalSetupMs: number;
   retrievalMs: number;
   fallbackMs: number;
   planningMs: number;
@@ -448,6 +470,11 @@ export interface RetrievalStageTrace {
 export interface SearchCorpusPhaseTimings {
   lexicalPoolMs: number;
   exactMs: number;
+  exactScoringCache?: {
+    hits: number;
+    misses: number;
+    size: number;
+  };
   lexicalMs: number;
   vectorMs: number;
   fusionMs: number;
@@ -536,7 +563,12 @@ export interface ValidationIssue {
     | 'ungrounded-cost-number'
     | 'missing-exception'
     | 'basis-confusion'
-    | 'insufficient-evidence-composition';
+    | 'insufficient-evidence-composition'
+    | 'missing-evaluation-required-item'
+    | 'missing-evaluation-conditional-item'
+    | 'missing-evaluation-deadline'
+    | 'missing-evaluation-verification-method'
+    | 'missing-evaluation-noncompliance-condition';
   severity: 'info' | 'warning' | 'block';
   message: string;
   claimId?: string;
@@ -686,6 +718,7 @@ export interface BenchmarkCase {
   expectedRiskLevel?: SemanticRiskLevel;
   minSupportedClaims?: number;
   maxUnsupportedClaims?: number;
+  requiredAnswerTerms?: string[];
 }
 
 export interface GroundedAnswer {

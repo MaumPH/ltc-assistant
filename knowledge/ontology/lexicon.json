@@ -261,6 +261,51 @@
       "mode_scope": ["integrated", "evaluation"],
       "confidence": 0.88,
       "status": "validated"
+    },
+    {
+      "expression": "8대 지침",
+      "canonical": "수급자 8가지 지침 설명",
+      "entity_type": "evaluation_requirement",
+      "slot_hint": "evaluation_requirement",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 1,
+      "status": "promoted"
+    },
+    {
+      "expression": "8가지 지침",
+      "canonical": "수급자 8가지 지침 설명",
+      "entity_type": "evaluation_requirement",
+      "slot_hint": "evaluation_requirement",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 1,
+      "status": "promoted"
+    },
+    {
+      "expression": "신규수급자 지침",
+      "canonical": "수급자 8가지 지침 설명",
+      "entity_type": "evaluation_requirement",
+      "slot_hint": "deadline",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.98,
+      "status": "promoted"
+    },
+    {
+      "expression": "노인인권보호 지침",
+      "canonical": "수급자 8가지 지침 설명",
+      "entity_type": "evaluation_requirement",
+      "slot_hint": "checklist_item",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 0.98,
+      "status": "promoted"
+    },
+    {
+      "expression": "급여제공 시작일부터 토요일·공휴일 포함 14일 이내",
+      "canonical": "급여제공 시작일부터 토요일·공휴일 포함 14일 이내",
+      "entity_type": "deadline",
+      "slot_hint": "deadline",
+      "mode_scope": ["integrated", "evaluation"],
+      "confidence": 1,
+      "status": "promoted"
     }
   ]
 }

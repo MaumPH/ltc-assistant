@@ -1,3 +1,4 @@
+import './register-env';
 import {
   buildGeneratedOntologyManifest,
   loadGeneratedOntologyManifest,

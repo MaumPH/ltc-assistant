@@ -1,3 +1,4 @@
+import './register-env';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ENTITY_ANCHORS } from '../src/lib/entityAnchors';

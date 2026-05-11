@@ -3,6 +3,10 @@ import path from 'path';
 import { inferBasisBucketFromChunk } from './brain';
 import { isRecipientOnboardingWorkflowQuery } from './ragNaturalQuery';
 import { safeTrim } from './textGuards';
+import {
+  findMatchingEvaluationRequirements,
+  validateEvaluationRequirementCompleteness,
+} from './evaluationRequirementCompleteness';
 import type {
   BasisBucketKey,
   ClaimCoverage,
@@ -970,6 +974,7 @@ function collectAnswerText(answer: ExpertAnswerEnvelope): string {
   return [
     answer.headline,
     answer.summary,
+    answer.directAnswer,
     answer.referenceDate,
     answer.conclusion,
     answer.appliedScope,
@@ -1170,6 +1175,7 @@ function injectAssumptions(answer: ExpertAnswerEnvelope, semanticFrame: Semantic
 
 export function validateAnswerEnvelope(params: {
   answer: ExpertAnswerEnvelope;
+  question?: string;
   semanticFrame: SemanticFrame;
   citations: StructuredChunk[];
   evidence: StructuredChunk[];
@@ -1189,6 +1195,17 @@ export function validateAnswerEnvelope(params: {
   });
   const issues = [...retrievalSummary.validationIssues];
   const answerText = collectAnswerText(params.answer);
+  const question = safeTrim(params.question);
+  if (question) {
+    issues.push(
+      ...validateEvaluationRequirementCompleteness({
+        question,
+        answerText,
+        matchedRequirements: findMatchingEvaluationRequirements(question),
+        evidence: params.evidence,
+      }),
+    );
+  }
 
   const citationDates = collectCitationDates(params.citations);
   if (citationDates.length > 1) {

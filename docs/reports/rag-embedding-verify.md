@@ -1,21 +1,21 @@
 # RAG Embedding Verify Report
 
-Generated at: 2026-05-06T01:00:53.086Z
+Generated at: 2026-05-08T05:46:53.532Z
 
 ## Summary
 
 - Documents: 144
 - Total chunks: 13799
-- Embedded chunks: 0
-- Missing chunks: 13799
-- Embedding coverage: 0.0%
-- Documents with missing embeddings: 144
-- Embedding API configured: no
+- Embedded chunks: 150
+- Missing chunks: 13649
+- Embedding coverage: 1.1%
+- Documents with missing embeddings: 139
+- Embedding API configured: yes
 - Database configured: no
 
 ## Missing Reasons
 
-- embedding_api_key_missing: 13799
+- embedding_not_generated: 13649
 
 ## Documents With Missing Embeddings
 
@@ -66,62 +66,62 @@ Generated at: 2026-05-06T01:00:53.086Z
 - /knowledge/장기근속장려금 청구 전산 문의사항(총정리) 안내.md: missing 62/62, coverage 0.0%
 - /knowledge/급여비용_청구_업무_바로알기(2022.1).md: missing 58/58, coverage 0.0%
 - /knowledge/복지용구 급여범위 및 급여기준 등에 관한 고시(고시)(제2026-13호)(20260120).md: missing 46/46, coverage 0.0%
-- /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md: missing 43/43, coverage 0.0%
 - /knowledge/평가 후기.txt: missing 41/41, coverage 0.0%
 - /knowledge/eval/평가 후기.txt: missing 41/41, coverage 0.0%
+- /knowledge/2026년_장기요양기관_재가급여_평가매뉴얼_다빈도Q&A_개정전후_비교표.md: missing 38/38, coverage 0.0%
 
 ## Retry Queue Sample
 
-- 0054ce05d4e0e11d76cd399c32115b99736551a0 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | f504ff3d02a90d6727dc6b555978243db8ffe3e1
-- 02ffd0ffffa392532090b53782bd178ed3151c09 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | c817563bde2ab7304efa1038f34885899017e7de
-- 0ab31818ff582b06f34655f2aae0f1b835066654 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 8a02bfd840b36562cf9247f3f48fd2ac39f70792
-- 0ec8d123062e651c1bf911c7f244e64b45892081 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 2a30fc4b889f3c2ddd9ed1aa39f3dabcb4239efa
-- 0fa3dfbe288da58be49bfc76b08a9f63bb6805cb | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | decbafbe1380bf23fb80a776733eb7c32164fd7c
-- 1937904f0d46653894a0434b7184e4956c45a39d | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 25b7e45a8119402ca9f83af12c1be6eb3d30d40f
-- 218add6274e22c5799c2d433ff0dcec12e882df3 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 3136706f5bbe234a62c59cd4a35897ccda34c76f
-- 23866583201d59fcea068538912a05369b0b991c | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | b5c3232ef3a144b88f0076db9045bba7d6ca4231
-- 25a9008dc7a68061401710ef659fcc91d7737d03 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | f4373a58ecd52b2514e8b8c79ee2012e8bcecf93
-- 266e2d21aef97737fb3fee01cee0167d7719cc40 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 35c5b144211108e869af137863838346815bcc48
-- 2a52c56aca1b640b194a617cde2af2485b630e11 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 6df996d22adb24c5cab39533cb3de8c5806dd5b1
-- 2ac93cf60b4c009e9e6152d42d266806b824c3e4 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | bcdb591dea9e4496e51716330ea0fb79a1be37f5
-- 2d6592af010562ea1b565e3fcbc7aa7199185dc4 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | a00f2d07678c6cb59873997084658aa04fa6299a
-- 3289d0b581515cabba5a7ac5b154ccaf3233677e | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 1c6ae4543a6eb557c3a3116ba8330d996c91c6e7
-- 33749e6d450dc4cc099adefe61de6f1de1ede916 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 1e5fe566a90a1b3c0904a38af8eca3803d8f639e
-- 41768de21c256bc07606e7fb716c59835dd36ee8 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 845620cef27c972d91b692ee0667a6f5d18a4cb3
-- 4b86de30e334664cf01c8a495465d6254fc5abab | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 336de2f478d53a07184c3def4b73645c23fd1b2b
-- 4cb2fb8c73e21027ce9cf640fcb423e40808a48a | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | ecf6ba75df30432e417d1e28f79da8a32369921e
-- 4dd03b5051aabb8ccb9007f6b88dba2afaa57b97 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | edf354b313768f5a8a0ac29aa1af381e82151ecc
-- 5347d32e631693821a01e655a6ea858dfd872157 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | af89741b3fcb676c0ad3b653d861f0617fa7361a
-- 5a2f53d89cd989dd7510e07f80540aa1d31fb2af | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 9c27b2ebe2d31527d7d7552ae9e0c1ad8f6cd0ea
-- 78c2e24e185ca8470ab3585159ca19380d989b0e | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 1094e4669ae487c07e7e9d2e19db25fc2a138817
-- 89373bb92fdeb9b62ad51b7788ddec683c150a43 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | d7373bd5c2c9e9449704c2529e202e1045ea91ef
-- 8ead0a36e10c24b41b0004936270061afc24deb1 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 874c86c5ccc15850b427b90deab189839015d8b0
-- 9f5f7c437c8b36300ab682e2380ba06aeff70801 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 87fe7be6d434372d0a9e6ba683c8bd0af3f5dc6d
-- b4f9c6b6d06cb4761ef30804f34d29a5e91b300b | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 968c76b4bb8c6a0f8c08c687fa1398771d9d1ec7
-- d18c7db94145b66714453a5a7126565fb45c06fc | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 252e8351d95b3e78c683409f79adb9a8aa80de19
-- d63abdd4ebfb56472afed8bcaa127ee40211bb26 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 51ddf2d08119bb0ecc0e08ae62ff84298176ab6f
-- dacce291ff3be11896247e86d0e9dcd6c8383d47 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 4445b9f6e6bf6837b2f5bc54a8c7e533ccbe4bce
-- e6efa727374bb19e92f7311697e01e2f0afe0d98 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | e31b7f8067fc20de5a2f0118f13637a48ead59c1
-- ec179f31cae7a8c29e2e0009acaaea2ded63994d | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 1661ccead48637d95a7f22611db2b7d52fee8b4b
-- ef8c9d9cfbe498bd2b25a5c8a3a5cd1ae811c0d9 | /knowledge/'2026년 장기요양종사자 고충상담 주요 사례집' 게시.md | embedding_api_key_missing | 24203ed41b1ab8f7e50aebf91248b1bed0d0f138
-- 00812b84820a53ac32519ab11bd96d3e12d7178d | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | 76b4571ab48513e149a815ef95a85c80641dfe17
-- 02fe988b02868dcdbe14c36cd05432432022121d | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | e2e74272571bfcdc3bb6e838bb741a41205f4fab
-- 0c4e181037f7bf9aab0e39c4ad026c95433f62ec | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | 43989d81fac1ceda718b959e8089f31a0b3ba488
-- 192f56a65d47f422d3ad7ae54dd3d29359b878ac | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | 8a0212a9a90bdc2748aa7a727323c4d5e81b67cf
-- 1b0f360a87966dd442ddf4ec3bd9041813fb3fae | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | 540fd96f1caa24ee4082172d2cb68f1c41e61ab5
-- 1dda234c1aa5c3f7660235b94cd2f162ef48005a | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | 81b32e3b870620568b7859e29c1ac4e290029080
-- 2398c9732d05ec47051e514018e548dc69119c79 | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | c23daaa6ff9e3c4e9df043cddb60e1e89c1498f6
-- 295c2245de0668c1c98bd3aafe14bd1a1c50b02d | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | 1ae660019fbc0e399376b0137a9783bb0375c109
-- 38443ab66fa3e85aea16e18e0db6737dc56afc65 | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | 732a6cde26a6a1c05def66ec87cdaedf367de84c
-- 3912d6fa817e6934d71a154182492dd89f28d09d | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | aca0895a3ccf22a4d212d1b183ad951384a1c798
-- 3a1982507fda6a7760eb8fcffc80f97e239114a2 | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | 69d407c038eeb13ece823dad9940f9814b16446c
-- 40d58d6389155a37a027bed7dc27c17eecfbdb48 | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | d9e8402c4a8103853a6438d308e43e9f35254e49
-- 4caa2c82fc15b43863b6d2058a028af73cc29f2d | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | 74cf417622ea58ab2b6dfcd2ab8bdf31930e9ed8
-- 593c6389c3980625d4c00cd2ec68a951e3d73368 | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | 7052240094291e41fc0c2332d5988c97372fb863
-- 65b35ac17594ce91fc1eb6fcf39850459d2f1504 | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | 94a55559b709399b24cdac47c811acf2aece304e
-- 6addc9e17dc9c20afa26850cb3317a5c74726706 | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | 2af9401a8348dafae06fac167c14c85fb2c6896f
-- 6c1e87aab4c9bf1dd3f053c258ae00c57ee5afaf | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | 7c54e23a372d8bbec7bcf91e3ce0eb75ac802fc2
-- 6c5e6ca19f54dd4a9e4a9e67602575b1407fbf0b | /knowledge/(3-1)_2026년_1분기_다빈도_부당청구_사례(가정방문형_급여).md | embedding_api_key_missing | a1362b48a60faa533f9165091c15df0bbf4b2ba0
+- 0e627eb8cdaeec7d404954d761d91b29e318f079 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 74dca9b4b58ff04ec5ea5bfe6b08c404a9ec38ad
+- 153ee48c77a9da3b675e334c2b7248773d5f7e83 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 4941a36a62187a8c8812fdeb16334acf18331bf1
+- 234826004389ba4c96337261193d070767edb9b9 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | ec48b324ee1856f0a7c3738481915c8aec0251dc
+- 2de6d922c38767b631e92c8af6ef1952ad1decc6 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 8e608a4d73892f17c79ed4d566ae0f4d81695c74
+- 3ac1e582c7109a1f1ce5017d18aee6a4511c5907 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 68dd1ee5252250c0d024b72e7f86e34401a949ec
+- 41167ccc80f0e852e6ccebbcad7cf82d1b4107d0 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 0cd8281ad30cbfd0f5d89bccd6f2f18734dbfd93
+- 5424e01689fcd07445bab5fcf50e2911291f0709 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 671db3ecb1369acffea38e98126cd66fc973fcf0
+- 580f0ebc8766ea99de787b1a48cc26ab7f7f83f5 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 5faa00d012cace071728396da8dd8bfc84d443be
+- 5e68041c22262d2c75338331fe6e5aeaa027c36b | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | a3f81ee7ac7d52ac9297e5b4f1d275aaf6e85ecd
+- 637724786a06953f9f33321f005fe26fc6202fa1 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 5291dd8cd05dd29c2c0965e3cd3406aa0d0ee3ae
+- 65e43602752a2225f6a8e541c2bd107040a5f4bc | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | dcb3dd566f9ba7f9f3e13fb0686d669192099cdf
+- 693d1aeceab904c309fc5dda0cd3ea2a6aa11f34 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 545b10ee0699d248e0266d0a522ccf7c4e01a077
+- 6ce8847e17bfd6dbf395c1866c11336d7d35de4d | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 4bdf6ee7b03b9c77b3725fbb8e866c2b32c61b96
+- 6d9f8e6e4cc9ecd1dfd5dd96631da23df4bb9852 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | ea48e33ed7eb06e39c571d3997983f993ed08c89
+- 6e1d6663e37d6bff1ab848c61a1117eea146bb08 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | db049338edf4b8e49435deafc6cd059471927c35
+- 765a74ec2b91fd5114c537a9ee192ad93bd6a80d | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | e33c715095cdec7de25aadea57dd2195ef90f7b4
+- 77185774e00c14f12550a26a0ed2a67997a876ca | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 46c2ce3f5298bc47dda4bf40631aee8970ee5ddf
+- 81329e0b5287e6d6fb723a70f8ddf6f20ebd7b4b | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 965556a3182016eed1ad73debc2533600b6189bc
+- 8387ebcfdbed2b58b7c54dac73e2b702c5a345fe | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | f46d40b73d3ed0cf0044de777daa80c1e088a8e0
+- 85c4782b648624e9443f34abf07bfa819325095a | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 34945ff90eb04cce840d980dea5275d0819c2222
+- 9e2f8451be05308d09282aa008a622af8292da56 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | fef7de84e747c274769a73e29852ed6c2dfa9186
+- a0be2c3eddced6fa57ab2056d9a1f158bd1ed44a | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | d4dfe0a7425bc240cb3a02aad9a337553397115e
+- b12813126cae16fdd4be2f8c3325030956fcdca8 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 9f212c536ec28a2fd6fe7ad34ea87dfdf589894f
+- be0ff46a4387ac72076a0e1cc8ed3e4a0361b7ca | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 8ccea324db6e232e304973dfa008134cc111f0df
+- c50d8d6f9d58383d2e8dc0bc2b44a8ed3c1e92ca | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 48d3c7e221acb60d9cb1d8e5d784077d2bbffae1
+- c90ca44d93dbff4df16c744f3c2855b84f80376e | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 37bc96f2d2db1aa335904c593941c10d49f2ce51
+- db4989027dd76741cc027d1d420e2984b765cb66 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 16f727b1cf223561bac569d625723bc2df3b4b05
+- edad7cd46856c6a9e00c7d94e8aa67f60ee04bb8 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 658bbb1fa156860059ba225fe0ad86f0548a452d
+- f018b941a8a08c3780f08529f82736884fec2c26 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | b540949119b99cab542aa82853dcb2e95d32748d
+- f10e0eb75fed5f0c8e0fa1c3f1d74abdc6f39903 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 7da3e579d1c66ad9147d0206dacce9d07bb4e911
+- f220fec53493e01d51882cf7ee48760b953e2543 | /knowledge/(붙임)_2026년_장기요양종사자_고충상담_주요_사례집.md | embedding_not_generated | 59884c41b6ad9ac8c2d9d2bb96284c15234a8e1c
+- 0327d441e5d4f3c1d678dcfe1f8ae4316cbdb832 | /knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md | embedding_not_generated | 6f873f2cbe6e4c5806c4677fa9bab31be091db0b
+- 152bdea3bf8b50c2031e7f2334ccf0b42af0334f | /knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md | embedding_not_generated | 229b19d61c781dc309e5705a75e795774b6d52d4
+- 2a3ef0a7d0fc8915f50984b41cc1b44364c3d2a1 | /knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md | embedding_not_generated | 89eb428535479606be3fe50298d1ccafb16caaf5
+- 2c5e5565c1dc8dd82eac1516f28302ca62de0dd0 | /knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md | embedding_not_generated | 3d2a5b24e942272bd06fef65673a9065021fd75d
+- 678598e266d1bf730f6dfe2298fed31ce8d68940 | /knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md | embedding_not_generated | 4e77f5c936484dd09757c57b6fc024ba8483c65b
+- 875c29cc2da0ce1f655af303a8a80745a089c7e6 | /knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md | embedding_not_generated | 20d44df280bf18ff160bbbaafd5e87d266b68a00
+- a5276213155cccb20dd34422bb6c04431eb51c5f | /knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md | embedding_not_generated | 1cf5dba7e653c532222dcd5883ec7882449e39d4
+- b09d79e780d33a3378601755bf2160423a80b491 | /knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md | embedding_not_generated | 43a709ebac1da7f54146adb3b0599585d3f436ec
+- b47516f40ab2567e32d9c155932fa4878f80a5bf | /knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md | embedding_not_generated | 40066e33fda9cf8e8076a209141469be8d68edaa
+- d64b9093b966aac439a2af13a38097f0b753e069 | /knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md | embedding_not_generated | 136883803c863ba79cf83868fdafe33bbf8270ee
+- e5a02ed45fb55b8fc718319e777d42215b31cd0c | /knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md | embedding_not_generated | f45b5ae0522e2eeb9ee73031cb80b49e06fc5fbc
+- f4194a0b27cb17911dc558a4405ee0e8a190d456 | /knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md | embedding_not_generated | ca1fc45fc778aad9f1ac1900dd22fde62827f604
+- f90306b7e94f102043030fa964cc077ac9889a0e | /knowledge/(붙임)_장기요양급여_제공기준_등_고시_및_세부사항_관련_다빈도_Q&A(1분기) (1).md | embedding_not_generated | ab7d2d73206cb722df3a037a05c4edc46f9a9349
+- 01c1e59313d3b4c85097402a1b2b57f270ebbae9 | /knowledge/(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종.md | embedding_not_generated | d2b6df54c99c21aa9c05f529db81dda8ec25c83d
+- 02e556be14fbb9d576e0c25ec34450c9e3edd6f5 | /knowledge/(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종.md | embedding_not_generated | f22175ccdd7c5b164397344a5acca067f72fd058
+- 056804e3252b825d463ef445cb70022fcced08ae | /knowledge/(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종.md | embedding_not_generated | 8da2005233cb592c239c71a48402d1b066410e00
+- 0592905dfe7353199ae18ee06869a6f44bebe56f | /knowledge/(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종.md | embedding_not_generated | 5cf3b89fefad440aee1d9872c51ac0172f899733
+- 086eaa78f0649baf75084ca4227cf7c06a80733f | /knowledge/(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종.md | embedding_not_generated | 73b418f2fcdfab6a6c04d50a37ea578cb578e8ee
+- 0924be8868e71f7b7321a229b88902824ac21afc | /knowledge/(붙임)_재가요양보호사_인권보호_매뉴얼(PDF)_최종.md | embedding_not_generated | 97ef4ab835901dcc0e540ba67670764b33be445b
 
 ## Notes
 

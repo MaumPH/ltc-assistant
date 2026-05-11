@@ -1,14 +1,12 @@
+import './register-env';
 import fs from 'fs';
 import path from 'path';
-import * as dotenv from 'dotenv';
 import {
   buildRagAliasCandidateReport,
   formatRagAliasCandidateMarkdown,
   type AliasCandidateChunkInput,
 } from '../src/lib/ragAliasCandidates';
 import type { BenchmarkCase, IndexManifestEntry } from '../src/lib/ragTypes';
-
-dotenv.config();
 
 interface RagIndexCachePayload {
   manifestEntries?: IndexManifestEntry[];

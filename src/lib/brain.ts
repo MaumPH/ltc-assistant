@@ -383,6 +383,22 @@ function addDocumentScore(scores: Map<string, number>, documentId: string, value
   scores.set(documentId, (scores.get(documentId) ?? 0) + value);
 }
 
+const BRAIN_DOCUMENT_BOOST_TEXT_CACHE = new WeakMap<StructuredChunk, string>();
+
+function getBrainDocumentBoostText(chunk: StructuredChunk): string {
+  const cached = BRAIN_DOCUMENT_BOOST_TEXT_CACHE.get(chunk);
+  if (cached !== undefined) return cached;
+  const value = compact([chunk.docTitle, chunk.parentSectionTitle, chunk.searchText].join(' '));
+  BRAIN_DOCUMENT_BOOST_TEXT_CACHE.set(chunk, value);
+  return value;
+}
+
+export function prewarmBrainDocumentBoostTextCache(chunks: readonly StructuredChunk[]): void {
+  for (const chunk of chunks) {
+    getBrainDocumentBoostText(chunk);
+  }
+}
+
 export function buildBrainDocumentBoosts(
   brain: DomainBrain,
   chunks: StructuredChunk[],
@@ -395,12 +411,24 @@ export function buildBrainDocumentBoosts(
   }
 
   const queryCompact = compact(query);
+  const normalizedTaskSignals = tasks.map((task) => ({
+    serviceScope: task.service_scope,
+    signals: [
+      task.label,
+      ...(task.synonyms ?? []),
+      ...task.legal_basis,
+      ...task.evaluation_basis,
+      ...task.practical_basis,
+    ]
+      .map(compact)
+      .filter(Boolean),
+  }));
   const matchedSignalsByDocument = new Map<string, Set<string>>();
   const baseScores = new Map<string, number>();
   for (const chunk of chunks) {
     if (chunk.sourceRole === 'routing_summary') continue;
 
-    const searchCompact = compact([chunk.docTitle, chunk.parentSectionTitle, chunk.searchText].join(' '));
+    const searchCompact = getBrainDocumentBoostText(chunk);
     const matchedSignals = matchedSignalsByDocument.get(chunk.documentId) ?? new Set<string>();
     let baseScore = baseScores.get(chunk.documentId) ?? 0;
 
@@ -411,18 +439,9 @@ export function buildBrainDocumentBoosts(
       baseScore = Math.max(baseScore, 8);
     }
 
-    for (const task of tasks) {
-      if (task.service_scope && !task.service_scope.includes(chunk.mode)) continue;
-      const taskSignals = [
-        task.label,
-        ...(task.synonyms ?? []),
-        ...task.legal_basis,
-        ...task.evaluation_basis,
-        ...task.practical_basis,
-      ];
-      taskSignals.forEach((signal) => {
-        const normalized = compact(signal);
-        if (!normalized) return;
+    for (const task of normalizedTaskSignals) {
+      if (task.serviceScope && !task.serviceScope.includes(chunk.mode)) continue;
+      task.signals.forEach((normalized) => {
         if (searchCompact.includes(normalized)) {
           matchedSignals.add(normalized);
           return;
